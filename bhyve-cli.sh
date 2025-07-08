@@ -704,11 +704,36 @@ cmd_status() {
     . "$VMCONF"
 
     local VMNAME="${VMNAME:-N/A}"
-    local MAC="${MAC:-N/A}"
-    local BRIDGE="${BRIDGE:-N/A}"
     local CPUS="${CPUS:-N/A}"
     local MEMORY="${MEMORY:-N/A}"
-    local TAP="${TAP:-N/A}"
+
+    local ALL_TAPS=""
+    local ALL_MACS=""
+    local ALL_BRIDGES=""
+    local NIC_IDX=0
+    while true; do
+      local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+      local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
+      local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+
+      local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+      local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+      local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+
+      if [ -z "$CURRENT_TAP" ]; then
+        break # No more network interfaces configured
+      fi
+
+      if [ -n "$ALL_TAPS" ]; then
+        ALL_TAPS+=","
+        ALL_MACS+=","
+        ALL_BRIDGES+=","
+      fi
+      ALL_TAPS+="$CURRENT_TAP"
+      ALL_MACS+="$CURRENT_MAC"
+      ALL_BRIDGES+="$CURRENT_BRIDGE"
+      NIC_IDX=$((NIC_IDX + 1))
+    done
 
     local PID=$(pgrep -f "bhyve.*$VMNAME")
     local CPU_USAGE="N/A"
@@ -716,8 +741,6 @@ cmd_status() {
 
     if [ -n "$PID" ]; then
       local STATUS="RUNNING"
-      # Get CPU and Memory usage for the bhyve process
-      # %cpu: CPU usage, rss: resident set size in KB
       local PS_INFO=$(ps -p "$PID" -o %cpu,rss= | tail -n 1)
       
       if [ -n "$PS_INFO" ]; then
@@ -736,7 +759,7 @@ cmd_status() {
       local PID="-"
     fi
 
-    printf "$header_format" "$VMNAME" "$STATUS" "$MAC" "$BRIDGE" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$TAP" "$PID"
+    printf "$header_format" "$VMNAME" "$STATUS" "$ALL_MACS" "$ALL_BRIDGES" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$ALL_TAPS" "$PID"
   done
 }
 
