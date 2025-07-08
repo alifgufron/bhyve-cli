@@ -979,6 +979,118 @@ cmd_resize_disk() {
   echo "Note: You may need to extend the partition inside the VM operating system."
 }
 
+# === Subcommand: export ===
+cmd_export() {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "Usage: $0 export <vmname> <destination_path>"
+    echo "Example:"
+    echo "  $0 export myvm /tmp/myvm_backup.tar.gz"
+    exit 1
+  fi
+
+  VMNAME="$1"
+  DEST_PATH="$2"
+  VM_DIR="$BASEPATH/vm/$VMNAME"
+
+  if [ ! -d "$VM_DIR" ]; then
+    echo "[ERROR] VM '$VMNAME' not found: $VM_DIR"
+    exit 1
+  fi
+
+  # Check if VM is running
+  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    echo "[ERROR] VM '$VMNAME' is currently running. Please stop the VM before exporting."
+    exit 1
+  fi
+
+  log "Exporting VM '$VMNAME' to '$DEST_PATH'..."
+  tar -czf "$DEST_PATH" -C "$BASEPATH/vm" "$VMNAME"
+  if [ $? -ne 0 ]; then
+    echo "[ERROR] Failed to export VM '$VMNAME'."
+    exit 1
+  fi
+  log "VM '$VMNAME' exported successfully to '$DEST_PATH'."
+}
+
+# === Subcommand: import ===
+cmd_import() {
+  if [ -z "$1" ]; then
+    echo "Usage: $0 import <path_to_vm_archive>"
+    echo "Example:"
+    echo "  $0 import /tmp/myvm_backup.tar.gz"
+    exit 1
+  fi
+
+  ARCHIVE_PATH="$1"
+
+  if [ ! -f "$ARCHIVE_PATH" ]; then
+    echo "[ERROR] VM archive not found: $ARCHIVE_PATH"
+    exit 1
+  fi
+
+  log "Importing VM from '$ARCHIVE_PATH'..."
+
+  # Extract archive to a temporary directory first to get VMNAME
+  local TEMP_DIR=$(mktemp -d)
+  tar -xzf "$ARCHIVE_PATH" -C "$TEMP_DIR"
+  if [ $? -ne 0 ]; then
+    echo "[ERROR] Failed to extract VM archive."
+    rm -rf "$TEMP_DIR"
+    exit 1
+  fi
+
+  # Find the VM directory inside the extracted archive
+  local EXTRACTED_VM_DIR=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "vm-*" -print -quit)
+  if [ -z "$EXTRACTED_VM_DIR" ]; then
+    EXTRACTED_VM_DIR=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "*" -print -quit)
+  fi
+
+  local IMPORTED_VMNAME=$(basename "$EXTRACTED_VM_DIR")
+  local NEW_VM_DIR="$BASEPATH/vm/$IMPORTED_VMNAME"
+
+  if [ -d "$NEW_VM_DIR" ]; then
+    echo "[ERROR] VM '$IMPORTED_VMNAME' already exists. Please delete the existing VM or choose a different name."
+    rm -rf "$TEMP_DIR"
+    exit 1
+  fi
+
+  # Move extracted VM to BASEPATH/vm
+  mv "$EXTRACTED_VM_DIR" "$BASEPATH/vm/"
+  if [ $? -ne 0 ]; then
+    echo "[ERROR] Failed to move extracted VM to destination."
+    rm -rf "$TEMP_DIR"
+    exit 1
+  fi
+  rm -rf "$TEMP_DIR"
+
+  # Load the imported VM's config
+  load_vm_config "$IMPORTED_VMNAME"
+
+  # Generate new UUID, MAC, TAP, CONSOLE for the imported VM to avoid conflicts
+  local NEW_UUID=$(uuidgen)
+  local NEW_MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+  
+  NEXT_TAP_NUM=0
+  while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
+    NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
+  done
+  local NEW_TAP="tap${NEXT_TAP_NUM}"
+
+  local NEW_CONSOLE="nmdm-${IMPORTED_VMNAME}.1"
+
+  local CONF_FILE="$VM_DIR/vm.conf"
+  sed -i '' "s/^UUID=.*/UUID=$NEW_UUID/" "$CONF_FILE"
+  sed -i '' "s/^MAC=.*/MAC=$NEW_MAC/" "$CONF_FILE"
+  sed -i '' "s/^TAP=.*/TAP=$NEW_TAP/" "$CONF_FILE"
+  sed -i '' "s/^CONSOLE=.*/CONSOLE=$NEW_CONSOLE/" "$CONF_FILE"
+  sed -i '' "s/^LOG=.*/LOG=$VM_DIR/vm.log/" "$CONF_FILE"
+  sed -i '' "s/^VMNAME=.*/VMNAME=$IMPORTED_VMNAME/" "$CONF_FILE"
+
+  log "VM '$IMPORTED_VMNAME' imported successfully."
+  echo "VM '$IMPORTED_VMNAME' has been imported."
+  echo "You can now start it with: $0 start $IMPORTED_VMNAME"
+}
+
 # === Main logic ===
 case "$1" in
   create)
@@ -1033,6 +1145,14 @@ case "$1" in
     shift
     cmd_resize_disk "$@"
     ;;
+  export)
+    shift
+    cmd_export "$@"
+    ;;
+  import)
+    shift
+    cmd_import "$@"
+    ;;
   switch)
     shift
     case "$1" in
@@ -1079,6 +1199,8 @@ case "$1" in
     echo "  clone <source_vmname> <new_vmname>              - Clone an existing VM"
     echo "  info <vmname>                                   - Display detailed information about a VM"
     echo "  resize-disk <vmname> <new_size_in_GB>           - Resize a VM's disk image (only supports increasing size)"
+    echo "  export <vmname> <destination_path>              - Export a VM to an archive file"
+    echo "  import <path_to_vm_archive>                     - Import a VM from an archive file"
     echo "  status                                          - Show status of all VMs"
     echo "  switch <add|list|remove>                        - Manage network bridges"
     echo " "
