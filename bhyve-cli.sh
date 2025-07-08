@@ -950,6 +950,28 @@ cmd_info() {
   printf "$info_format" "Log File" "$LOG_FILE"
   printf "$info_format" "Autostart" "$AUTOSTART"
 
+  local NIC_IDX=0
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+
+    if [ -z "$CURRENT_TAP" ]; then
+      break # No more network interfaces configured
+    fi
+
+    echo "  ----------------------------------------"
+    echo "  Network Interface ${NIC_IDX}:"
+    printf "$info_format" "  TAP" "$CURRENT_TAP"
+    printf "$info_format" "  MAC" "$CURRENT_MAC"
+    printf "$info_format" "  Bridge" "$CURRENT_BRIDGE"
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+
   # Check runtime status
   local PID=$(pgrep -f "bhyve.*$VMNAME")
   if [ -n "$PID" ]; then
