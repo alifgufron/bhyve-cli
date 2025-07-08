@@ -1338,12 +1338,28 @@ cmd_info_usage() {
 
 # === Subcommand: resize-disk ===
 cmd_resize_disk() {
+  if [ "$1" = "--help" ]; then
+    cmd_resize_disk_usage
+    exit 0
+  fi
+
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
-    echo_message "Example:"
-    echo_message "  $0 resize-disk myvm 60"
+    echo_message "[ERROR] Missing arguments for 'resize-disk'."
+    cmd_resize_disk_usage
     exit 1
   fi
+}
+
+# === Usage function for resize-disk ===
+cmd_resize_disk_usage() {
+  echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
+  echo_message "  Description: Resizes the disk image of a specified virtual machine. Only supports increasing size."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>       - The name of the virtual machine."
+  echo_message "    <new_size_in_GB> - The new size of the VM disk in Gigabytes (e.g., 60 for 60GB)."
+  echo_message "  Example:"
+  echo_message "    $0 resize-disk myvm 60"
+}
 
   VMNAME="$1"
   NEW_SIZE_GB="$2"
