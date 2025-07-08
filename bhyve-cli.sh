@@ -1237,10 +1237,27 @@ EOF
 
 # === Subcommand: info ===
 cmd_info() {
+  if [ "$1" = "--help" ]; then
+    cmd_info_usage
+    exit 0
+  fi
+
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 info <vmname>"
+    echo_message "[ERROR] Missing VM name for 'info'."
+    cmd_info_usage
     exit 1
   fi
+}
+
+# === Usage function for info ===
+cmd_info_usage() {
+  echo_message "Usage: $0 info <vmname>"
+  echo_message "  Description: Displays detailed information about a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to display information for."
+  echo_message "  Example:"
+  echo_message "    $0 info myvm"
+}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
