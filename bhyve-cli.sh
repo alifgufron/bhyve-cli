@@ -1451,12 +1451,27 @@ cmd_export_usage() {
 
 # === Subcommand: import ===
 cmd_import() {
+  if [ "$1" = "--help" ]; then
+    cmd_import_usage
+    exit 0
+  fi
+
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 import <path_to_vm_archive>"
-    echo_message "Example:"
-    echo_message "  $0 import /tmp/myvm_backup.tar.gz"
+    echo_message "[ERROR] Missing archive path for 'import'."
+    cmd_import_usage
     exit 1
   fi
+}
+
+# === Usage function for import ===
+cmd_import_usage() {
+  echo_message "Usage: $0 import <path_to_vm_archive>"
+  echo_message "  Description: Imports a virtual machine from a compressed archive file."
+  echo_message "  Arguments:"
+  echo_message "    <path_to_vm_archive> - The full path to the VM archive file (e.g., /tmp/myvm_backup.tar.gz)."
+  echo_message "  Example:"
+  echo_message "    $0 import /tmp/myvm_backup.tar.gz"
+}
 
   ARCHIVE_PATH="$1"
 
