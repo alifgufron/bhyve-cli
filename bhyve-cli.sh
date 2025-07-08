@@ -883,28 +883,28 @@ cmd_info() {
   echo "----------------------------------------"
   echo "VM Information for '$VMNAME':"
   echo "----------------------------------------"
-  local info_format="  %-12s %s\n"
-  printf "$info_format" "Name:" "$VMNAME"
-  printf "$info_format" "UUID:" "$UUID"
-  printf "$info_format" "CPUs:" "$CPUS"
-  printf "$info_format" "Memory:" "$MEMORY"
-  printf "$info_format" "Disk:" "$VM_DIR/$DISK"
+  local info_format="  %-15s: %s\n"
+  printf "$info_format" "Name" "$VMNAME"
+  printf "$info_format" "UUID" "$UUID"
+  printf "$info_format" "CPUs" "$CPUS"
+  printf "$info_format" "Memory" "$MEMORY"
+  printf "$info_format" "Disk" "$VM_DIR/$DISK"
   local DISK_USAGE="N/A"
   if [ -f "$VM_DIR/$DISK" ]; then
     DISK_USAGE=$(du -h "$VM_DIR/$DISK" | awk '{print $1}')
   fi
-  printf "$info_format" "Disk Usage:" "$DISK_USAGE"
-  printf "$info_format" "TAP:" "$TAP"
-  printf "$info_format" "MAC:" "$MAC"
-  printf "$info_format" "Bridge:" "$BRIDGE"
-  printf "$info_format" "Console:" "$CONSOLE"
-  printf "$info_format" "Log File:" "$LOG_FILE"
-  printf "$info_format" "Autostart:" "$AUTOSTART"
+  printf "$info_format" "Disk Usage" "$DISK_USAGE"
+  printf "$info_format" "TAP" "$TAP"
+  printf "$info_format" "MAC" "$MAC"
+  printf "$info_format" "Bridge" "$BRIDGE"
+  printf "$info_format" "Console" "$CONSOLE"
+  printf "$info_format" "Log File" "$LOG_FILE"
+  printf "$info_format" "Autostart" "$AUTOSTART"
 
   # Check runtime status
   local PID=$(pgrep -f "bhyve.*$VMNAME")
   if [ -n "$PID" ]; then
-    printf "$info_format" "Status:" "RUNNING (PID: $PID)"
+    printf "$info_format" "Status" "RUNNING (PID: $PID)"
     local PS_INFO=$(ps -p "$PID" -o %cpu,rss= | tail -n 1)
     if [ -n "$PS_INFO" ]; then
       local CPU_USAGE=$(echo "$PS_INFO" | awk '{print $1 "%"}')
@@ -916,11 +916,11 @@ cmd_info() {
       else
         RAM_USAGE="${RAM_RSS_KB}KB (bc not found)"
       fi
-      printf "$info_format" "CPU Usage:" "$CPU_USAGE"
-      printf "$info_format" "RAM Usage:" "$RAM_USAGE"
+      printf "$info_format" "CPU Usage" "$CPU_USAGE"
+      printf "$info_format" "RAM Usage" "$RAM_USAGE"
     fi
   else
-    printf "$info_format" "Status:" "STOPPED"
+    printf "$info_format" "Status" "STOPPED"
   fi
   echo "----------------------------------------"
 }
