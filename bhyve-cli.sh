@@ -925,6 +925,52 @@ cmd_info() {
   echo "----------------------------------------"
 }
 
+# === Subcommand: resize-disk ===
+cmd_resize_disk() {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
+    echo "Example:"
+    echo "  $0 resize-disk myvm 60"
+    exit 1
+  fi
+
+  VMNAME="$1"
+  NEW_SIZE_GB="$2"
+  load_vm_config "$VMNAME"
+
+  local DISK_PATH="$VM_DIR/$DISK"
+
+  # Check if VM is running
+  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    echo "[ERROR] VM '$VMNAME' is currently running. Please stop the VM before resizing its disk."
+    exit 1
+  fi
+
+  if [ ! -f "$DISK_PATH" ]; then
+    echo "[ERROR] Disk image for VM '$VMNAME' not found: $DISK_PATH"
+    exit 1
+  fi
+
+  # Get current disk size in GB
+  CURRENT_SIZE_BYTES=$(stat -f %z "$DISK_PATH")
+  CURRENT_SIZE_GB=$((CURRENT_SIZE_BYTES / 1024 / 1024 / 1024))
+
+  if (( NEW_SIZE_GB <= CURRENT_SIZE_GB )); then
+    echo "[ERROR] New size ($NEW_SIZE_GB GB) must be greater than current size ($CURRENT_SIZE_GB GB)."
+    exit 1
+  fi
+
+  log "Resizing disk for VM '$VMNAME' from ${CURRENT_SIZE_GB}GB to ${NEW_SIZE_GB}GB..."
+  truncate -s "${NEW_SIZE_GB}G" "$DISK_PATH"
+  if [ $? -ne 0 ]; then
+    echo "[ERROR] Failed to resize disk image."
+    exit 1
+  fi
+  log "Disk resized successfully."
+  echo "Disk for VM '$VMNAME' has been resized to ${NEW_SIZE_GB}GB."
+  echo "Note: You may need to extend the partition inside the VM operating system."
+}
+
 # === Main logic ===
 case "$1" in
   create)
@@ -975,6 +1021,10 @@ case "$1" in
     shift
     cmd_info "$@"
     ;;
+  resize-disk)
+    shift
+    cmd_resize_disk "$@"
+    ;;
   switch)
     shift
     case "$1" in
@@ -1020,6 +1070,7 @@ case "$1" in
     echo "  modify <vmname> [options]                       - Modify VM configuration (CPU, RAM, etc.)"
     echo "  clone <source_vmname> <new_vmname>              - Clone an existing VM"
     echo "  info <vmname>                                   - Display detailed information about a VM"
+    echo "  resize-disk <vmname> <new_size_in_GB>           - Resize a VM's disk image (only supports increasing size)"
     echo "  status                                          - Show status of all VMs"
     echo "  switch <add|list|remove>                        - Manage network bridges"
     echo " "
