@@ -622,7 +622,7 @@ cmd_logs() {
   fi
 
   echo ">>> Displaying logs for VM '$VMNAME' (Press Ctrl+C to exit)"
-  cat "$LOG_FILE"
+  tail -f "$LOG_FILE"
 }
 
 # === Subcommand: status ===
