@@ -593,10 +593,27 @@ cmd_install_usage() {
 
 # === Subcommand: start ===
 cmd_start() {
+  if [ "$1" = "--help" ]; then
+    cmd_start_usage
+    exit 0
+  fi
+
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 start <vmname>"
+    echo_message "[ERROR] Missing VM name for 'start'."
+    cmd_start_usage
     exit 1
   fi
+}
+
+# === Usage function for start ===
+cmd_start_usage() {
+  echo_message "Usage: $0 start <vmname>"
+  echo_message "  Description: Starts a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to start."
+  echo_message "  Example:"
+  echo_message "    $0 start myvm"
+}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
