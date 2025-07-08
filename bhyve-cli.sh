@@ -895,7 +895,11 @@ cmd_info() {
     DISK_USAGE=$(du -h "$VM_DIR/$DISK" | awk '{print $1}')
   fi
   printf "$info_format" "Disk Used" "$DISK_USAGE"
-  printf "$info_format" "Disk Set" "${DISKSIZE}G"
+  local DISK_SET_DISPLAY="${DISKSIZE}G"
+  if [ -z "$DISKSIZE" ]; then
+    DISK_SET_DISPLAY="N/A"
+  fi
+  printf "$info_format" "Disk Set" "$DISK_SET_DISPLAY"
   printf "$info_format" "TAP" "$TAP"
   printf "$info_format" "MAC" "$MAC"
   printf "$info_format" "Bridge" "$BRIDGE"
