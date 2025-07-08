@@ -1018,6 +1018,11 @@ cmd_info() {
   printf "$info_format" "Log File" "$LOG_FILE"
   printf "$info_format" "Autostart" "$AUTOSTART"
 
+  echo "  ----------------------------------------"
+  echo "  Network Interfaces:"
+  printf "  %-5s %-10s %-17s %-15s\n" "NIC" "TAP" "MAC" "Bridge"
+  echo "  ----- ---------- ----------------- ---------------"
+
   local NIC_IDX=0
   while true; do
     local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
@@ -1032,11 +1037,7 @@ cmd_info() {
       break # No more network interfaces configured
     fi
 
-    echo "  ----------------------------------------"
-    echo "  Network Interface ${NIC_IDX}:"
-    printf "$info_format" "  TAP" "$CURRENT_TAP"
-    printf "$info_format" "  MAC" "$CURRENT_MAC"
-    printf "$info_format" "  Bridge" "$CURRENT_BRIDGE"
+    printf "  %-5s %-10s %-17s %-15s\n" "${NIC_IDX}" "$CURRENT_TAP" "$CURRENT_MAC" "$CURRENT_BRIDGE"
     NIC_IDX=$((NIC_IDX + 1))
   done
 
