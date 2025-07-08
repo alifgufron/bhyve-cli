@@ -899,14 +899,43 @@ VMNAME=$NEW_VMNAME
 UUID=$NEW_UUID
 CPUS=$CPUS
 MEMORY=$MEMORY
-TAP=$NEW_TAP
-MAC=$NEW_MAC
-BRIDGE=$BRIDGE
 DISK=disk.img
+DISKSIZE=$DISKSIZE
 CONSOLE=$NEW_CONSOLE
 LOG=$NEW_VM_DIR/vm.log
 AUTOSTART=no
 EOF
+
+  # Copy and modify network interfaces
+  local NIC_IDX=0
+  while true; do
+    local SOURCE_TAP_VAR="TAP_${NIC_IDX}"
+    local SOURCE_MAC_VAR="MAC_${NIC_IDX}"
+    local SOURCE_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+
+    local SOURCE_TAP="${!SOURCE_TAP_VAR}"
+    local SOURCE_MAC="${!SOURCE_MAC_VAR}"
+    local SOURCE_BRIDGE="${!SOURCE_BRIDGE_VAR}"
+
+    if [ -z "$SOURCE_TAP" ]; then
+      break # No more network interfaces configured
+    fi
+
+    local NEW_TAP_CLONE
+    NEXT_TAP_NUM=0
+    while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
+      NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
+    done
+    NEW_TAP_CLONE="tap${NEXT_TAP_NUM}"
+
+    local NEW_MAC_CLONE="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+
+    echo "TAP_${NIC_IDX}=$NEW_TAP_CLONE" >> "$NEW_CONF_FILE"
+    echo "MAC_${NIC_IDX}=$NEW_MAC_CLONE" >> "$NEW_CONF_FILE"
+    echo "BRIDGE_${NIC_IDX}=$SOURCE_BRIDGE" >> "$NEW_CONF_FILE"
+
+    NIC_IDX=$((NIC_IDX + 1))
+  done
 
   log "New configuration file created: $NEW_CONF_FILE"
   log "VM '$NEW_VMNAME' cloned successfully."
