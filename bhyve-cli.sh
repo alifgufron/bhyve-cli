@@ -1201,6 +1201,134 @@ cmd_import() {
   echo "You can now start it with: $0 start $IMPORTED_VMNAME"
 }
 
+# === Subcommand: network add ===
+cmd_network_add() {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
+    echo "Example:"
+    echo "  $0 network add myvm bridge1"
+    echo "  $0 network add myvm bridge2 58:9c:fc:00:00:01"
+    exit 1
+  fi
+
+  VMNAME="$1"
+  BRIDGE_NAME="$2"
+  MAC_ADDRESS="$3"
+
+  load_vm_config "$VMNAME"
+
+  # Check if VM is running
+  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    echo "[ERROR] VM '$VMNAME' is currently running. Please stop the VM before adding a network interface."
+    exit 1
+  fi
+
+  local NIC_IDX=0
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    if [ -z "$CURRENT_TAP" ]; then
+      break # Found next available index
+    fi
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+
+  local NEW_TAP
+  NEXT_TAP_NUM=0
+  while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
+    NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
+  done
+  NEW_TAP="tap${NEXT_TAP_NUM}"
+
+  local NEW_MAC="${MAC_ADDRESS:-58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)}"
+
+  local CONF_FILE="$VM_DIR/vm.conf"
+  echo "TAP_${NIC_IDX}=$NEW_TAP" >> "$CONF_FILE"
+  echo "MAC_${NIC_IDX}=$NEW_MAC" >> "$CONF_FILE"
+  echo "BRIDGE_${NIC_IDX}=$BRIDGE_NAME" >> "$CONF_FILE"
+
+  log "Added network interface TAP '$NEW_TAP' (MAC: $NEW_MAC) on bridge '$BRIDGE_NAME' to VM '$VMNAME'."
+  echo "Network interface added to VM '$VMNAME'. Please restart the VM for changes to take effect."
+}
+
+# === Subcommand: network remove ===
+cmd_network_remove() {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "Usage: $0 network remove <vmname> <tap_name>"
+    echo "Example:"
+    echo "  $0 network remove myvm tap0"
+    exit 1
+  fi
+
+  VMNAME="$1"
+  TAP_TO_REMOVE="$2"
+
+  load_vm_config "$VMNAME"
+
+  # Check if VM is running
+  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    echo "[ERROR] VM '$VMNAME' is currently running. Please stop the VM before removing a network interface."
+    exit 1
+  fi
+
+  local CONF_FILE="$VM_DIR/vm.conf"
+  local FOUND_NIC_IDX=-1
+  local NIC_COUNT=0
+
+  # Find the index of the NIC to remove
+  local NIC_IDX=0
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    if [ -z "$CURRENT_TAP" ]; then
+      break
+    fi
+    if [ "$CURRENT_TAP" = "$TAP_TO_REMOVE" ]; then
+      FOUND_NIC_IDX=$NIC_IDX
+    fi
+    NIC_COUNT=$((NIC_COUNT + 1))
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+
+  if [ "$FOUND_NIC_IDX" -eq -1 ]; then
+    echo "[ERROR] Network interface '$TAP_TO_REMOVE' not found for VM '$VMNAME'."
+    exit 1
+  fi
+
+  # Remove the lines from vm.conf
+  sed -i '' "/${TAP_TO_REMOVE}/d" "$CONF_FILE"
+
+  # Re-index remaining NICs if necessary
+  if [ "$FOUND_NIC_IDX" -lt "$((NIC_COUNT - 1))" ]; then
+    log "Re-indexing network interfaces..."
+    for (( i = FOUND_NIC_IDX; i < NIC_COUNT - 1; i++ )); do
+      local NEXT_NIC_IDX=$((i + 1))
+      local OLD_TAP_VAR="TAP_${NEXT_NIC_IDX}"
+      local OLD_MAC_VAR="MAC_${NEXT_NIC_IDX}"
+      local OLD_BRIDGE_VAR="BRIDGE_${NEXT_NIC_IDX}"
+
+      local NEW_TAP_VAR="TAP_${i}"
+      local NEW_MAC_VAR="MAC_${i}"
+      local NEW_BRIDGE_VAR="BRIDGE_${i}"
+
+      local OLD_TAP_VAL=$(grep "^TAP_${NEXT_NIC_IDX}=" "$CONF_FILE" | cut -d'=' -f2)
+      local OLD_MAC_VAL=$(grep "^MAC_${NEXT_NIC_IDX}=" "$CONF_FILE" | cut -d'=' -f2)
+      local OLD_BRIDGE_VAL=$(grep "^BRIDGE_${NEXT_NIC_IDX}=" "$CONF_FILE" | cut -d'=' -f2)
+
+      sed -i '' "s/^TAP_${NEXT_NIC_IDX}=.*/TAP_${i}=${OLD_TAP_VAL}/" "$CONF_FILE"
+      sed -i '' "s/^MAC_${NEXT_NIC_IDX}=.*/MAC_${i}=${OLD_MAC_VAL}/" "$CONF_FILE"
+      sed -i '' "s/^BRIDGE_${NEXT_NIC_IDX}=.*/BRIDGE_${i}=${OLD_BRIDGE_VAL}/" "$CONF_FILE"
+    done
+    # Remove the last (now duplicate) entries
+    sed -i '' "/^TAP_${NIC_COUNT-1}=/d" "$CONF_FILE"
+    sed -i '' "/^MAC_${NIC_COUNT-1}=/d" "$CONF_FILE"
+    sed -i '' "/^BRIDGE_${NIC_COUNT-1}=/d" "$CONF_FILE"
+  fi
+
+  log "Removed network interface '$TAP_TO_REMOVE' from VM '$VMNAME'."
+  echo "Network interface removed from VM '$VMNAME'. Please restart the VM for changes to take effect."
+}
+
 # === Main logic ===
 case "$1" in
   create)
