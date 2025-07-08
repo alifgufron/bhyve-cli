@@ -781,10 +781,27 @@ cmd_stop_usage() {
 
 # === Subcommand: console ===
 cmd_console() {
+  if [ "$1" = "--help" ]; then
+    cmd_console_usage
+    exit 0
+  fi
+
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 console <vmname>"
+    echo_message "[ERROR] Missing VM name for 'console'."
+    cmd_console_usage
     exit 1
   fi
+}
+
+# === Usage function for console ===
+cmd_console_usage() {
+  echo_message "Usage: $0 console <vmname>"
+  echo_message "  Description: Accesses the console of a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to connect to."
+  echo_message "  Example:"
+  echo_message "    $0 console myvm"
+}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
