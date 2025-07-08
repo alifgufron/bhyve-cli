@@ -888,12 +888,13 @@ cmd_info() {
   printf "$info_format" "UUID" "$UUID"
   printf "$info_format" "CPUs" "$CPUS"
   printf "$info_format" "Memory" "$MEMORY"
-  printf "$info_format" "Disk" "$VM_DIR/$DISK"
+  printf "$info_format" "Disk Path" "$VM_DIR/$DISK"
   local DISK_USAGE="N/A"
   if [ -f "$VM_DIR/$DISK" ]; then
     DISK_USAGE=$(du -h "$VM_DIR/$DISK" | awk '{print $1}')
   fi
-  printf "$info_format" "Disk Usage" "$DISK_USAGE"
+  printf "$info_format" "Disk Used" "$DISK_USAGE"
+  printf "$info_format" "Disk Set" "${DISKSIZE}G"
   printf "$info_format" "TAP" "$TAP"
   printf "$info_format" "MAC" "$MAC"
   printf "$info_format" "Bridge" "$BRIDGE"
