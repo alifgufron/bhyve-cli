@@ -729,10 +729,27 @@ cmd_start_usage() {
 
 # === Subcommand: stop ===
 cmd_stop() {
+  if [ "$1" = "--help" ]; then
+    cmd_stop_usage
+    exit 0
+  fi
+
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 stop <vmname>"
+    echo_message "[ERROR] Missing VM name for 'stop'."
+    cmd_stop_usage
     exit 1
   fi
+}
+
+# === Usage function for stop ===
+cmd_stop_usage() {
+  echo_message "Usage: $0 stop <vmname>"
+  echo_message "  Description: Stops a running virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to stop."
+  echo_message "  Example:"
+  echo_message "    $0 stop myvm"
+}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
