@@ -306,17 +306,30 @@ cmd_delete() {
     log "VM dihancurkan dari kernel memory."
   fi
 
-  # === Hapus TAP dari bridge ===
-  if ifconfig "$BRIDGE" | grep -qw "$TAP"; then
-    log "Menghapus TAP '$TAP' dari bridge '$BRIDGE'..."
-    ifconfig "$BRIDGE" deletem "$TAP"
-  fi
+  # === Hapus semua TAP dari bridge dan hancurkan TAP interface ===
+  local NIC_IDX=0
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
 
-  # === Hapus TAP interface ===
-  if ifconfig "$TAP" > /dev/null 2>&1; then
-    log "Menghapus TAP interface '$TAP'..."
-    ifconfig "$TAP" destroy
-  fi
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+
+    if [ -z "$CURRENT_TAP" ]; then
+      break # No more network interfaces configured
+    fi
+
+    if ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
+      log "Menghapus TAP '$CURRENT_TAP' dari bridge '$CURRENT_BRIDGE'..."
+      ifconfig "$CURRENT_BRIDGE" deletem "$CURRENT_TAP"
+    fi
+
+    if ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
+      log "Menghapus TAP interface '$CURRENT_TAP'..."
+      ifconfig "$CURRENT_TAP" destroy
+    fi
+    NIC_IDX=$((NIC_IDX + 1))
+  done
 
   # === Hapus direktori VM ===
   log "Menghapus direktori VM: $VM_DIR"
