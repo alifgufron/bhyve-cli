@@ -961,10 +961,29 @@ cmd_status_usage() {
 
 # === Subcommand: autostart ===
 cmd_autostart() {
+  if [ "$1" = "--help" ]; then
+    cmd_autostart_usage
+    exit 0
+  fi
+
   if [ -z "$1" ] || ( [ "$2" != "enable" ] && [ "$2" != "disable" ] ); then
-    echo_message "Usage: $0 autostart <vmname> <enable|disable>"
+    echo_message "[ERROR] Missing arguments or invalid action for 'autostart'."
+    cmd_autostart_usage
     exit 1
   fi
+}
+
+# === Usage function for autostart ===
+cmd_autostart_usage() {
+  echo_message "Usage: $0 autostart <vmname> <enable|disable>"
+  echo_message "  Description: Enables or disables autostart for a specified virtual machine on boot."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>   - The name of the virtual machine."
+  echo_message "    <action>   - 'enable' to enable autostart, 'disable' to disable."
+  echo_message "  Example:"
+  echo_message "    $0 autostart myvm enable"
+    echo_message "    $0 autostart myvm disable"
+}
 
   VMNAME="$1"
   ACTION="$2"
