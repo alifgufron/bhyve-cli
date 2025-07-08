@@ -442,7 +442,6 @@ cmd_delete_usage() {
   echo_message "  Example:"
   echo_message "    $0 delete myvm"
 }
-}
 
 # === Subcommand: install ===
 cmd_install() {
@@ -1622,6 +1621,20 @@ cmd_network_add() {
 
   log "Added network interface TAP '$NEW_TAP' (MAC: $NEW_MAC) on bridge '$BRIDGE_NAME' to VM '$VMNAME'."
   echo_message "Network interface added to VM '$VMNAME'. Please restart the VM for changes to take effect."
+}
+
+# === Usage function for network add ===
+cmd_network_add_usage() {
+  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
+  echo_message "  Description: Adds a network interface to a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>      - The name of the virtual machine."
+  echo_message "    <bridge_name> - The name of the bridge to connect the new interface to."
+  echo_message "    [mac_address] - Optional. A specific MAC address for the new interface. If omitted, a unique MAC will be assigned."
+  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
+  echo_message "  Example:"
+  echo_message "    $0 network add myvm bridge1"
+  echo_message "    $0 network add myvm bridge2 58:9c:fc:00:00:01"
 }
 
 # === Usage function for network add ===
