@@ -1106,12 +1106,28 @@ cmd_modify_usage() {
 
 # === Subcommand: clone ===
 cmd_clone() {
+  if [ "$1" = "--help" ]; then
+    cmd_clone_usage
+    exit 0
+  fi
+
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
-    echo_message "Example:"
-    echo_message "  $0 clone myvm newvm"
+    echo_message "[ERROR] Missing arguments for 'clone'."
+    cmd_clone_usage
     exit 1
   fi
+}
+
+# === Usage function for clone ===
+cmd_clone_usage() {
+  echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
+  echo_message "  Description: Creates a clone of an existing virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <source_vmname> - The name of the virtual machine to clone."
+  echo_message "    <new_vmname>    - The name for the new cloned virtual machine."
+  echo_message "  Example:"
+  echo_message "    $0 clone myvm newvm"
+}
 
   SOURCE_VMNAME="$1"
   NEW_VMNAME="$2"
