@@ -1402,12 +1402,28 @@ cmd_resize_disk_usage() {
 
 # === Subcommand: export ===
 cmd_export() {
+  if [ "$1" = "--help" ]; then
+    cmd_export_usage
+    exit 0
+  fi
+
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "Usage: $0 export <vmname> <destination_path>"
-    echo_message "Example:"
-    echo_message "  $0 export myvm /tmp/myvm_backup.tar.gz"
+    echo_message "[ERROR] Missing arguments for 'export'."
+    cmd_export_usage
     exit 1
   fi
+}
+
+# === Usage function for export ===
+cmd_export_usage() {
+  echo_message "Usage: $0 export <vmname> <destination_path>"
+  echo_message "  Description: Exports a virtual machine to a compressed archive file."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>         - The name of the virtual machine to export."
+  echo_message "    <destination_path> - The full path including filename for the output archive (e.g., /tmp/myvm_backup.tar.gz)."
+  echo_message "  Example:"
+  echo_message "    $0 export myvm /tmp/myvm_backup.tar.gz"
+}
 
   VMNAME="$1"
   DEST_PATH="$2"
