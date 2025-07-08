@@ -481,24 +481,54 @@ cmd_start() {
     log "VM '$VMNAME' sebelumnya masih ada di memori. Stopped."
   fi
 
-  # === Buat TAP interface jika belum ada
-  if ! ifconfig "$TAP" > /dev/null 2>&1; then
-    log "TAP '$TAP' belum ada. Membuat..."
-    ifconfig "$TAP" create description "vm-$VMNAME"
-    ifconfig "$TAP" up
-    log "TAP '$TAP' dibuat dan diaktifkan."
-  else
-    ifconfig "$TAP" up
-    log "TAP '$TAP' sudah ada dan diaktifkan."
-  fi
+  local NETWORK_ARGS=""
+  local NIC_IDX=0
+  local DEV_NUM=5 # Starting device number for virtio-net
 
-  # === Tambahkan ke bridge jika belum menjadi member
-  if ! ifconfig "$BRIDGE" | grep -qw "$TAP"; then
-    ifconfig "$BRIDGE" addm "$TAP"
-    log "TAP '$TAP' ditambahkan ke bridge '$BRIDGE"
-  else
-    log "TAP '$TAP' sudah terhubung ke bridge '$BRIDGE"
-  fi
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+
+    if [ -z "$CURRENT_TAP" ]; then
+      break # No more network interfaces configured
+    fi
+
+    # === Buat TAP interface jika belum ada
+    if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
+      log "TAP '$CURRENT_TAP' belum ada. Membuat..."
+      ifconfig "$CURRENT_TAP" create description "vm-$VMNAME-nic${NIC_IDX}"
+      ifconfig "$CURRENT_TAP" up
+      log "TAP '$CURRENT_TAP' dibuat dan diaktifkan."
+    else
+      ifconfig "$CURRENT_TAP" up
+      log "TAP '$CURRENT_TAP' sudah ada dan diaktifkan."
+    fi
+
+    # === Tambahkan ke bridge jika belum menjadi member
+    if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
+      log "Bridge interface '$CURRENT_BRIDGE' belum ada. Membuat..."
+      ifconfig bridge create name "$CURRENT_BRIDGE"
+      log "Bridge interface '$CURRENT_BRIDGE' berhasil dibuat."
+    else
+      log "Bridge interface '$CURRENT_BRIDGE' sudah ada."
+    fi
+
+    if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
+      ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP"
+      log "TAP '$CURRENT_TAP' ditambahkan ke bridge '$CURRENT_BRIDGE'"
+    else
+      log "TAP '$CURRENT_TAP' sudah terhubung ke bridge '$CURRENT_BRIDGE'"
+    fi
+
+    NETWORK_ARGS+=" -s ${DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\""
+    DEV_NUM=$((DEV_NUM + 1))
+    NIC_IDX=$((NIC_IDX + 1))
+  done
 
   # === Pastikan device nmdm tersedia
   if ! [ -e "/dev/${CONSOLE}A" ] && ! [ -e "/dev/${CONSOLE}B" ]; then
@@ -528,7 +558,7 @@ cmd_start() {
     -AHP \
     -s 0,hostbridge \
     -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
-    -s 5:0,virtio-net,"$TAP" \
+    $NETWORK_ARGS \
     -l com1,/dev/"${CONSOLE}A" \
     -s 31,lpc \
      $LOADER \
