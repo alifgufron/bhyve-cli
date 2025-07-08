@@ -1229,6 +1229,7 @@ cmd_import() {
 cmd_network_add() {
   if [ -z "$1" ] || [ -z "$2" ]; then
     echo "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
+    echo "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
     echo "Example:"
     echo "  $0 network add myvm bridge1"
     echo "  $0 network add myvm bridge2 58:9c:fc:00:00:01"
