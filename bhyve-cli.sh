@@ -267,12 +267,29 @@ cmd_switch_remove() {
 
 # === Subcommand: create ===
 cmd_create() {
+  if [ "$1" = "--help" ]; then
+    cmd_create_usage
+    exit 0
+  fi
+
   if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
-    echo_message "Usage: $0 create <vmname> <disksize in GB> <bridge_name>"
-    echo_message "Example:"
-    echo_message "  $0 create vm-bsd 40 bridge100"
+    echo_message "[ERROR] Missing arguments for 'create'."
+    cmd_create_usage
     exit 1
   fi
+}
+
+# === Usage function for create ===
+cmd_create_usage() {
+  echo_message "Usage: $0 create <vmname> <disksize_in_GB> <bridge_name>"
+  echo_message "  Description: Creates a new virtual machine with specified disk size and connects it to a bridge."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>         - The name of the virtual machine."
+  echo_message "    <disksize_in_GB> - The size of the VM disk in Gigabytes (e.g., 40 for 40GB)."
+  echo_message "    <bridge_name>    - The name of the network bridge to connect the VM to."
+  echo_message "  Example:"
+  echo_message "    $0 create vm-bsd 40 bridge100"
+}
 
   VMNAME="$1"
   DISKSIZE="$2"
