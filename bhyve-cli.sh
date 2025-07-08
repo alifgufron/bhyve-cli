@@ -870,6 +870,55 @@ EOF
   echo "You can now start it with: $0 start $NEW_VMNAME"
 }
 
+# === Subcommand: info ===
+cmd_info() {
+  if [ -z "$1" ]; then
+    echo "Usage: $0 info <vmname>"
+    exit 1
+  fi
+
+  VMNAME="$1"
+  load_vm_config "$VMNAME"
+
+  echo "----------------------------------------"
+  echo "VM Information for '$VMNAME':"
+  echo "----------------------------------------"
+  echo "  Name:        $VMNAME"
+  echo "  UUID:        $UUID"
+  echo "  CPUs:        $CPUS"
+  echo "  Memory:      $MEMORY"
+  echo "  Disk:        $VM_DIR/$DISK"
+  echo "  TAP:         $TAP"
+  echo "  MAC:         $MAC"
+  echo "  Bridge:      $BRIDGE"
+  echo "  Console:     $CONSOLE"
+  echo "  Log File:    $LOG_FILE"
+  echo "  Autostart:   $AUTOSTART"
+
+  # Check runtime status
+  local PID=$(pgrep -f "bhyve.*$VMNAME")
+  if [ -n "$PID" ]; then
+    echo "  Status:      RUNNING (PID: $PID)"
+    local PS_INFO=$(ps -p "$PID" -o %cpu,rss= | tail -n 1)
+    if [ -n "$PS_INFO" ]; then
+      local CPU_USAGE=$(echo "$PS_INFO" | awk '{print $1 "%"}')
+      local RAM_RSS_KB=$(echo "$PS_INFO" | awk '{print $2}')
+      local RAM_USAGE
+      if command -v bc >/dev/null 2>&1; then
+        RAM_USAGE=$(echo "scale=0; $RAM_RSS_KB / 1024" | bc) # Convert KB to MB
+        RAM_USAGE="${RAM_USAGE}MB"
+      else
+        RAM_USAGE="${RAM_RSS_KB}KB (bc not found)"
+      fi
+      echo "  CPU Usage:   $CPU_USAGE"
+      echo "  RAM Usage:   $RAM_USAGE"
+    fi
+  else
+    echo "  Status:      STOPPED"
+  fi
+  echo "----------------------------------------"
+}
+
 # === Main logic ===
 case "$1" in
   create)
@@ -916,6 +965,10 @@ case "$1" in
     shift
     cmd_clone "$@"
     ;;
+  info)
+    shift
+    cmd_info "$@"
+    ;;
   switch)
     shift
     case "$1" in
@@ -960,6 +1013,7 @@ case "$1" in
     echo "  autostart <vmname> <enable|disable>             - Enable/disable VM autostart"
     echo "  modify <vmname> [options]                       - Modify VM configuration (CPU, RAM, etc.)"
     echo "  clone <source_vmname> <new_vmname>              - Clone an existing VM"
+    echo "  info <vmname>                                   - Display detailed information about a VM"
     echo "  status                                          - Show status of all VMs"
     echo "  switch <add|list|remove>                        - Manage network bridges"
     echo " "
