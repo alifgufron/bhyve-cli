@@ -1004,13 +1004,35 @@ cmd_autostart_usage() {
 
 # === Subcommand: modify ===
 cmd_modify() {
+  if [ "$1" = "--help" ]; then
+    cmd_modify_usage
+    exit 0
+  fi
+
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--tap <tap_name>] [--bridge <bridge_name>]"
-    echo_message "Example:"
-    echo_message "  $0 modify myvm --cpu 4 --ram 4096M"
-    echo_message "  $0 modify myvm --tap tap1 --bridge bridge1"
+    echo_message "[ERROR] Missing VM name for 'modify'."
+    cmd_modify_usage
     exit 1
   fi
+}
+
+# === Usage function for modify ===
+cmd_modify_usage() {
+  echo_message "Usage: $0 modify <vmname> [Option] [Arguments]"
+  echo_message "  Description: Modifies the configuration of a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to modify."
+  echo_message "  Option:"
+  echo_message "    --cpu <num>          - Number of virtual CPUs."
+  echo_message "    --ram <size>         - Amount of RAM (e.g., 2048M, 4G)."
+  echo_message "    --nic <index>        - Index of the network interface to modify (e.g., 0, 1)."
+  echo_message "    --tap <tap_name>     - New TAP interface name for the specified NIC."
+  echo_message "    --mac <mac_address>  - New MAC address for the specified NIC."
+  echo_message "    --bridge <bridge_name> - New bridge name for the specified NIC."
+  echo_message "  Example:"
+  echo_message "    $0 modify myvm --cpu 4 --ram 4096M"
+  echo_message "    $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
+}
 
   VMNAME="$1"
   shift
