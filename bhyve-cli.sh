@@ -671,26 +671,25 @@ cmd_logs() {
 
 # === Subcommand: status ===
 cmd_status() {
-  local header_format="%-20s %-10s %-12s %-12s %-12s %-12s %-10s
-"
+  local header_format="%-20s %-10s %-12s %-12s %-12s %-12s %-10s\n"
   local header_line
-  printf "$header_format" 
-    "VM NAME" 
-    "STATUS" 
-    "CPU (Set)" 
-    "RAM (Set)" 
-    "CPU Usage" 
-    "RAM Usage" 
+  printf "$header_format" \
+    "VM NAME" \
+    "STATUS" \
+    "CPU (Set)" \
+    "RAM (Set)" \
+    "CPU Usage" \
+    "RAM Usage" \
     "PID"
   
   # Generate dynamic separator line
-  header_line=$(printf "$header_format" 
-    "--------------------" 
-    "----------" 
-    "------------" 
-    "------------" 
-    "------------" 
-    "------------" 
+  header_line=$(printf "$header_format" \
+    "--------------------" \
+    "----------" \
+    "------------" \
+    "------------" \
+    "------------" \
+    "------------" \
     "----------")
   echo "${header_line// /}" # Remove spaces to make it a continuous line
 
