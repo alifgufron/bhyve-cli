@@ -696,6 +696,30 @@ cmd_status() {
   done
 }
 
+# === Subcommand: autostart ===
+cmd_autostart() {
+  if [ -z "$1" ] || ( [ "$2" != "enable" ] && [ "$2" != "disable" ] ); then
+    echo "Usage: $0 autostart <vmname> <enable|disable>"
+    exit 1
+  fi
+
+  VMNAME="$1"
+  ACTION="$2"
+  load_vm_config "$VMNAME"
+
+  local CONF_FILE="$VM_DIR/vm.conf"
+
+  if [ "$ACTION" = "enable" ]; then
+    log "Enabling autostart for VM '$VMNAME'..."
+    sed -i '' 's/^AUTOSTART=.*/AUTOSTART=yes/' "$CONF_FILE"
+    log "Autostart enabled for VM '$VMNAME'."
+  elif [ "$ACTION" = "disable" ]; then
+    log "Disabling autostart for VM '$VMNAME'..."
+    sed -i '' 's/^AUTOSTART=.*/AUTOSTART=no/' "$CONF_FILE"
+    log "Autostart disabled for VM '$VMNAME'."
+  fi
+}
+
 # === Main logic ===
 case "$1" in
   create)
@@ -729,6 +753,10 @@ case "$1" in
   status)
     shift
     cmd_status "$@"
+    ;;
+  autostart)
+    shift
+    cmd_autostart "$@"
     ;;
   switch)
     shift
