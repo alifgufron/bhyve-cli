@@ -972,7 +972,9 @@ cmd_resize_disk() {
     echo "[ERROR] Failed to resize disk image."
     exit 1
   fi
-  log "Disk resized successfully."
+  # Update DISKSIZE in vm.conf
+  sed -i '' "s/^DISKSIZE=.*/DISKSIZE=${NEW_SIZE_GB}/" "$CONF_FILE"
+  log "Disk resized successfully and vm.conf updated."
   echo "Disk for VM '$VMNAME' has been resized to ${NEW_SIZE_GB}GB."
   echo "Note: You may need to extend the partition inside the VM operating system."
 }
