@@ -371,10 +371,27 @@ EOF
 
 # === Subcommand: delete ===
 cmd_delete() {
+  if [ "$1" = "--help" ]; then
+    cmd_delete_usage
+    exit 0
+  fi
+
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 delete <vmname>"
+    echo_message "[ERROR] Missing VM name for 'delete'."
+    cmd_delete_usage
     exit 1
   fi
+}
+
+# === Usage function for delete ===
+cmd_delete_usage() {
+  echo_message "Usage: $0 delete <vmname>"
+  echo_message "  Description: Deletes a virtual machine and all its associated files."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to delete."
+  echo_message "  Example:"
+  echo_message "    $0 delete myvm"
+}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
