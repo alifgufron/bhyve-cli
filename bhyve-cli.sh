@@ -381,6 +381,8 @@ cmd_delete() {
     exit 1
   fi
 
+  }
+
   VMNAME="$1"
   load_vm_config "$VMNAME"
 
@@ -428,6 +430,7 @@ cmd_delete() {
   rm -rf "$VM_DIR"
 
   echo_message "VM '$VMNAME' successfully deleted."
+}
 }
 
 # === Usage function for delete ===
