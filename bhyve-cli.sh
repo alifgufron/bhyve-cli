@@ -824,10 +824,27 @@ cmd_console_usage() {
 
 # === Subcommand: logs ===
 cmd_logs() {
+  if [ "$1" = "--help" ]; then
+    cmd_logs_usage
+    exit 0
+  fi
+
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 logs <vmname>"
+    echo_message "[ERROR] Missing VM name for 'logs'."
+    cmd_logs_usage
     exit 1
   fi
+}
+
+# === Usage function for logs ===
+cmd_logs_usage() {
+  echo_message "Usage: $0 logs <vmname>"
+  echo_message "  Description: Displays real-time logs for a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to display logs for."
+  echo_message "  Example:"
+  echo_message "    $0 logs myvm"
+}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
