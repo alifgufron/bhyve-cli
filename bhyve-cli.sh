@@ -232,30 +232,30 @@ cmd_create() {
   UUID=$(uuidgen)
 
   # === Generate MAC address unik (prefix static, suffix random) ===
-  MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+  MAC_0="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
 
   # === Deteksi TAP berikutnya secara aman & create TAP ===
   NEXT_TAP_NUM=0
   while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
     NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
   done
-  TAP="tap${NEXT_TAP_NUM}"
+  TAP_0="tap${NEXT_TAP_NUM}"
 
   # === Create TAP interface
-  ifconfig "$TAP" create
-  log "TAP interface '$TAP' berhasil dibuat"
+  ifconfig "$TAP_0" create
+  log "TAP interface '$TAP_0' berhasil dibuat"
 
   # === Add deskripsi TAP sesuai nama VM
-  ifconfig "$TAP" description "vmnet/${VMNAME}/0/${VM_BRIDGE}"
-  log "Deskripsi TAP '$TAP' diset: VM: vmnet/${VMNAME}/0/${VM_BRIDGE}"
+  ifconfig "$TAP_0" description "vmnet/${VMNAME}/0/${VM_BRIDGE}"
+  log "Deskripsi TAP '$TAP_0' diset: VM: vmnet/${VMNAME}/0/${VM_BRIDGE}"
 
   # === Aktifkan TAP
-  ifconfig "$TAP" up
-  log "TAP '$TAP' diaktifkan"
+  ifconfig "$TAP_0" up
+  log "TAP '$TAP_0' diaktifkan"
 
   # === Tambahkan TAP ke bridge
-  ifconfig "$VM_BRIDGE" addm "$TAP"
-  log "TAP '$TAP' ditambahkan ke bridge '$VM_BRIDGE'"
+  ifconfig "$VM_BRIDGE" addm "$TAP_0"
+  log "TAP '$TAP_0' ditambahkan ke bridge '$VM_BRIDGE'"
 
   # === Generate nama console unik ===
   CONSOLE="nmdm-${VMNAME}.1"
@@ -267,9 +267,9 @@ VMNAME=$VMNAME
 UUID=$UUID
 CPUS=2
 MEMORY=2048M
-TAP=$TAP
-MAC=$MAC
-BRIDGE=$VM_BRIDGE
+TAP_0=$TAP_0
+MAC_0=$MAC_0
+BRIDGE_0=$VM_BRIDGE
 DISK=disk.img
 DISKSIZE=$DISKSIZE
 CONSOLE=$CONSOLE
@@ -1153,6 +1153,29 @@ case "$1" in
     shift
     cmd_import "$@"
     ;;
+  network)
+    shift
+    case "$1" in
+      add)
+        shift
+        cmd_network_add "$@"
+        ;;
+      remove)
+        shift
+        cmd_network_remove "$@"
+        ;;
+      *)
+        echo " "
+        echo "Invalid subcommand: $1"
+        echo " "
+        echo "Usage: $0 network <add|remove> [arguments]"
+        echo "  add <vmname> <bridge_name> [mac_address]    - Add a network interface to a VM"
+        echo "  remove <vmname> <tap_name>                  - Remove a network interface from a VM"
+        echo " "
+        exit 1
+        ;;
+    esac
+    ;;
   switch)
     shift
     case "$1" in
@@ -1201,6 +1224,7 @@ case "$1" in
     echo "  resize-disk <vmname> <new_size_in_GB>           - Resize a VM's disk image (only supports increasing size)"
     echo "  export <vmname> <destination_path>              - Export a VM to an archive file"
     echo "  import <path_to_vm_archive>                     - Import a VM from an archive file"
+    echo "  network <add|remove> <vmname> [options]         - Manage VM network interfaces"
     echo "  status                                          - Show status of all VMs"
     echo "  switch <add|list|remove>                        - Manage network bridges"
     echo " "
