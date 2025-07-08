@@ -431,7 +431,6 @@ cmd_delete() {
 
   echo_message "VM '$VMNAME' successfully deleted."
 }
-}
 
 # === Usage function for delete ===
 cmd_delete_usage() {
@@ -590,7 +589,6 @@ cmd_install_usage() {
   echo_message "  Example:"
   echo_message "    $0 install myvm"
 }
-}
 
 # === Subcommand: start ===
 cmd_start() {
@@ -605,116 +603,7 @@ cmd_start() {
     exit 1
   fi
 
-  VMNAME="$1"
-  load_vm_config "$VMNAME"
-
-  log "Preparing Config for $VMNAME"
-
-  # ==== Check if bhyve is still running
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
-    log "VM '$VMNAME' is still running. Stopping..."
-    pkill -f "bhyve.*$VMNAME"
-    sleep 1
-  fi
-
-  # === Destroy VM if still remaining in kernel
-  if bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1; then
-    log "VM '$VMNAME' was still in memory. Stopped."
-  fi
-
-  local NETWORK_ARGS=""
-  local NIC_IDX=0
-  local DEV_NUM=5 # Starting device number for virtio-net
-
-  while true; do
-    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
-    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
-    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
-
-    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
-    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
-    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
-
-    if [ -z "$CURRENT_TAP" ]; then
-      break # No more network interfaces configured
-    fi
-
-    # === Create TAP interface if it doesn't exist
-    if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
-      log "TAP '$CURRENT_TAP' does not exist. Creating..."
-      ifconfig "$CURRENT_TAP" create description "vm-$VMNAME-nic${NIC_IDX}"
-      ifconfig "$CURRENT_TAP" up
-      log "TAP '$CURRENT_TAP' created and activated."
-    else
-      ifconfig "$CURRENT_TAP" up
-      log "TAP '$CURRENT_TAP' already exists and activated."
-    fi
-
-    # === Add to bridge if not already a member
-    if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
-      log "Bridge interface '$CURRENT_BRIDGE' does not exist. Creating..."
-      ifconfig bridge create name "$CURRENT_BRIDGE"
-      log "Bridge interface '$CURRENT_BRIDGE' successfully created."
-    else
-      log "Bridge interface '$CURRENT_BRIDGE' already exists."
-    fi
-
-    if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
-      ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP"
-      log "TAP '$CURRENT_TAP' added to bridge '$CURRENT_BRIDGE'"
-    else
-      log "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'"
-    fi
-
-    NETWORK_ARGS+=" -s ${DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\""
-    DEV_NUM=$((DEV_NUM + 1))
-    NIC_IDX=$((NIC_IDX + 1))
-  done
-
-  # === Ensure nmdm device is available
-  if ! [ -e "/dev/${CONSOLE}A" ] && ! [ -e "/dev/${CONSOLE}B" ]; then
-    log "Creating device /dev/${CONSOLE}A and /dev/${CONSOLE}B"
-    mdm_number="${CONSOLE##*.}"
-    mdm_base="${CONSOLE%%.*}"
-    mdm_device="/dev/${mdm_base}.${mdm_number}"
-    true > "${mdm_device}A"
-    true > "${mdm_device}B"
-  fi
-
-  # === Select UEFI firmware ===
-  if [ -f /usr/local/share/uefi-firmware/BHYVE_UEFI.fd ]; then
-    LOADER="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
-    log "Using UEFI firmware: BHYVE_UEFI.fd"
-  else
-    LOADER=""
-    log "UEFI firmware not found, running without bootrom"
-  fi
-
-  # Run bhyve
-  log "Starting VM '$VMNAME'..."
-
-  bhyve \
-    -c "$CPUS" \
-    -m "$MEMORY" \
-    -AHP \
-    -s 0,hostbridge \
-    -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
-    $NETWORK_ARGS \
-    -l com1,/dev/"${CONSOLE}A" \
-    -s 31,lpc \
-     $LOADER \
-    "$VMNAME" >> "$LOG_FILE" 2>&1 &
-
-  BHYVE_PID=$!
-
-  # Wait a moment
-  sleep 1
-
-  if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
-    log "VM '$VMNAME' is running with PID $BHYVE_PID"
-  else
-    log "Failed to start VM '$VMNAME' (PID not found)"
-  fi
+  VMNAME="$1"  load_vm_config "$VMNAME"  log "Preparing Config for $VMNAME"}# === Usage function for start ===cmd_start_usage() {  echo_message "Usage: $0 start <vmname>"  echo_message "  Description: Starts a specified virtual machine."  echo_message "  Arguments:"  echo_message "    <vmname> - The name of the virtual machine to start."  echo_message "  Example:"  echo_message "    $0 start myvm"}  # ==== Check if bhyve is still running  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then    log "VM '$VMNAME' is still running. Stopping..."    pkill -f "bhyve.*$VMNAME"    sleep 1  fi  # === Destroy VM if still remaining in kernel  if bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1; then    log "VM '$VMNAME' was still in memory. Stopped."  fi  local NETWORK_ARGS=""  local NIC_IDX=0  local DEV_NUM=5 # Starting device number for virtio-net  while true; do    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"    local CURRENT_TAP="${!CURRENT_TAP_VAR}"    local CURRENT_MAC="${!CURRENT_MAC_VAR}"    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"    if [ -z "$CURRENT_TAP" ]; then      break # No more network interfaces configured    fi    # === Create TAP interface if it doesn't exist    if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then      log "TAP '$CURRENT_TAP' does not exist. Creating..."      ifconfig "$CURRENT_TAP" create description "vm-$VMNAME-nic${NIC_IDX}"      ifconfig "$CURRENT_TAP" up      log "TAP '$CURRENT_TAP' created and activated."    else      ifconfig "$CURRENT_TAP" up      log "TAP '$CURRENT_TAP' already exists and activated."    fi    # === Add to bridge if not already a member    if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then      log "Bridge interface '$CURRENT_BRIDGE' does not exist. Creating..."      ifconfig bridge create name "$CURRENT_BRIDGE"      log "Bridge interface '$CURRENT_BRIDGE' successfully created."    else      log "Bridge interface '$CURRENT_BRIDGE' already exists."    fi    if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then      ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP"      log "TAP '$CURRENT_TAP' added to bridge '$CURRENT_BRIDGE'"    else      log "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'"    fi    NETWORK_ARGS+=" -s ${DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\""    DEV_NUM=$((DEV_NUM + 1))    NIC_IDX=$((NIC_IDX + 1))  done  # === Ensure nmdm device is available  if ! [ -e "/dev/${CONSOLE}A" ] && ! [ -e "/dev/${CONSOLE}B" ]; then    log "Creating device /dev/${CONSOLE}A and /dev/${CONSOLE}B"    mdm_number="${CONSOLE##*.}"    mdm_base="${CONSOLE%%.*}"    mdm_device="/dev/${mdm_base}.${mdm_number}"    true > "${mdm_device}A"    true > "${mdm_device}B"  fi  # === Select UEFI firmware ===  if [ -f /usr/local/share/uefi-firmware/BHYVE_UEFI.fd ]; then    LOADER="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"    log "Using UEFI firmware: BHYVE_UEFI.fd"  else    LOADER=""    log "UEFI firmware not found, running without bootrom"  fi  # Run bhyve  log "Starting VM '$VMNAME'..."  bhyve     -c "$CPUS"     -m "$MEMORY"     -AHP     -s 0,hostbridge     -s 3:0,virtio-blk,"$VM_DIR/$DISK"     $NETWORK_ARGS     -l com1,/dev/"${CONSOLE}A"     -s 31,lpc      $LOADER     "$VMNAME" >> "$LOG_FILE" 2>&1 &  BHYVE_PID=$!  # Wait a moment  sleep 1  if ps -p "$BHYVE_PID" > /dev/null 2>&1; then    log "VM '$VMNAME' is running with PID $BHYVE_PID"  else    log "Failed to start VM '$VMNAME' (PID not found)"  fi
 }
 
 # === Usage function for start ===
@@ -777,7 +666,6 @@ cmd_stop_usage() {
   echo_message "  Example:"
   echo_message "    $0 stop myvm"
 }
-}
 
 # === Subcommand: console ===
 cmd_console() {
@@ -820,7 +708,6 @@ cmd_console_usage() {
   echo_message "  Example:"
   echo_message "    $0 console myvm"
 }
-}
 
 # === Subcommand: logs ===
 cmd_logs() {
@@ -856,10 +743,6 @@ cmd_logs_usage() {
   echo_message "  Example:"
   echo_message "    $0 logs myvm"
 }
-}
-
-# === Subcommand: status ===
-cmd_status() {
   if [ "$1" = "--help" ]; then
     cmd_status_usage
     exit 0
@@ -958,9 +841,6 @@ cmd_status_usage() {
   echo_message "  Example:"
   echo_message "    $0 status"
 }
-
-# === Subcommand: autostart ===
-cmd_autostart() {
   if [ "$1" = "--help" ]; then
     cmd_autostart_usage
     exit 0
@@ -999,7 +879,6 @@ cmd_autostart_usage() {
   echo_message "  Example:"
   echo_message "    $0 autostart myvm enable"
     echo_message "    $0 autostart myvm disable"
-}
 }
 
 # === Subcommand: modify ===
@@ -1102,10 +981,6 @@ cmd_modify_usage() {
   echo_message "    $0 modify myvm --cpu 4 --ram 4096M"
   echo_message "    $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
 }
-}
-
-# === Subcommand: clone ===
-cmd_clone() {
   if [ "$1" = "--help" ]; then
     cmd_clone_usage
     exit 0
@@ -1235,6 +1110,18 @@ cmd_clone_usage() {
 }
 }
 
+# === Usage function for clone ===
+cmd_clone_usage() {
+  echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
+  echo_message "  Description: Creates a clone of an existing virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <source_vmname> - The name of the virtual machine to clone."
+  echo_message "    <new_vmname>    - The name for the new cloned virtual machine."
+  echo_message "  Example:"
+  echo_message "    $0 clone myvm newvm"
+}
+}
+
 # === Subcommand: info ===
 cmd_info() {
   if [ "$1" = "--help" ]; then
@@ -1336,6 +1223,17 @@ cmd_info_usage() {
 }
 }
 
+# === Usage function for info ===
+cmd_info_usage() {
+  echo_message "Usage: $0 info <vmname>"
+  echo_message "  Description: Displays detailed information about a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to display information for."
+  echo_message "  Example:"
+  echo_message "    $0 info myvm"
+}
+}
+
 # === Subcommand: resize-disk ===
 cmd_resize_disk() {
   if [ "$1" = "--help" ]; then
@@ -1398,10 +1296,6 @@ cmd_resize_disk_usage() {
   echo_message "  Example:"
   echo_message "    $0 resize-disk myvm 60"
 }
-}
-
-# === Subcommand: export ===
-cmd_export() {
   if [ "$1" = "--help" ]; then
     cmd_export_usage
     exit 0
@@ -1447,10 +1341,6 @@ cmd_export_usage() {
   echo_message "  Example:"
   echo_message "    $0 export myvm /tmp/myvm_backup.tar.gz"
 }
-}
-
-# === Subcommand: import ===
-cmd_import() {
   if [ "$1" = "--help" ]; then
     cmd_import_usage
     exit 0
@@ -1543,6 +1433,17 @@ cmd_import_usage() {
 }
 }
 
+# === Usage function for import ===
+cmd_import_usage() {
+  echo_message "Usage: $0 import <path_to_vm_archive>"
+  echo_message "  Description: Imports a virtual machine from a compressed archive file."
+  echo_message "  Arguments:"
+  echo_message "    <path_to_vm_archive> - The full path to the VM archive file (e.g., /tmp/myvm_backup.tar.gz)."
+  echo_message "  Example:"
+  echo_message "    $0 import /tmp/myvm_backup.tar.gz"
+}
+}
+
 # === Subcommand: network add ===
 cmd_network_add() {
   if [ "$1" = "--help" ]; then
@@ -1621,6 +1522,21 @@ cmd_network_add() {
 
   log "Added network interface TAP '$NEW_TAP' (MAC: $NEW_MAC) on bridge '$BRIDGE_NAME' to VM '$VMNAME'."
   echo_message "Network interface added to VM '$VMNAME'. Please restart the VM for changes to take effect."
+}
+
+# === Usage function for network add ===
+cmd_network_add_usage() {
+  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
+  echo_message "  Description: Adds a network interface to a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>      - The name of the virtual machine."
+  echo_message "    <bridge_name> - The name of the bridge to connect the new interface to."
+  echo_message "    [mac_address] - Optional. A specific MAC address for the new interface. If omitted, a unique MAC will be assigned."
+  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
+  echo_message "  Example:"
+  echo_message "    $0 network add myvm bridge1"
+  echo_message "    $0 network add myvm bridge2 58:9c:fc:00:00:01"
+}
 }
 
 # === Usage function for network add ===
@@ -1746,6 +1662,18 @@ cmd_network_remove() {
 
   log "Removed network interface '$TAP_TO_REMOVE' from VM '$VMNAME'."
   echo_message "Network interface removed from VM '$VMNAME'. Please restart the VM for changes to take effect."
+}
+
+# === Usage function for network remove ===
+cmd_network_remove_usage() {
+  echo_message "Usage: $0 network remove <vmname> <tap_name>"
+  echo_message "  Description: Removes a network interface from a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>  - The name of the virtual machine."
+  echo_message "    <tap_name> - The name of the TAP interface to remove (e.g., tap0, tap1)."
+  echo_message "  Example:"
+  echo_message "    $0 network remove myvm tap0"
+}
 }
 
 # === Usage function for network remove ===
