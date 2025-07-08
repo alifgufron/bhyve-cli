@@ -781,7 +781,9 @@ cmd_modify() {
   local CONF_FILE="$VM_DIR/vm.conf"
   local CPU_NEW=""
   local RAM_NEW=""
+  local NIC_TO_MODIFY=""
   local TAP_NEW=""
+  local MAC_NEW=""
   local BRIDGE_NEW=""
 
   # Check if VM is running
@@ -804,21 +806,35 @@ cmd_modify() {
         log "Setting RAM to $RAM_NEW for VM '$VMNAME'."
         sed -i '' "s/^MEMORY=.*/MEMORY=$RAM_NEW/" "$CONF_FILE"
         ;;
+      --nic)
+        shift
+        NIC_TO_MODIFY="$1"
+        if ! [[ "$NIC_TO_MODIFY" =~ ^[0-9]+$ ]]; then
+          echo "[ERROR] Invalid NIC index: $NIC_TO_MODIFY. Must be a number."
+          exit 1
+        fi
+        ;;
       --tap)
         shift
         TAP_NEW="$1"
-        log "Setting TAP interface to $TAP_NEW for VM '$VMNAME'."
-        sed -i '' "s/^TAP=.*/TAP=$TAP_NEW/" "$CONF_FILE"
+        log "Setting TAP for NIC ${NIC_TO_MODIFY} to $TAP_NEW for VM '$VMNAME'."
+        sed -i '' "s/^TAP_${NIC_TO_MODIFY}=.*/TAP_${NIC_TO_MODIFY}=$TAP_NEW/" "$CONF_FILE"
+        ;;
+      --mac)
+        shift
+        MAC_NEW="$1"
+        log "Setting MAC for NIC ${NIC_TO_MODIFY} to $MAC_NEW for VM '$VMNAME'."
+        sed -i '' "s/^MAC_${NIC_TO_MODIFY}=.*/MAC_${NIC_TO_MODIFY}=$MAC_NEW/" "$CONF_FILE"
         ;;
       --bridge)
         shift
         BRIDGE_NEW="$1"
-        log "Setting BRIDGE to $BRIDGE_NEW for VM '$VMNAME'."
-        sed -i '' "s/^BRIDGE=.*/BRIDGE=$BRIDGE_NEW/" "$CONF_FILE"
+        log "Setting BRIDGE for NIC ${NIC_TO_MODIFY} to $BRIDGE_NEW for VM '$VMNAME'."
+        sed -i '' "s/^BRIDGE_${NIC_TO_MODIFY}=.*/BRIDGE_${NIC_TO_MODIFY}=$BRIDGE_NEW/" "$CONF_FILE"
         ;;
       *)
         echo "[ERROR] Invalid option: $1"
-        echo "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--tap <tap_name>] [--bridge <bridge_name>]"
+        echo "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--nic <index> --tap <tap_name> --mac <mac_address> --bridge <bridge_name>]"
         exit 1
         ;;
     esac
