@@ -444,10 +444,27 @@ cmd_delete_usage() {
 
 # === Subcommand: install ===
 cmd_install() {
+  if [ "$1" = "--help" ]; then
+    cmd_install_usage
+    exit 0
+  fi
+
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 install <vmname>"
+    echo_message "[ERROR] Missing VM name for 'install'."
+    cmd_install_usage
     exit 1
   fi
+}
+
+# === Usage function for install ===
+cmd_install_usage() {
+  echo_message "Usage: $0 install <vmname>"
+  echo_message "  Description: Installs an operating system on a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to install the OS on."
+  echo_message "  Example:"
+  echo_message "    $0 install myvm"
+}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
