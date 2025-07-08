@@ -1014,8 +1014,6 @@ cmd_info() {
 
   echo "  ----------------------------------------"
   echo "  Network Interfaces:"
-  printf "  %-5s %-10s %-17s %-15s\n" "NIC" "TAP" "MAC" "Bridge"
-  echo "  ----- ---------- ----------------- ---------------"
 
   local NIC_IDX=0
   while true; do
@@ -1031,7 +1029,10 @@ cmd_info() {
       break # No more network interfaces configured
     fi
 
-    printf "  %-5s %-10s %-17s %-15s\n" "${NIC_IDX}" "$CURRENT_TAP" "$CURRENT_MAC" "$CURRENT_BRIDGE"
+    echo "  Interface ${NIC_IDX}:"
+    printf "$info_format" "    TAP_${NIC_IDX}" "$CURRENT_TAP"
+    printf "$info_format" "    MAC_${NIC_IDX}" "$CURRENT_MAC"
+    printf "$info_format" "    BRIDGE_${NIC_IDX}" "$CURRENT_BRIDGE"
     NIC_IDX=$((NIC_IDX + 1))
   done
 
