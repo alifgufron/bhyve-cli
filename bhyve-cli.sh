@@ -888,6 +888,11 @@ cmd_info() {
   echo "  CPUs:        $CPUS"
   echo "  Memory:      $MEMORY"
   echo "  Disk:        $VM_DIR/$DISK"
+  local DISK_USAGE="N/A"
+  if [ -f "$VM_DIR/$DISK" ]; then
+    DISK_USAGE=$(du -h "$VM_DIR/$DISK" | awk '{print $1}')
+  fi
+  echo "  Disk Usage:  $DISK_USAGE"
   echo "  TAP:         $TAP"
   echo "  MAC:         $MAC"
   echo "  Bridge:      $BRIDGE"
