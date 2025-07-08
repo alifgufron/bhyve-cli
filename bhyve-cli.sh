@@ -1272,6 +1272,33 @@ cmd_network_add() {
   echo "MAC_${NIC_IDX}=$NEW_MAC" >> "$CONF_FILE"
   echo "BRIDGE_${NIC_IDX}=$BRIDGE_NAME" >> "$CONF_FILE"
 
+  # Create and configure the TAP interface immediately
+  log "Creating TAP interface '$NEW_TAP'..."
+  ifconfig "$NEW_TAP" create
+  if [ $? -ne 0 ]; then
+    echo "[ERROR] Failed to create TAP interface '$NEW_TAP'."
+    exit 1
+  fi
+  ifconfig "$NEW_TAP" description "vm-$VMNAME-nic${NIC_IDX}"
+  ifconfig "$NEW_TAP" up
+  log "TAP interface '$NEW_TAP' created and activated."
+
+  # Add TAP to bridge
+  if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
+    log "Bridge interface '$BRIDGE_NAME' belum ada. Membuat..."
+    ifconfig bridge create name "$BRIDGE_NAME"
+    log "Bridge interface '$BRIDGE_NAME' berhasil dibuat."
+  else
+    log "Bridge interface '$BRIDGE_NAME' sudah ada."
+  fi
+
+  ifconfig "$BRIDGE_NAME" addm "$NEW_TAP"
+  if [ $? -ne 0 ]; then
+    echo "[ERROR] Failed to add TAP '$NEW_TAP' to bridge '$BRIDGE_NAME'."
+    exit 1
+  fi
+  log "TAP '$NEW_TAP' added to bridge '$BRIDGE_NAME'."
+
   log "Added network interface TAP '$NEW_TAP' (MAC: $NEW_MAC) on bridge '$BRIDGE_NAME' to VM '$VMNAME'."
   echo "Network interface added to VM '$VMNAME'. Please restart the VM for changes to take effect."
 }
@@ -1299,17 +1326,25 @@ cmd_network_remove() {
   local CONF_FILE="$VM_DIR/vm.conf"
   local FOUND_NIC_IDX=-1
   local NIC_COUNT=0
+  local CURRENT_BRIDGE_OF_TAP_TO_REMOVE=""
 
-  # Find the index of the NIC to remove
+  # Find the index and bridge of the NIC to remove
   local NIC_IDX=0
   while true; do
     local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+
     local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+
     if [ -z "$CURRENT_TAP" ]; then
       break
     fi
     if [ "$CURRENT_TAP" = "$TAP_TO_REMOVE" ]; then
       FOUND_NIC_IDX=$NIC_IDX
+      CURRENT_BRIDGE_OF_TAP_TO_REMOVE="$CURRENT_BRIDGE"
     fi
     NIC_COUNT=$((NIC_COUNT + 1))
     NIC_IDX=$((NIC_IDX + 1))
@@ -1321,20 +1356,26 @@ cmd_network_remove() {
   fi
 
   # Remove the lines from vm.conf
-  sed -i '' "/${TAP_TO_REMOVE}/d" "$CONF_FILE"
+  sed -i '' "/^TAP_${FOUND_NIC_IDX}=/d" "$CONF_FILE"
+  sed -i '' "/^MAC_${FOUND_NIC_IDX}=/d" "$CONF_FILE"
+  sed -i '' "/^BRIDGE_${FOUND_NIC_IDX}=/d" "$CONF_FILE"
+
+  # Remove TAP from bridge and destroy TAP interface immediately
+  if [ -n "$CURRENT_BRIDGE_OF_TAP_TO_REMOVE" ] && ifconfig "$CURRENT_BRIDGE_OF_TAP_TO_REMOVE" | grep -qw "$TAP_TO_REMOVE"; then
+    log "Removing TAP '$TAP_TO_REMOVE' from bridge '$CURRENT_BRIDGE_OF_TAP_TO_REMOVE'..."
+    ifconfig "$CURRENT_BRIDGE_OF_TAP_TO_REMOVE" deletem "$TAP_TO_REMOVE"
+  fi
+
+  if ifconfig "$TAP_TO_REMOVE" > /dev/null 2>&1; then
+    log "Destroying TAP interface '$TAP_TO_REMOVE'..."
+    ifconfig "$TAP_TO_REMOVE" destroy
+  fi
 
   # Re-index remaining NICs if necessary
   if [ "$FOUND_NIC_IDX" -lt "$((NIC_COUNT - 1))" ]; then
     log "Re-indexing network interfaces..."
     for (( i = FOUND_NIC_IDX; i < NIC_COUNT - 1; i++ )); do
       local NEXT_NIC_IDX=$((i + 1))
-      local OLD_TAP_VAR="TAP_${NEXT_NIC_IDX}"
-      local OLD_MAC_VAR="MAC_${NEXT_NIC_IDX}"
-      local OLD_BRIDGE_VAR="BRIDGE_${NEXT_NIC_IDX}"
-
-      local NEW_TAP_VAR="TAP_${i}"
-      local NEW_MAC_VAR="MAC_${i}"
-      local NEW_BRIDGE_VAR="BRIDGE_${i}"
 
       local OLD_TAP_VAL=$(grep "^TAP_${NEXT_NIC_IDX}=" "$CONF_FILE" | cut -d'=' -f2)
       local OLD_MAC_VAL=$(grep "^MAC_${NEXT_NIC_IDX}=" "$CONF_FILE" | cut -d'=' -f2)
