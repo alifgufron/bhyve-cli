@@ -671,31 +671,26 @@ cmd_logs() {
 
 # === Subcommand: status ===
 cmd_status() {
-  local header_format="%-20s %-10s %-17s %-20s %-12s %-12s %-12s %-12s %-10s %-10s\n"
+  local header_format="%-20s %-10s %-12s %-12s %-12s %-12s %-10s
+"
   local header_line
-  printf "$header_format" \
-    "VM NAME" \
-    "STATUS" \
-    "MAC ADDRESS" \
-    "BRIDGE" \
-    "CPU (Set)" \
-    "RAM (Set)" \
-    "CPU Usage" \
-    "RAM Usage" \
-    "TAP" \
+  printf "$header_format" 
+    "VM NAME" 
+    "STATUS" 
+    "CPU (Set)" 
+    "RAM (Set)" 
+    "CPU Usage" 
+    "RAM Usage" 
     "PID"
   
   # Generate dynamic separator line
-  header_line=$(printf "$header_format" \
-    "--------------------" \
-    "----------" \
-    "-----------------" \
-    "--------------------" \
-    "------------" \
-    "------------" \
-    "------------" \
-    "------------" \
-    "----------" \
+  header_line=$(printf "$header_format" 
+    "--------------------" 
+    "----------" 
+    "------------" 
+    "------------" 
+    "------------" 
+    "------------" 
     "----------")
   echo "${header_line// /}" # Remove spaces to make it a continuous line
 
@@ -759,7 +754,7 @@ cmd_status() {
       local PID="-"
     fi
 
-    printf "$header_format" "$VMNAME" "$STATUS" "$ALL_MACS" "$ALL_BRIDGES" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$ALL_TAPS" "$PID"
+    printf "$header_format" "$VMNAME" "$STATUS" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$PID"
   done
 }
 
