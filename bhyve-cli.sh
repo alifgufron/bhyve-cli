@@ -784,6 +784,92 @@ cmd_modify() {
   log "VM '$VMNAME' configuration updated."
 }
 
+# === Subcommand: clone ===
+cmd_clone() {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "Usage: $0 clone <source_vmname> <new_vmname>"
+    echo "Example:"
+    echo "  $0 clone myvm newvm"
+    exit 1
+  fi
+
+  SOURCE_VMNAME="$1"
+  NEW_VMNAME="$2"
+
+  SOURCE_VM_DIR="$BASEPATH/vm/$SOURCE_VMNAME"
+  NEW_VM_DIR="$BASEPATH/vm/$NEW_VMNAME"
+
+  # Check if source VM exists
+  if [ ! -d "$SOURCE_VM_DIR" ]; then
+    echo "[ERROR] Source VM '$SOURCE_VMNAME' not found: $SOURCE_VM_DIR"
+    exit 1
+  fi
+
+  # Check if new VM already exists
+  if [ -d "$NEW_VM_DIR" ]; then
+    echo "[ERROR] Destination VM '$NEW_VM_NAME' already exists: $NEW_VM_DIR"
+    exit 1
+  fi
+
+  # Load source VM config to get its status
+  load_vm_config "$SOURCE_VMNAME"
+
+  # Check if source VM is running
+  if pgrep -f "bhyve.*$SOURCE_VMNAME" > /dev/null; then
+    echo "[ERROR] Source VM '$SOURCE_VMNAME' is currently running. Please stop the VM before cloning."
+    exit 1
+  fi
+
+  log "Cloning VM '$SOURCE_VMNAME' to '$NEW_VMNAME'..."
+
+  # Create new VM directory
+  mkdir -p "$NEW_VM_DIR"
+  log "Created new VM directory: $NEW_VM_DIR"
+
+  # Copy disk image
+  log "Copying disk image from $SOURCE_VM_DIR/disk.img to $NEW_VM_DIR/disk.img..."
+  cp "$SOURCE_VM_DIR/disk.img" "$NEW_VM_DIR/disk.img"
+  if [ $? -ne 0 ]; then
+    echo "[ERROR] Failed to copy disk image."
+    rm -rf "$NEW_VM_DIR"
+    exit 1
+  fi
+  log "Disk image copied."
+
+  # Generate new UUID, MAC, TAP, CONSOLE
+  NEW_UUID=$(uuidgen)
+  NEW_MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+  
+  NEXT_TAP_NUM=0
+  while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
+    NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
+  done
+  NEW_TAP="tap${NEXT_TAP_NUM}"
+
+  NEW_CONSOLE="nmdm-${NEW_VMNAME}.1"
+
+  # Create new vm.conf
+  NEW_CONF_FILE="$NEW_VM_DIR/vm.conf"
+  cat > "$NEW_CONF_FILE" <<EOF
+VMNAME=$NEW_VMNAME
+UUID=$NEW_UUID
+CPUS=$CPUS
+MEMORY=$MEMORY
+TAP=$NEW_TAP
+MAC=$NEW_MAC
+BRIDGE=$BRIDGE
+DISK=disk.img
+CONSOLE=$NEW_CONSOLE
+LOG=$NEW_VM_DIR/vm.log
+AUTOSTART=no
+EOF
+
+  log "New configuration file created: $NEW_CONF_FILE"
+  log "VM '$NEW_VMNAME' cloned successfully."
+  echo "VM '$NEW_VMNAME' has been cloned from '$SOURCE_VMNAME'."
+  echo "You can now start it with: $0 start $NEW_VMNAME"
+}
+
 # === Main logic ===
 case "$1" in
   create)
@@ -825,6 +911,10 @@ case "$1" in
   modify)
     shift
     cmd_modify "$@"
+    ;;
+  clone)
+    shift
+    cmd_clone "$@"
     ;;
   switch)
     shift
@@ -869,6 +959,7 @@ case "$1" in
     echo "  logs <vmname>                                   - Display VM logs"
     echo "  autostart <vmname> <enable|disable>             - Enable/disable VM autostart"
     echo "  modify <vmname> [options]                       - Modify VM configuration (CPU, RAM, etc.)"
+    echo "  clone <source_vmname> <new_vmname>              - Clone an existing VM"
     echo "  status                                          - Show status of all VMs"
     echo "  switch <add|list|remove>                        - Manage network bridges"
     echo " "
