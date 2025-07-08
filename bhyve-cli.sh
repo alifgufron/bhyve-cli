@@ -860,6 +860,19 @@ cmd_logs_usage() {
 
 # === Subcommand: status ===
 cmd_status() {
+  if [ "$1" = "--help" ]; then
+    cmd_status_usage
+    exit 0
+  fi
+}
+
+# === Usage function for status ===
+cmd_status_usage() {
+  echo_message "Usage: $0 status"
+  echo_message "  Description: Shows the status of all virtual machines."
+  echo_message "  Example:"
+  echo_message "    $0 status"
+}
   local header_format="%-20s %-10s %-12s %-12s %-12s %-12s %-10s\n"
   local header_line
   printf "$header_format" \
