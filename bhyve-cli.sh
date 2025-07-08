@@ -381,8 +381,6 @@ cmd_delete() {
     exit 1
   fi
 
-  }
-
   VMNAME="$1"
   load_vm_config "$VMNAME"
 
@@ -578,6 +576,17 @@ cmd_install() {
   echo_message ""
   echo_message "Installer finished. If OS installation was successful, start the VM with:"
   echo_message "  $0 start $VMNAME"
+}
+
+# === Usage function for install ===
+cmd_install_usage() {
+  echo_message "Usage: $0 install <vmname>"
+  echo_message "  Description: Installs an operating system on a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to install the OS on."
+  echo_message "  Example:"
+  echo_message "    $0 install myvm"
+}
 }
 
 # === Usage function for install ===
@@ -1552,6 +1561,21 @@ cmd_network_add_usage() {
   echo_message "    $0 network add myvm bridge1"
   echo_message "    $0 network add myvm bridge2 58:9c:fc:00:00:01"
 }
+}
+
+# === Usage function for network add ===
+cmd_network_add_usage() {
+  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
+  echo_message "  Description: Adds a network interface to a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>      - The name of the virtual machine."
+  echo_message "    <bridge_name> - The name of the bridge to connect the new interface to."
+  echo_message "    [mac_address] - Optional. A specific MAC address for the new interface. If omitted, a unique MAC will be assigned."
+  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
+  echo_message "  Example:"
+  echo_message "    $0 network add myvm bridge1"
+  echo_message "    $0 network add myvm bridge2 58:9c:fc:00:00:01"
+}
 
 # === Usage function for network add ===
 cmd_network_add_usage() {
@@ -1662,6 +1686,18 @@ cmd_network_remove() {
 
   log "Removed network interface '$TAP_TO_REMOVE' from VM '$VMNAME'."
   echo_message "Network interface removed from VM '$VMNAME'. Please restart the VM for changes to take effect."
+}
+
+# === Usage function for network remove ===
+cmd_network_remove_usage() {
+  echo_message "Usage: $0 network remove <vmname> <tap_name>"
+  echo_message "  Description: Removes a network interface from a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>  - The name of the virtual machine."
+  echo_message "    <tap_name> - The name of the TAP interface to remove (e.g., tap0, tap1)."
+  echo_message "  Example:"
+  echo_message "    $0 network remove myvm tap0"
+}
 }
 
 # === Usage function for network remove ===
