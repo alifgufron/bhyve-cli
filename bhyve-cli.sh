@@ -277,19 +277,6 @@ cmd_create() {
     cmd_create_usage
     exit 1
   fi
-}
-
-# === Usage function for create ===
-cmd_create_usage() {
-  echo_message "Usage: $0 create <vmname> <disksize_in_GB> <bridge_name>"
-  echo_message "  Description: Creates a new virtual machine with specified disk size and connects it to a bridge."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>         - The name of the virtual machine."
-  echo_message "    <disksize_in_GB> - The size of the VM disk in Gigabytes (e.g., 40 for 40GB)."
-  echo_message "    <bridge_name>    - The name of the network bridge to connect the VM to."
-  echo_message "  Example:"
-  echo_message "    $0 create vm-bsd 40 bridge100"
-}
 
   VMNAME="$1"
   DISKSIZE="$2"
@@ -369,6 +356,18 @@ EOF
   echo_message "Please continue by running: $0 install $VMNAME"
 }
 
+# === Usage function for create ===
+cmd_create_usage() {
+  echo_message "Usage: $0 create <vmname> <disksize_in_GB> <bridge_name>"
+  echo_message "  Description: Creates a new virtual machine with specified disk size and connects it to a bridge."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>         - The name of the virtual machine."
+  echo_message "    <disksize_in_GB> - The size of the VM disk in Gigabytes (e.g., 40 for 40GB)."
+  echo_message "    <bridge_name>    - The name of the network bridge to connect the VM to."
+  echo_message "  Example:"
+  echo_message "    $0 create vm-bsd 40 bridge100"
+}
+
 # === Subcommand: delete ===
 cmd_delete() {
   if [ "$1" = "--help" ]; then
@@ -381,17 +380,6 @@ cmd_delete() {
     cmd_delete_usage
     exit 1
   fi
-}
-
-# === Usage function for delete ===
-cmd_delete_usage() {
-  echo_message "Usage: $0 delete <vmname>"
-  echo_message "  Description: Deletes a virtual machine and all its associated files."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to delete."
-  echo_message "  Example:"
-  echo_message "    $0 delete myvm"
-}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
@@ -442,6 +430,17 @@ cmd_delete_usage() {
   echo_message "VM '$VMNAME' successfully deleted."
 }
 
+# === Usage function for delete ===
+cmd_delete_usage() {
+  echo_message "Usage: $0 delete <vmname>"
+  echo_message "  Description: Deletes a virtual machine and all its associated files."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to delete."
+  echo_message "  Example:"
+  echo_message "    $0 delete myvm"
+}
+}
+
 # === Subcommand: install ===
 cmd_install() {
   if [ "$1" = "--help" ]; then
@@ -454,17 +453,6 @@ cmd_install() {
     cmd_install_usage
     exit 1
   fi
-}
-
-# === Usage function for install ===
-cmd_install_usage() {
-  echo_message "Usage: $0 install <vmname>"
-  echo_message "  Description: Installs an operating system on a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to install the OS on."
-  echo_message "  Example:"
-  echo_message "    $0 install myvm"
-}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
@@ -591,6 +579,17 @@ cmd_install_usage() {
   echo_message "  $0 start $VMNAME"
 }
 
+# === Usage function for install ===
+cmd_install_usage() {
+  echo_message "Usage: $0 install <vmname>"
+  echo_message "  Description: Installs an operating system on a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to install the OS on."
+  echo_message "  Example:"
+  echo_message "    $0 install myvm"
+}
+}
+
 # === Subcommand: start ===
 cmd_start() {
   if [ "$1" = "--help" ]; then
@@ -603,17 +602,6 @@ cmd_start() {
     cmd_start_usage
     exit 1
   fi
-}
-
-# === Usage function for start ===
-cmd_start_usage() {
-  echo_message "Usage: $0 start <vmname>"
-  echo_message "  Description: Starts a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to start."
-  echo_message "  Example:"
-  echo_message "    $0 start myvm"
-}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
@@ -727,6 +715,16 @@ cmd_start_usage() {
   fi
 }
 
+# === Usage function for start ===
+cmd_start_usage() {
+  echo_message "Usage: $0 start <vmname>"
+  echo_message "  Description: Starts a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to start."
+  echo_message "  Example:"
+  echo_message "    $0 start myvm"
+}
+
 # === Subcommand: stop ===
 cmd_stop() {
   if [ "$1" = "--help" ]; then
@@ -739,17 +737,6 @@ cmd_stop() {
     cmd_stop_usage
     exit 1
   fi
-}
-
-# === Usage function for stop ===
-cmd_stop_usage() {
-  echo_message "Usage: $0 stop <vmname>"
-  echo_message "  Description: Stops a running virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to stop."
-  echo_message "  Example:"
-  echo_message "    $0 stop myvm"
-}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
@@ -779,6 +766,17 @@ cmd_stop_usage() {
   log "VM '$VMNAME' successfully stopped."
 }
 
+# === Usage function for stop ===
+cmd_stop_usage() {
+  echo_message "Usage: $0 stop <vmname>"
+  echo_message "  Description: Stops a running virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to stop."
+  echo_message "  Example:"
+  echo_message "    $0 stop myvm"
+}
+}
+
 # === Subcommand: console ===
 cmd_console() {
   if [ "$1" = "--help" ]; then
@@ -791,17 +789,6 @@ cmd_console() {
     cmd_console_usage
     exit 1
   fi
-}
-
-# === Usage function for console ===
-cmd_console_usage() {
-  echo_message "Usage: $0 console <vmname>"
-  echo_message "  Description: Accesses the console of a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to connect to."
-  echo_message "  Example:"
-  echo_message "    $0 console myvm"
-}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
@@ -822,6 +809,17 @@ cmd_console_usage() {
   cu -l "$DEVICE_B"
 }
 
+# === Usage function for console ===
+cmd_console_usage() {
+  echo_message "Usage: $0 console <vmname>"
+  echo_message "  Description: Accesses the console of a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to connect to."
+  echo_message "  Example:"
+  echo_message "    $0 console myvm"
+}
+}
+
 # === Subcommand: logs ===
 cmd_logs() {
   if [ "$1" = "--help" ]; then
@@ -834,17 +832,6 @@ cmd_logs() {
     cmd_logs_usage
     exit 1
   fi
-}
-
-# === Usage function for logs ===
-cmd_logs_usage() {
-  echo_message "Usage: $0 logs <vmname>"
-  echo_message "  Description: Displays real-time logs for a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to display logs for."
-  echo_message "  Example:"
-  echo_message "    $0 logs myvm"
-}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
@@ -858,21 +845,24 @@ cmd_logs_usage() {
   tail -f "$LOG_FILE"
 }
 
+# === Usage function for logs ===
+cmd_logs_usage() {
+  echo_message "Usage: $0 logs <vmname>"
+  echo_message "  Description: Displays real-time logs for a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to display logs for."
+  echo_message "  Example:"
+  echo_message "    $0 logs myvm"
+}
+}
+
 # === Subcommand: status ===
 cmd_status() {
   if [ "$1" = "--help" ]; then
     cmd_status_usage
     exit 0
   fi
-}
 
-# === Usage function for status ===
-cmd_status_usage() {
-  echo_message "Usage: $0 status"
-  echo_message "  Description: Shows the status of all virtual machines."
-  echo_message "  Example:"
-  echo_message "    $0 status"
-}
   local header_format="%-20s %-10s %-12s %-12s %-12s %-12s %-10s\n"
   local header_line
   printf "$header_format" \
@@ -959,6 +949,14 @@ cmd_status_usage() {
   done
 }
 
+# === Usage function for status ===
+cmd_status_usage() {
+  echo_message "Usage: $0 status"
+  echo_message "  Description: Shows the status of all virtual machines."
+  echo_message "  Example:"
+  echo_message "    $0 status"
+}
+
 # === Subcommand: autostart ===
 cmd_autostart() {
   if [ "$1" = "--help" ]; then
@@ -971,19 +969,6 @@ cmd_autostart() {
     cmd_autostart_usage
     exit 1
   fi
-}
-
-# === Usage function for autostart ===
-cmd_autostart_usage() {
-  echo_message "Usage: $0 autostart <vmname> <enable|disable>"
-  echo_message "  Description: Enables or disables autostart for a specified virtual machine on boot."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>   - The name of the virtual machine."
-  echo_message "    <action>   - 'enable' to enable autostart, 'disable' to disable."
-  echo_message "  Example:"
-  echo_message "    $0 autostart myvm enable"
-    echo_message "    $0 autostart myvm disable"
-}
 
   VMNAME="$1"
   ACTION="$2"
@@ -1002,6 +987,19 @@ cmd_autostart_usage() {
   fi
 }
 
+# === Usage function for autostart ===
+cmd_autostart_usage() {
+  echo_message "Usage: $0 autostart <vmname> <enable|disable>"
+  echo_message "  Description: Enables or disables autostart for a specified virtual machine on boot."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>   - The name of the virtual machine."
+  echo_message "    <action>   - 'enable' to enable autostart, 'disable' to disable."
+  echo_message "  Example:"
+  echo_message "    $0 autostart myvm enable"
+    echo_message "    $0 autostart myvm disable"
+}
+}
+
 # === Subcommand: modify ===
 cmd_modify() {
   if [ "$1" = "--help" ]; then
@@ -1014,25 +1012,6 @@ cmd_modify() {
     cmd_modify_usage
     exit 1
   fi
-}
-
-# === Usage function for modify ===
-cmd_modify_usage() {
-  echo_message "Usage: $0 modify <vmname> [Option] [Arguments]"
-  echo_message "  Description: Modifies the configuration of a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to modify."
-  echo_message "  Option:"
-  echo_message "    --cpu <num>          - Number of virtual CPUs."
-  echo_message "    --ram <size>         - Amount of RAM (e.g., 2048M, 4G)."
-  echo_message "    --nic <index>        - Index of the network interface to modify (e.g., 0, 1)."
-  echo_message "    --tap <tap_name>     - New TAP interface name for the specified NIC."
-  echo_message "    --mac <mac_address>  - New MAC address for the specified NIC."
-  echo_message "    --bridge <bridge_name> - New bridge name for the specified NIC."
-  echo_message "  Example:"
-  echo_message "    $0 modify myvm --cpu 4 --ram 4096M"
-  echo_message "    $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
-}
 
   VMNAME="$1"
   shift
@@ -1104,6 +1083,25 @@ cmd_modify_usage() {
   log "VM '$VMNAME' configuration updated."
 }
 
+# === Usage function for modify ===
+cmd_modify_usage() {
+  echo_message "Usage: $0 modify <vmname> [Option] [Arguments]"
+  echo_message "  Description: Modifies the configuration of a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to modify."
+  echo_message "  Option:"
+  echo_message "    --cpu <num>          - Number of virtual CPUs."
+  echo_message "    --ram <size>         - Amount of RAM (e.g., 2048M, 4G)."
+  echo_message "    --nic <index>        - Index of the network interface to modify (e.g., 0, 1)."
+  echo_message "    --tap <tap_name>     - New TAP interface name for the specified NIC."
+  echo_message "    --mac <mac_address>  - New MAC address for the specified NIC."
+  echo_message "    --bridge <bridge_name> - New bridge name for the specified NIC."
+  echo_message "  Example:"
+  echo_message "    $0 modify myvm --cpu 4 --ram 4096M"
+  echo_message "    $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
+}
+}
+
 # === Subcommand: clone ===
 cmd_clone() {
   if [ "$1" = "--help" ]; then
@@ -1116,18 +1114,6 @@ cmd_clone() {
     cmd_clone_usage
     exit 1
   fi
-}
-
-# === Usage function for clone ===
-cmd_clone_usage() {
-  echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
-  echo_message "  Description: Creates a clone of an existing virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <source_vmname> - The name of the virtual machine to clone."
-  echo_message "    <new_vmname>    - The name for the new cloned virtual machine."
-  echo_message "  Example:"
-  echo_message "    $0 clone myvm newvm"
-}
 
   SOURCE_VMNAME="$1"
   NEW_VMNAME="$2"
@@ -1235,6 +1221,18 @@ EOF
   echo_message "You can now start it with: $0 start $NEW_VMNAME"
 }
 
+# === Usage function for clone ===
+cmd_clone_usage() {
+  echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
+  echo_message "  Description: Creates a clone of an existing virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <source_vmname> - The name of the virtual machine to clone."
+  echo_message "    <new_vmname>    - The name for the new cloned virtual machine."
+  echo_message "  Example:"
+  echo_message "    $0 clone myvm newvm"
+}
+}
+
 # === Subcommand: info ===
 cmd_info() {
   if [ "$1" = "--help" ]; then
@@ -1247,17 +1245,6 @@ cmd_info() {
     cmd_info_usage
     exit 1
   fi
-}
-
-# === Usage function for info ===
-cmd_info_usage() {
-  echo_message "Usage: $0 info <vmname>"
-  echo_message "  Description: Displays detailed information about a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to display information for."
-  echo_message "  Example:"
-  echo_message "    $0 info myvm"
-}
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
@@ -1336,6 +1323,17 @@ cmd_info_usage() {
   echo_message "----------------------------------------"
 }
 
+# === Usage function for info ===
+cmd_info_usage() {
+  echo_message "Usage: $0 info <vmname>"
+  echo_message "  Description: Displays detailed information about a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname> - The name of the virtual machine to display information for."
+  echo_message "  Example:"
+  echo_message "    $0 info myvm"
+}
+}
+
 # === Subcommand: resize-disk ===
 cmd_resize_disk() {
   if [ "$1" = "--help" ]; then
@@ -1348,18 +1346,6 @@ cmd_resize_disk() {
     cmd_resize_disk_usage
     exit 1
   fi
-}
-
-# === Usage function for resize-disk ===
-cmd_resize_disk_usage() {
-  echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
-  echo_message "  Description: Resizes the disk image of a specified virtual machine. Only supports increasing size."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>       - The name of the virtual machine."
-  echo_message "    <new_size_in_GB> - The new size of the VM disk in Gigabytes (e.g., 60 for 60GB)."
-  echo_message "  Example:"
-  echo_message "    $0 resize-disk myvm 60"
-}
 
   VMNAME="$1"
   NEW_SIZE_GB="$2"
@@ -1400,6 +1386,18 @@ cmd_resize_disk_usage() {
   echo_message "Note: You may need to extend the partition inside the VM operating system."
 }
 
+# === Usage function for resize-disk ===
+cmd_resize_disk_usage() {
+  echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
+  echo_message "  Description: Resizes the disk image of a specified virtual machine. Only supports increasing size."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>       - The name of the virtual machine."
+  echo_message "    <new_size_in_GB> - The new size of the VM disk in Gigabytes (e.g., 60 for 60GB)."
+  echo_message "  Example:"
+  echo_message "    $0 resize-disk myvm 60"
+}
+}
+
 # === Subcommand: export ===
 cmd_export() {
   if [ "$1" = "--help" ]; then
@@ -1412,18 +1410,6 @@ cmd_export() {
     cmd_export_usage
     exit 1
   fi
-}
-
-# === Usage function for export ===
-cmd_export_usage() {
-  echo_message "Usage: $0 export <vmname> <destination_path>"
-  echo_message "  Description: Exports a virtual machine to a compressed archive file."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>         - The name of the virtual machine to export."
-  echo_message "    <destination_path> - The full path including filename for the output archive (e.g., /tmp/myvm_backup.tar.gz)."
-  echo_message "  Example:"
-  echo_message "    $0 export myvm /tmp/myvm_backup.tar.gz"
-}
 
   VMNAME="$1"
   DEST_PATH="$2"
@@ -1449,6 +1435,18 @@ cmd_export_usage() {
   log "VM '$VMNAME' exported successfully to '$DEST_PATH'."
 }
 
+# === Usage function for export ===
+cmd_export_usage() {
+  echo_message "Usage: $0 export <vmname> <destination_path>"
+  echo_message "  Description: Exports a virtual machine to a compressed archive file."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>         - The name of the virtual machine to export."
+  echo_message "    <destination_path> - The full path including filename for the output archive (e.g., /tmp/myvm_backup.tar.gz)."
+  echo_message "  Example:"
+  echo_message "    $0 export myvm /tmp/myvm_backup.tar.gz"
+}
+}
+
 # === Subcommand: import ===
 cmd_import() {
   if [ "$1" = "--help" ]; then
@@ -1461,17 +1459,6 @@ cmd_import() {
     cmd_import_usage
     exit 1
   fi
-}
-
-# === Usage function for import ===
-cmd_import_usage() {
-  echo_message "Usage: $0 import <path_to_vm_archive>"
-  echo_message "  Description: Imports a virtual machine from a compressed archive file."
-  echo_message "  Arguments:"
-  echo_message "    <path_to_vm_archive> - The full path to the VM archive file (e.g., /tmp/myvm_backup.tar.gz)."
-  echo_message "  Example:"
-  echo_message "    $0 import /tmp/myvm_backup.tar.gz"
-}
 
   ARCHIVE_PATH="$1"
 
@@ -1543,6 +1530,17 @@ cmd_import_usage() {
   echo_message "You can now start it with: $0 start $IMPORTED_VMNAME"
 }
 
+# === Usage function for import ===
+cmd_import_usage() {
+  echo_message "Usage: $0 import <path_to_vm_archive>"
+  echo_message "  Description: Imports a virtual machine from a compressed archive file."
+  echo_message "  Arguments:"
+  echo_message "    <path_to_vm_archive> - The full path to the VM archive file (e.g., /tmp/myvm_backup.tar.gz)."
+  echo_message "  Example:"
+  echo_message "    $0 import /tmp/myvm_backup.tar.gz"
+}
+}
+
 # === Subcommand: network add ===
 cmd_network_add() {
   if [ "$1" = "--help" ]; then
@@ -1555,21 +1553,6 @@ cmd_network_add() {
     cmd_network_add_usage
     exit 1
   fi
-}
-
-# === Usage function for network add ===
-cmd_network_add_usage() {
-  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
-  echo_message "  Description: Adds a network interface to a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>      - The name of the virtual machine."
-  echo_message "    <bridge_name> - The name of the bridge to connect the new interface to."
-  echo_message "    [mac_address] - Optional. A specific MAC address for the new interface. If omitted, a unique MAC will be assigned."
-  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
-  echo_message "  Example:"
-  echo_message "    $0 network add myvm bridge1"
-  echo_message "    $0 network add myvm bridge2 58:9c:fc:00:00:01"
-}
 
   VMNAME="$1"
   BRIDGE_NAME="$2"
@@ -1638,6 +1621,21 @@ cmd_network_add_usage() {
   echo_message "Network interface added to VM '$VMNAME'. Please restart the VM for changes to take effect."
 }
 
+# === Usage function for network add ===
+cmd_network_add_usage() {
+  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
+  echo_message "  Description: Adds a network interface to a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>      - The name of the virtual machine."
+  echo_message "    <bridge_name> - The name of the bridge to connect the new interface to."
+  echo_message "    [mac_address] - Optional. A specific MAC address for the new interface. If omitted, a unique MAC will be assigned."
+  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
+  echo_message "  Example:"
+  echo_message "    $0 network add myvm bridge1"
+  echo_message "    $0 network add myvm bridge2 58:9c:fc:00:00:01"
+}
+}
+
 # === Subcommand: network remove ===
 cmd_network_remove() {
   if [ "$1" = "--help" ]; then
@@ -1650,18 +1648,6 @@ cmd_network_remove() {
     cmd_network_remove_usage
     exit 1
   fi
-}
-
-# === Usage function for network remove ===
-cmd_network_remove_usage() {
-  echo_message "Usage: $0 network remove <vmname> <tap_name>"
-  echo_message "  Description: Removes a network interface from a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>  - The name of the virtual machine."
-  echo_message "    <tap_name> - The name of the TAP interface to remove (e.g., tap0, tap1)."
-  echo_message "  Example:"
-  echo_message "    $0 network remove myvm tap0"
-}
 
   VMNAME="$1"
   TAP_TO_REMOVE="$2"
@@ -1744,6 +1730,18 @@ cmd_network_remove_usage() {
 
   log "Removed network interface '$TAP_TO_REMOVE' from VM '$VMNAME'."
   echo_message "Network interface removed from VM '$VMNAME'. Please restart the VM for changes to take effect."
+}
+
+# === Usage function for network remove ===
+cmd_network_remove_usage() {
+  echo_message "Usage: $0 network remove <vmname> <tap_name>"
+  echo_message "  Description: Removes a network interface from a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>  - The name of the virtual machine."
+  echo_message "    <tap_name> - The name of the TAP interface to remove (e.g., tap0, tap1)."
+  echo_message "  Example:"
+  echo_message "    $0 network remove myvm tap0"
+}
 }
 
 # === Main logic ===
