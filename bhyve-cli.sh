@@ -1545,14 +1545,31 @@ cmd_import_usage() {
 
 # === Subcommand: network add ===
 cmd_network_add() {
+  if [ "$1" = "--help" ]; then
+    cmd_network_add_usage
+    exit 0
+  fi
+
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
-    echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
-    echo_message "Example:"
-    echo_message "  $0 network add myvm bridge1"
-    echo_message "  $0 network add myvm bridge2 58:9c:fc:00:00:01"
+    echo_message "[ERROR] Missing arguments for 'network add'."
+    cmd_network_add_usage
     exit 1
   fi
+}
+
+# === Usage function for network add ===
+cmd_network_add_usage() {
+  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
+  echo_message "  Description: Adds a network interface to a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>      - The name of the virtual machine."
+  echo_message "    <bridge_name> - The name of the bridge to connect the new interface to."
+  echo_message "    [mac_address] - Optional. A specific MAC address for the new interface. If omitted, a unique MAC will be assigned."
+  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
+  echo_message "  Example:"
+  echo_message "    $0 network add myvm bridge1"
+  echo_message "    $0 network add myvm bridge2 58:9c:fc:00:00:01"
+}
 
   VMNAME="$1"
   BRIDGE_NAME="$2"
@@ -1623,12 +1640,28 @@ cmd_network_add() {
 
 # === Subcommand: network remove ===
 cmd_network_remove() {
+  if [ "$1" = "--help" ]; then
+    cmd_network_remove_usage
+    exit 0
+  fi
+
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "Usage: $0 network remove <vmname> <tap_name>"
-    echo_message "Example:"
-    echo_message "  $0 network remove myvm tap0"
+    echo_message "[ERROR] Missing arguments for 'network remove'."
+    cmd_network_remove_usage
     exit 1
   fi
+}
+
+# === Usage function for network remove ===
+cmd_network_remove_usage() {
+  echo_message "Usage: $0 network remove <vmname> <tap_name>"
+  echo_message "  Description: Removes a network interface from a specified virtual machine."
+  echo_message "  Arguments:"
+  echo_message "    <vmname>  - The name of the virtual machine."
+  echo_message "    <tap_name> - The name of the TAP interface to remove (e.g., tap0, tap1)."
+  echo_message "  Example:"
+  echo_message "    $0 network remove myvm tap0"
+}
 
   VMNAME="$1"
   TAP_TO_REMOVE="$2"
@@ -1815,14 +1848,22 @@ For detailed usage of each command, use: $0 <command> --help"
         shift
         cmd_network_remove "$@"
         ;;
+      --help)
+        echo_message "Usage: $0 network [subcommand] [arguments]"
+        echo_message "
+Subcommands:
+  add    - Add a network interface to a VM
+  remove - Remove a network interface from a VM"
+        exit 0
+        ;;
       *)
-        echo_message " "
-        echo_message "Invalid subcommand: $1"
-        echo_message " "
-        echo_message "Usage: $0 network <add|remove> [arguments]"
-        echo_message "  add <vmname> <bridge_name> [mac_address]    - Add a network interface to a VM"
-        echo_message "  remove <vmname> <tap_name>                  - Remove a network interface from a VM"
-        echo_message " "
+        echo_message "[ERROR] Invalid subcommand or missing arguments for 'network'."
+        echo_message "
+Usage: $0 network [subcommand] [arguments]
+
+Subcommands:
+  add    - Add a network interface to a VM
+  remove - Remove a network interface from a VM"
         exit 1
         ;;
     esac
