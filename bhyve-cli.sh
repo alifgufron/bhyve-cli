@@ -720,6 +720,70 @@ cmd_autostart() {
   fi
 }
 
+# === Subcommand: modify ===
+cmd_modify() {
+  if [ -z "$1" ]; then
+    echo "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--tap <tap_name>] [--bridge <bridge_name>]"
+    echo "Example:"
+    echo "  $0 modify myvm --cpu 4 --ram 4096M"
+    echo "  $0 modify myvm --tap tap1 --bridge bridge1"
+    exit 1
+  fi
+
+  VMNAME="$1"
+  shift
+  load_vm_config "$VMNAME"
+
+  local CONF_FILE="$VM_DIR/vm.conf"
+  local CPU_NEW=""
+  local RAM_NEW=""
+  local TAP_NEW=""
+  local BRIDGE_NEW=""
+
+  # Check if VM is running
+  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    echo "[ERROR] VM '$VMNAME' is currently running. Please stop the VM before modifying its configuration."
+    exit 1
+  fi
+
+  while (( "$#" )); do
+    case "$1" in
+      --cpu)
+        shift
+        CPU_NEW="$1"
+        log "Setting CPU to $CPU_NEW for VM '$VMNAME'."
+        sed -i '' "s/^CPUS=.*/CPUS=$CPU_NEW/" "$CONF_FILE"
+        ;;
+      --ram)
+        shift
+        RAM_NEW="$1"
+        log "Setting RAM to $RAM_NEW for VM '$VMNAME'."
+        sed -i '' "s/^MEMORY=.*/MEMORY=$RAM_NEW/" "$CONF_FILE"
+        ;;
+      --tap)
+        shift
+        TAP_NEW="$1"
+        log "Setting TAP interface to $TAP_NEW for VM '$VMNAME'."
+        sed -i '' "s/^TAP=.*/TAP=$TAP_NEW/" "$CONF_FILE"
+        ;;
+      --bridge)
+        shift
+        BRIDGE_NEW="$1"
+        log "Setting BRIDGE to $BRIDGE_NEW for VM '$VMNAME'."
+        sed -i '' "s/^BRIDGE=.*/BRIDGE=$BRIDGE_NEW/" "$CONF_FILE"
+        ;;
+      *)
+        echo "[ERROR] Invalid option: $1"
+        echo "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--tap <tap_name>] [--bridge <bridge_name>]"
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  log "VM '$VMNAME' configuration updated."
+}
+
 # === Main logic ===
 case "$1" in
   create)
@@ -757,6 +821,10 @@ case "$1" in
   autostart)
     shift
     cmd_autostart "$@"
+    ;;
+  modify)
+    shift
+    cmd_modify "$@"
     ;;
   switch)
     shift
@@ -798,6 +866,9 @@ case "$1" in
     echo "  start <vmname>                                  - Start a VM"
     echo "  stop <vmname>                                   - Stop a VM"
     echo "  console <vmname>                                - Access VM console"
+    echo "  logs <vmname>                                   - Display VM logs"
+    echo "  autostart <vmname> <enable|disable>             - Enable/disable VM autostart"
+    echo "  modify <vmname> [options]                       - Modify VM configuration (CPU, RAM, etc.)"
     echo "  status                                          - Show status of all VMs"
     echo "  switch <add|list|remove>                        - Manage network bridges"
     echo " "
