@@ -42,6 +42,32 @@ load_vm_config() {
   LOG_FILE="$VM_DIR/vm.log" # Set LOG_FILE after loading config
 }
 
+# === Main usage function ===
+main_usage() {
+  echo_message "Usage: $0 <command> [options/arguments]"
+  echo_message " "
+  echo_message "Available Commands:"
+  echo_message "  create        - Create a new virtual machine."
+  echo_message "  delete        - Delete an existing virtual machine."
+  echo_message "  install       - Install an operating system on a VM."
+  echo_message "  start         - Start a virtual machine."
+  echo_message "  stop          - Stop a running virtual machine."
+  echo_message "  console       - Access the console of a VM."
+  echo_message "  logs          - Display real-time logs for a VM."
+  echo_message "  autostart     - Enable or disable VM autostart on boot."
+  echo_message "  modify        - Modify VM configuration (CPU, RAM, network, etc.)."
+  echo_message "  clone         - Create a clone of an existing VM."
+  echo_message "  info          - Display detailed information about a VM."
+  echo_message "  resize-disk   - Resize a VM's disk image."
+  echo_message "  export        - Export a VM to an archive file."
+  echo_message "  import        - Import a VM from an archive file."
+  echo_message "  network       - Manage network interfaces for a VM."
+  echo_message "  status        - Show the status of all virtual machines."
+  echo_message "  switch        - Manage network bridges and physical interfaces."
+  echo_message " "
+  echo_message "For detailed usage of each command, use: $0 <command> --help"
+}
+
 # === Subcommand: switch add ===
 cmd_switch_add() {
   local BRIDGE_NAME=""
@@ -275,12 +301,37 @@ cmd_switch_remove() {
   fi
 }
 
+# === Usage function for create ===
+cmd_create_usage() {
+  echo_message "Usage: $0 create <vmname> <disksize in GB> <bridge_name>"
+  echo_message "Example:"
+  echo_message "  $0 create vm-bsd 40 bridge100"
+}
+
+# === Usage function for delete ===
+cmd_delete_usage() {
+  echo_message "Usage: $0 delete <vmname>"
+}
+
+# === Usage function for install ===
+cmd_install_usage() {
+  echo_message "Usage: $0 install <vmname>"
+}
+
+# === Usage function for start ===
+cmd_start_usage() {
+  echo_message "Usage: $0 start <vmname>"
+}
+
+# === Usage function for stop ===
+cmd_stop_usage() {
+  echo_message "Usage: $0 stop <vmname>"
+}
+
 # === Subcommand: create ===
 cmd_create() {
   if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
-    echo_message "Usage: $0 create <vmname> <disksize in GB> <bridge_name>"
-    echo_message "Example:"
-    echo_message "  $0 create vm-bsd 40 bridge100"
+    cmd_create_usage
     exit 1
   fi
 
@@ -365,7 +416,7 @@ EOF
 # === Subcommand: delete ===
 cmd_delete() {
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 delete <vmname>"
+    cmd_delete_usage
     exit 1
   fi
 
@@ -421,7 +472,7 @@ cmd_delete() {
 # === Subcommand: install ===
 cmd_install() {
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 install <vmname>"
+    cmd_install_usage
     exit 1
   fi
 
@@ -553,7 +604,7 @@ cmd_install() {
 # === Subcommand: start ===
 cmd_start() {
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 start <vmname>"
+    cmd_start_usage
     exit 1
   fi
 
@@ -672,7 +723,7 @@ cmd_start() {
 # === Subcommand: stop ===
 cmd_stop() {
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 stop <vmname>"
+    cmd_stop_usage
     exit 1
   fi
 
@@ -1477,28 +1528,7 @@ case "$1" in
     exit 0
     ;;
   --help)
-    echo_message "Usage: $0 <command> [options/arguments]"
-    echo_message "
-Available Commands:
-  create        - Create a new virtual machine.
-  delete        - Delete an existing virtual machine.
-  install       - Install an operating system on a VM.
-  start         - Start a virtual machine.
-  stop          - Stop a running virtual machine.
-  console       - Access the console of a VM.
-  logs          - Display real-time logs for a VM.
-  autostart     - Enable or disable VM autostart on boot.
-  modify        - Modify VM configuration (CPU, RAM, network, etc.).
-  clone         - Create a clone of an existing VM.
-  info          - Display detailed information about a VM.
-  resize-disk   - Resize a VM's disk image.
-  export        - Export a VM to an archive file.
-  import        - Import a VM from an archive file.
-  network       - Manage network interfaces for a VM.
-  status        - Show the status of all virtual machines.
-  switch        - Manage network bridges and physical interfaces.
-
-For detailed usage of each command, use: $0 <command> --help"
+    main_usage
     exit 0
     ;;
   create)
@@ -1618,29 +1648,7 @@ For detailed usage of each command, use: $0 <command> --help"
       echo_message "Error: Invalid command: $1"
       echo_message " "
     fi
-    echo_message "Usage: $0 <command> [options/arguments]"
-    echo_message " "
-    echo_message "Available Commands:"
-    echo_message "  create        - Create a new virtual machine."
-    echo_message "  delete        - Delete an existing virtual machine."
-    echo_message "  install       - Install an operating system on a VM."
-    echo_message "  start         - Start a virtual machine."
-    echo_message "  stop          - Stop a running virtual machine."
-    echo_message "  console       - Access the console of a VM."
-    echo_message "  logs          - Display real-time logs for a VM."
-    echo_message "  autostart     - Enable or disable VM autostart on boot."
-    echo_message "  modify        - Modify VM configuration (CPU, RAM, network, etc.)."
-    echo_message "  clone         - Create a clone of an existing VM."
-    echo_message "  info          - Display detailed information about a VM."
-    echo_message "  resize-disk   - Resize a VM's disk image."
-    echo_message "  export        - Export a VM to an archive file."
-    echo_message "  import        - Import a VM from an archive file."
-    echo_message "  network       - Manage network interfaces for a VM."
-    echo_message "  status        - Show the status of all virtual machines."
-    echo_message "  switch        - Manage network bridges and physical interfaces."
-    echo_message " "
-    echo_message "For detailed usage of each command, use: $0 <command> --help"
-    echo_message " "
+    main_usage
     exit 1
     ;;
 esac
