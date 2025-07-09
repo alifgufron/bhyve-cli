@@ -68,7 +68,114 @@ main_usage() {
   echo_message "For detailed usage of each command, use: $0 <command> --help"
 }
 
-# === Subcommand: switch add ===
+# === Usage functions for all commands ===
+# === Usage function for switch add ===
+cmd_switch_add_usage() {
+  echo_message "Usage: $0 switch add --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]"
+  echo_message "\nOption:\n  --name <bridge_name>         - Name of the bridge or vSwitch.\n  --interface <physical_interface> - Parent physical network interface (e.g., em0, igb1).\n  --vlan <vlan_tag>            - Optional. VLAN ID if the parent interface is in trunk mode. A VLAN interface (e.g., vlan100) will be created on top of the physical interface and tagged to the bridge."
+}
+
+# === Usage function for switch remove ===
+cmd_switch_remove_usage() {
+  echo_message "Usage: $0 switch remove --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]"
+  echo_message "\nOption:\n  --name <bridge_name>         - Name of the bridge or vSwitch.\n  --interface <physical_interface> - Physical network interface to remove.\n  --vlan <vlan_tag>            - Optional. VLAN ID if the interface to be removed is a VLAN interface. The corresponding VLAN interface (e.g., vlan100) will also be destroyed."
+}
+
+# === Usage function for switch ===
+cmd_switch_usage() {
+  echo_message "Usage: $0 switch [subcommand] [Option] [Arguments]"
+  echo_message "\nSubcommands:\n  add    - Create a bridge and add a physical interface\n  list   - List all bridge interfaces and their members\n  remove - Remove a physical interface from a bridge"
+}
+
+# === Usage function for create ===
+cmd_create_usage() {
+  echo_message "Usage: $0 create <vmname> <disksize in GB> <bridge_name>"
+  echo_message "Example:\n  $0 create vm-bsd 40 bridge100"
+}
+
+# === Usage function for delete ===
+cmd_delete_usage() {
+  echo_message "Usage: $0 delete <vmname>"
+}
+
+# === Usage function for install ===
+cmd_install_usage() {
+  echo_message "Usage: $0 install <vmname>"
+}
+
+# === Usage function for start ===
+cmd_start_usage() {
+  echo_message "Usage: $0 start <vmname>"
+}
+
+# === Usage function for stop ===
+cmd_stop_usage() {
+  echo_message "Usage: $0 stop <vmname>"
+}
+
+# === Usage function for console ===
+cmd_console_usage() {
+  echo_message "Usage: $0 console <vmname>"
+}
+
+# === Usage function for logs ===
+cmd_logs_usage() {
+  echo_message "Usage: $0 logs <vmname>"
+}
+
+# === Usage function for autostart ===
+cmd_autostart_usage() {
+  echo_message "Usage: $0 autostart <vmname> <enable|disable>"
+}
+
+# === Usage function for info ===
+cmd_info_usage() {
+  echo_message "Usage: $0 info <vmname>"
+}
+
+# === Usage function for modify ===
+cmd_modify_usage() {
+  echo_message "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--nic <index> --tap <tap_name> --mac <mac_address> --bridge <bridge_name>]"
+  echo_message "Example:\n  $0 modify myvm --cpu 4 --ram 4096M\n  $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
+}
+
+# === Usage function for clone ===
+cmd_clone_usage() {
+  echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
+  echo_message "Example:\n  $0 clone myvm newvm"
+}
+
+# === Usage function for resize-disk ===
+cmd_resize_disk_usage() {
+  echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
+  echo_message "Example:\n  $0 resize-disk myvm 60"
+}
+
+# === Usage function for export ===
+cmd_export_usage() {
+  echo_message "Usage: $0 export <vmname> <destination_path>"
+  echo_message "Example:\n  $0 export myvm /tmp/myvm_backup.tar.gz"
+}
+
+# === Usage function for import ===
+cmd_import_usage() {
+  echo_message "Usage: $0 import <path_to_vm_archive>"
+  echo_message "Example:\n  $0 import /tmp/myvm_backup.tar.gz"
+}
+
+# === Usage function for network add ===
+cmd_network_add_usage() {
+  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
+  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned.\nExample:\n  $0 network add myvm bridge1\n  $0 network add myvm bridge2 58:9c:fc:00:00:01"
+}
+
+# === Usage function for network remove ===
+cmd_network_remove_usage() {
+  echo_message "Usage: $0 network remove <vmname> <tap_name>"
+  echo_message "Example:\n  $0 network remove myvm tap0"
+}
+
+
 cmd_switch_add() {
   local BRIDGE_NAME=""
   local PHYS_IF=""
@@ -152,35 +259,11 @@ cmd_switch_add() {
   echo_message "Bridge '$BRIDGE_NAME' now has member '$MEMBER_IF'."
 }
 
-# === Usage function for switch add ===
-cmd_switch_add_usage() {
-  echo_message "Usage: $0 switch add --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]"
-  echo_message "
-Option:
-  --name <bridge_name>         - Name of the bridge or vSwitch.
-  --interface <physical_interface> - Parent physical network interface (e.g., em0, igb1).
-  --vlan <vlan_tag>            - Optional. VLAN ID if the parent interface is in trunk mode. A VLAN interface (e.g., vlan100) will be created on top of the physical interface and tagged to the bridge."
-}
 
-# === Usage function for switch remove ===
-cmd_switch_remove_usage() {
-  echo_message "Usage: $0 switch remove --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]"
-  echo_message "
-Option:
-  --name <bridge_name>         - Name of the bridge or vSwitch.
-  --interface <physical_interface> - Physical network interface to remove.
-  --vlan <vlan_tag>            - Optional. VLAN ID if the interface to be removed is a VLAN interface. The corresponding VLAN interface (e.g., vlan100) will also be destroyed."
-}
 
-# === Usage function for switch ===
-cmd_switch_usage() {
-  echo_message "Usage: $0 switch [subcommand] [Option] [Arguments]"
-  echo_message "
-Subcommands:
-  add    - Create a bridge and add a physical interface
-  list   - List all bridge interfaces and their members
-  remove - Remove a physical interface from a bridge"
-}
+
+
+
 
 # === Subcommand: switch list ===
 cmd_switch_list() {
@@ -299,32 +382,15 @@ cmd_switch_remove() {
   fi
 }
 
-# === Usage function for create ===
-cmd_create_usage() {
-  echo_message "Usage: $0 create <vmname> <disksize in GB> <bridge_name>"
-  echo_message "Example:"
-  echo_message "  $0 create vm-bsd 40 bridge100"
-}
 
-# === Usage function for delete ===
-cmd_delete_usage() {
-  echo_message "Usage: $0 delete <vmname>"
-}
 
-# === Usage function for install ===
-cmd_install_usage() {
-  echo_message "Usage: $0 install <vmname>"
-}
 
-# === Usage function for start ===
-cmd_start_usage() {
-  echo_message "Usage: $0 start <vmname>"
-}
 
-# === Usage function for stop ===
-cmd_stop_usage() {
-  echo_message "Usage: $0 stop <vmname>"
-}
+
+
+
+
+
 
 # === Subcommand: create ===
 cmd_create() {
@@ -753,20 +819,11 @@ cmd_stop() {
   log "VM '$VMNAME' successfully stopped."
 }
 
-# === Usage function for console ===
-cmd_console_usage() {
-  echo_message "Usage: $0 console <vmname>"
-}
 
-# === Usage function for logs ===
-cmd_logs_usage() {
-  echo_message "Usage: $0 logs <vmname>"
-}
 
-# === Usage function for autostart ===
-cmd_autostart_usage() {
-  echo_message "Usage: $0 autostart <vmname> <enable|disable>"
-}
+
+
+
 
 # === Usage function for info ===
 cmd_info_usage() {
@@ -930,20 +987,9 @@ cmd_autostart() {
   fi
 }
 
-# === Usage function for modify ===
-cmd_modify_usage() {
-  echo_message "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--nic <index> --tap <tap_name> --mac <mac_address> --bridge <bridge_name>]"
-  echo_message "Example:"
-  echo_message "  $0 modify myvm --cpu 4 --ram 4096M"
-  echo_message "  $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
-}
 
-# === Usage function for clone ===
-cmd_clone_usage() {
-  echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
-  echo_message "Example:"
-  echo_message "  $0 clone myvm newvm"
-}
+
+
 
 # === Usage function for info ===
 cmd_info_usage() {
@@ -1224,26 +1270,11 @@ cmd_info() {
   echo_message "----------------------------------------"
 }
 
-# === Usage function for resize-disk ===
-cmd_resize_disk_usage() {
-  echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
-  echo_message "Example:"
-  echo_message "  $0 resize-disk myvm 60"
-}
 
-# === Usage function for export ===
-cmd_export_usage() {
-  echo_message "Usage: $0 export <vmname> <destination_path>"
-  echo_message "Example:"
-  echo_message "  $0 export myvm /tmp/myvm_backup.tar.gz"
-}
 
-# === Usage function for import ===
-cmd_import_usage() {
-  echo_message "Usage: $0 import <path_to_vm_archive>"
-  echo_message "Example:"
-  echo_message "  $0 import /tmp/myvm_backup.tar.gz"
-}
+
+
+
 
 # === Subcommand: resize-disk ===
 cmd_resize_disk() {
@@ -1399,21 +1430,9 @@ cmd_import() {
   echo_message "You can now start it with: $0 start $IMPORTED_VMNAME"
 }
 
-# === Usage function for network add ===
-cmd_network_add_usage() {
-  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
-  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
-  echo_message "Example:"
-  echo_message "  $0 network add myvm bridge1"
-  echo_message "  $0 network add myvm bridge2 58:9c:fc:00:00:01"
-}
 
-# === Usage function for network remove ===
-cmd_network_remove_usage() {
-  echo_message "Usage: $0 network remove <vmname> <tap_name>"
-  echo_message "Example:"
-  echo_message "  $0 network remove myvm tap0"
-}
+
+
 
 # === Subcommand: network add ===
 cmd_network_add() {
