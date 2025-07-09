@@ -163,6 +163,15 @@ cmd_import_usage() {
   echo_message "Example:\n  $0 import /tmp/myvm_backup.tar.gz"
 }
 
+# === Usage function for network ===
+cmd_network_usage() {
+  echo_message "Usage: $0 network [subcommand] [arguments]"
+  echo_message "\nSubcommands:"
+  echo_message "  add    - Add a network interface to a VM."
+  echo_message "  remove - Remove a network interface from a VM."
+  echo_message "\nFor detailed usage of each subcommand, use: $0 network <subcommand> --help"
+}
+
 # === Usage function for network add ===
 cmd_network_add_usage() {
   echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
