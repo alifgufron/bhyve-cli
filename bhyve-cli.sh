@@ -85,9 +85,9 @@ cmd_switch_destroy_usage() {
   echo_message "  This command will destroy the specified bridge and all its members."
 }
 
-# === Usage function for switch delete-member ===
-cmd_switch_delete_member_usage() {
-  echo_message "Usage: $0 switch remove-member --member <interface> --from <bridge_name>"
+# === Usage function for switch delete ===
+cmd_switch_delete_usage() {
+  echo_message "Usage: $0 switch delete --member <interface> --from <bridge_name>"
   echo_message "  This command will remove a specific member interface from a bridge."
 }
 
@@ -98,7 +98,7 @@ cmd_switch_usage() {
   echo_message "  add         - Create a bridge and add a physical interface"
   echo_message "  list        - List all bridge interfaces and their members"
   echo_message "  destroy     - Destroy a bridge and all its members"
-  echo_message "  delete-member - Remove a specific member from a bridge"
+  echo_message "  delete      - Remove a specific member from a bridge"
 }
 
 # === Usage function for create ===
@@ -374,8 +374,8 @@ cmd_switch_destroy() {
   echo_message "Bridge '$BRIDGE_NAME' successfully destroyed."
 }
 
-# === Subcommand: switch delete-member ===
-cmd_switch_delete_member() {
+# === Subcommand: switch delete ===
+cmd_switch_delete() {
   local MEMBER_IF=""
   local BRIDGE_NAME=""
 
@@ -392,7 +392,7 @@ cmd_switch_delete_member() {
         ;;
       *)
         echo_message "[ERROR] Invalid option: $1" >&2
-        cmd_switch_remove_member_usage
+        cmd_switch_delete_usage
         exit 1
         ;;
     esac
@@ -401,7 +401,7 @@ cmd_switch_delete_member() {
 
   # Validate required arguments
   if [ -z "$MEMBER_IF" ] || [ -z "$BRIDGE_NAME" ]; then
-    cmd_switch_remove_member_usage
+    cmd_switch_delete_usage
     exit 1
   fi
 
@@ -1803,9 +1803,9 @@ case "$1" in
         shift
         cmd_switch_destroy "$@"
         ;;
-      delete-member)
+      delete)
         shift
-        cmd_switch_delete_member "$@"
+        cmd_switch_delete "$@"
         ;;
       --help)
         cmd_switch_usage
