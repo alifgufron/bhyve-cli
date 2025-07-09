@@ -73,19 +73,19 @@ main_usage() {
 cmd_switch_add_usage() {
   echo_message "Usage: $0 switch add --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]"
   echo_message "\nOption:"
-  echo_message "  --name <bridge_name>         - Name of the bridge or vSwitch."
-  echo_message "  --interface <physical_interface> - Parent physical network interface (e.g., em0, igb1)."
-  echo_message "  --vlan <vlan_tag>            - Optional. VLAN ID if the parent interface is in trunk mode. A VLAN interface (e.g., vlan100) will be created on top of the physical interface"
-  echo_message "  and tagged to the bridge."
+  echo_message "  --name <bridge_name>         		- Name of the bridge or vSwitch."
+  echo_message "  --interface <physical_interface> 	- Parent physical network interface (e.g., em0, igb1)."
+  echo_message "  --vlan <vlan_tag>            		- Optional. VLAN ID if the parent interface is in trunk mode. A VLAN interface (e.g., vlan100) will be created on top of the physical interface"
+  echo_message "  					  and tagged to the bridge."
 }
 
 # === Usage function for switch remove ===
 cmd_switch_remove_usage() {
   echo_message "Usage: $0 switch remove --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]"
   echo_message "\nOption:"
-  echo_message "  --name <bridge_name>         - Name of the bridge or vSwitch."
-  echo_message "  --interface <physical_interface> - Physical network interface to remove."
-  echo_message "  --vlan <vlan_tag>            - Optional. VLAN ID if the interface to be removed is a VLAN interface. The corresponding VLAN interface (e.g., vlan100) will also be destroyed."
+  echo_message "  --name <bridge_name>         		- Name of the bridge or vSwitch."
+  echo_message "  --interface <physical_interface> 	- Physical network interface to remove."
+  echo_message "  --vlan <vlan_tag>           	 	- Optional. VLAN ID if the interface to be removed is a VLAN interface. The corresponding VLAN interface (e.g., vlan100) will also be destroyed."
 }
 
 # === Usage function for switch ===
