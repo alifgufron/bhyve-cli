@@ -25,6 +25,14 @@ echo_message() {
   echo -e "$1" >&2
 }
 
+# === Function to display message to console with timestamp and log to file ===
+display_and_log() {
+  local MESSAGE="$1"
+  local TIMESTAMP_MESSAGE="[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $MESSAGE"
+  echo "$TIMESTAMP_MESSAGE" >&2 # Display to console with timestamp
+  log "$MESSAGE" # Write to log file using the existing log function
+}
+
 # === Fungsi untuk memuat konfigurasi VM ===
 load_vm_config() {
   VMNAME="$1"
