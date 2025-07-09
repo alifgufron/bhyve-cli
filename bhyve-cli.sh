@@ -1226,12 +1226,31 @@ cmd_info() {
   echo_message "----------------------------------------"
 }
 
+# === Usage function for resize-disk ===
+cmd_resize_disk_usage() {
+  echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
+  echo_message "Example:"
+  echo_message "  $0 resize-disk myvm 60"
+}
+
+# === Usage function for export ===
+cmd_export_usage() {
+  echo_message "Usage: $0 export <vmname> <destination_path>"
+  echo_message "Example:"
+  echo_message "  $0 export myvm /tmp/myvm_backup.tar.gz"
+}
+
+# === Usage function for import ===
+cmd_import_usage() {
+  echo_message "Usage: $0 import <path_to_vm_archive>"
+  echo_message "Example:"
+  echo_message "  $0 import /tmp/myvm_backup.tar.gz"
+}
+
 # === Subcommand: resize-disk ===
 cmd_resize_disk() {
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
-    echo_message "Example:"
-    echo_message "  $0 resize-disk myvm 60"
+    cmd_resize_disk_usage
     exit 1
   fi
 
@@ -1277,9 +1296,7 @@ cmd_resize_disk() {
 # === Subcommand: export ===
 cmd_export() {
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "Usage: $0 export <vmname> <destination_path>"
-    echo_message "Example:"
-    echo_message "  $0 export myvm /tmp/myvm_backup.tar.gz"
+    cmd_export_usage
     exit 1
   fi
 
@@ -1310,9 +1327,7 @@ cmd_export() {
 # === Subcommand: import ===
 cmd_import() {
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 import <path_to_vm_archive>"
-    echo_message "Example:"
-    echo_message "  $0 import /tmp/myvm_backup.tar.gz"
+    cmd_import_usage
     exit 1
   fi
 
