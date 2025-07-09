@@ -77,14 +77,7 @@ cmd_switch_add_usage() {
 }
 
 # === Usage function for switch remove ===
-cmd_switch_remove_usage() {
-  echo_message "Usage: $0 switch remove --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]"
-  echo_message "
-Option:"
-  echo_message "  --name <bridge_name>         		- Name of the bridge or vSwitch."
-  echo_message "  --interface <physical_interface> 	- Physical network interface to remove."
-  echo_message "  --vlan <vlan_tag>           	 	- Optional. VLAN ID if the interface to be removed is a VLAN interface. The corresponding VLAN interface (e.g., vlan100) will also be destroyed."
-}
+
 
 # === Usage function for switch destroy ===
 cmd_switch_destroy_usage() {
@@ -92,8 +85,8 @@ cmd_switch_destroy_usage() {
   echo_message "  This command will destroy the specified bridge and all its members."
 }
 
-# === Usage function for switch remove-member ===
-cmd_switch_remove_member_usage() {
+# === Usage function for switch delete-member ===
+cmd_switch_delete_member_usage() {
   echo_message "Usage: $0 switch remove-member --member <interface> --from <bridge_name>"
   echo_message "  This command will remove a specific member interface from a bridge."
 }
@@ -104,9 +97,8 @@ cmd_switch_usage() {
   echo_message "\nSubcommands:"
   echo_message "  add         - Create a bridge and add a physical interface"
   echo_message "  list        - List all bridge interfaces and their members"
-  echo_message "  remove      - Remove a physical interface from a bridge"
   echo_message "  destroy     - Destroy a bridge and all its members"
-  echo_message "  remove-member - Remove a specific member from a bridge"
+  echo_message "  delete-member - Remove a specific member from a bridge"
 }
 
 # === Usage function for create ===
@@ -333,124 +325,7 @@ cmd_switch_list() {
 }
 
 # === Subcommand: switch remove ===
-cmd_switch_remove() {
-  local BRIDGE_NAME=""
-  local PHYS_IF=""
-  local VLAN_TAG=""
 
-  # Parse named arguments
-  while (( "$#" )); do
-    case "$1" in
-      --name)
-        shift
-        BRIDGE_NAME="$1"
-        ;;
-      --interface)
-        shift
-        PHYS_IF="$1"
-        ;;
-      --vlan)
-        shift
-        VLAN_TAG="$1"
-        ;;
-      *)
-        echo_message "[ERROR] Invalid option: $1" >&2
-        cmd_switch_remove_usage
-        exit 1
-        ;;
-    esac
-    shift
-  done
-
-  # Validate arguments
-  if [ -z "$BRIDGE_NAME" ]; then
-    cmd_switch_remove_usage
-    exit 1
-  fi
-
-  log "Checking bridge '$BRIDGE_NAME'..."
-  if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
-    echo_message "[ERROR] Bridge '$BRIDGE_NAME' not found."
-    exit 1
-  fi
-
-  MEMBERS=$(ifconfig "$BRIDGE_NAME" | grep 'member:' | awk '{print $2}')
-
-  if [ -z "$PHYS_IF" ]; then # Only --name is provided
-    if [ -z "$MEMBERS" ]; then
-      echo_message "\nBridge '$BRIDGE_NAME' is empty. Destroy this bridge? (y/n): "
-      read -rp "" CONFIRM_DESTROY
-      if [[ "$CONFIRM_DESTROY" =~ ^[Yy]$ ]]; then
-        log "Destroying bridge '$BRIDGE_NAME'..."
-        ifconfig "$BRIDGE_NAME" destroy
-        if [ $? -ne 0 ]; then
-          echo_message "[ERROR] Failed to destroy bridge '$BRIDGE_NAME'."
-          exit 1
-        fi
-        echo_message "Bridge '$BRIDGE_NAME' successfully destroyed."
-      else
-        echo_message "Bridge '$BRIDGE_NAME' not destroyed."
-      fi
-    else
-      echo_message "[ERROR] Bridge '$BRIDGE_NAME' is not empty. It has members:"
-      for MEMBER in $MEMBERS; do
-        echo_message "  - $MEMBER"
-      done
-      echo_message "To remove a member, use: $0 switch remove-member --member <interface> --from $BRIDGE_NAME"
-      echo_message "To destroy the bridge and all its members, use: $0 switch destroy $BRIDGE_NAME"
-      exit 1
-    fi
-  else # --interface is provided
-    MEMBER_IF="$PHYS_IF"
-    if [ -n "$VLAN_TAG" ]; then
-      MEMBER_IF="vlan${VLAN_TAG}"
-    fi
-
-    log "Checking if '$MEMBER_IF' is a member of '$BRIDGE_NAME'..."
-    if ! ifconfig "$BRIDGE_NAME" | grep -qw "$MEMBER_IF"; then
-      echo_message "[ERROR] Interface '$MEMBER_IF' is not a member of bridge '$BRIDGE_NAME'."
-      exit 1
-    fi
-
-    log "Removing '$MEMBER_IF' from bridge '$BRIDGE_NAME'..."
-    ifconfig "$BRIDGE_NAME" deletem "$MEMBER_IF"
-    if [ $? -ne 0 ]; then
-      echo_message "[ERROR] Failed to remove '$MEMBER_IF' from bridge '$BRIDGE_NAME'."
-      exit 1
-    fi
-    echo_message "Interface '$MEMBER_IF' successfully removed from bridge '$BRIDGE_NAME'."
-
-    if [ -n "$VLAN_TAG" ]; then
-      log "Destroying VLAN interface '$MEMBER_IF'..."
-      ifconfig "$MEMBER_IF" destroy
-      if [ $? -ne 0 ]; then
-        echo_message "[ERROR] Failed to destroy VLAN interface '$MEMBER_IF'."
-        exit 1
-      fi
-      echo_message "VLAN interface '$MEMBER_IF' successfully destroyed."
-    fi
-
-    # Check if bridge is empty after removal
-    MEMBERS=$(ifconfig "$BRIDGE_NAME" | grep 'member:' | awk '{print $2}')
-    if [ -z "$MEMBERS" ]; then
-      echo_message "\nBridge '$BRIDGE_NAME' is now empty. Destroy this bridge as well? (y/n): "
-      read -rp "" CONFIRM_DESTROY
-      if [[ "$CONFIRM_DESTROY" =~ ^[Yy]$ ]]; then
-        log "Destroying bridge '$BRIDGE_NAME'..."
-        ifconfig "$BRIDGE_NAME" destroy
-        if [ $? -ne 0 ]; then
-          echo_message "[ERROR] Failed to destroy bridge '$BRIDGE_NAME'."
-          exit 1
-        fi
-        echo_message "Bridge '$BRIDGE_NAME' successfully destroyed."
-      else
-        echo_message "Bridge '$BRIDGE_NAME' not destroyed."
-      fi
-    else
-      echo_message "Bridge '$BRIDGE_NAME' still has members."
-    fi
-  fi
-}
 
 # === Subcommand: switch destroy ===
 cmd_switch_destroy() {
@@ -499,8 +374,8 @@ cmd_switch_destroy() {
   echo_message "Bridge '$BRIDGE_NAME' successfully destroyed."
 }
 
-# === Subcommand: switch remove-member ===
-cmd_switch_remove_member() {
+# === Subcommand: switch delete-member ===
+cmd_switch_delete_member() {
   local MEMBER_IF=""
   local BRIDGE_NAME=""
 
@@ -1924,17 +1799,13 @@ case "$1" in
         shift
         cmd_switch_list "$@"
         ;;
-      remove)
-        shift
-        cmd_switch_remove "$@"
-        ;;
       destroy)
         shift
         cmd_switch_destroy "$@"
         ;;
-      remove-member)
+      delete-member)
         shift
-        cmd_switch_remove_member "$@"
+        cmd_switch_delete_member "$@"
         ;;
       --help)
         cmd_switch_usage
