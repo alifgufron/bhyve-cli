@@ -267,14 +267,10 @@ cmd_switch_remove() {
 
 # === Subcommand: create ===
 cmd_create() {
-  if [ "$1" = "--help" ]; then
-    cmd_create_usage
-    exit 0
-  fi
-
   if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
-    echo_message "[ERROR] Missing arguments for 'create'."
-    cmd_create_usage
+    echo_message "Usage: $0 create <vmname> <disksize in GB> <bridge_name>"
+    echo_message "Example:"
+    echo_message "  $0 create vm-bsd 40 bridge100"
     exit 1
   fi
 
@@ -356,28 +352,10 @@ EOF
   echo_message "Please continue by running: $0 install $VMNAME"
 }
 
-# === Usage function for create ===
-cmd_create_usage() {
-  echo_message "Usage: $0 create <vmname> <disksize_in_GB> <bridge_name>"
-  echo_message "  Description: Creates a new virtual machine with specified disk size and connects it to a bridge."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>         - The name of the virtual machine."
-  echo_message "    <disksize_in_GB> - The size of the VM disk in Gigabytes (e.g., 40 for 40GB)."
-  echo_message "    <bridge_name>    - The name of the network bridge to connect the VM to."
-  echo_message "  Example:"
-  echo_message "    $0 create vm-bsd 40 bridge100"
-}
-
 # === Subcommand: delete ===
 cmd_delete() {
-  if [ "$1" = "--help" ]; then
-    cmd_delete_usage
-    exit 0
-  fi
-
   if [ -z "$1" ]; then
-    echo_message "[ERROR] Missing VM name for 'delete'."
-    cmd_delete_usage
+    echo_message "Usage: $0 delete <vmname>"
     exit 1
   fi
 
@@ -430,26 +408,10 @@ cmd_delete() {
   echo_message "VM '$VMNAME' successfully deleted."
 }
 
-# === Usage function for delete ===
-cmd_delete_usage() {
-  echo_message "Usage: $0 delete <vmname>"
-  echo_message "  Description: Deletes a virtual machine and all its associated files."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to delete."
-  echo_message "  Example:"
-  echo_message "    $0 delete myvm"
-}
-
 # === Subcommand: install ===
 cmd_install() {
-  if [ "$1" = "--help" ]; then
-    cmd_install_usage
-    exit 0
-  fi
-
   if [ -z "$1" ]; then
-    echo_message "[ERROR] Missing VM name for 'install'."
-    cmd_install_usage
+    echo_message "Usage: $0 install <vmname>"
     exit 1
   fi
 
@@ -578,63 +540,129 @@ cmd_install() {
   echo_message "  $0 start $VMNAME"
 }
 
-# === Usage function for install ===
-cmd_install_usage() {
-  echo_message "Usage: $0 install <vmname>"
-  echo_message "  Description: Installs an operating system on a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to install the OS on."
-  echo_message "  Example:"
-  echo_message "    $0 install myvm"
-}
-}
-
-# === Usage function for install ===
-cmd_install_usage() {
-  echo_message "Usage: $0 install <vmname>"
-  echo_message "  Description: Installs an operating system on a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to install the OS on."
-  echo_message "  Example:"
-  echo_message "    $0 install myvm"
-}
-
 # === Subcommand: start ===
 cmd_start() {
-  if [ "$1" = "--help" ]; then
-    cmd_start_usage
-    exit 0
-  fi
-
   if [ -z "$1" ]; then
-    echo_message "[ERROR] Missing VM name for 'start'."
-    cmd_start_usage
+    echo_message "Usage: $0 start <vmname>"
     exit 1
   fi
 
-  VMNAME="$1"  load_vm_config "$VMNAME"  log "Preparing Config for $VMNAME"}# === Usage function for start ===cmd_start_usage() {  echo_message "Usage: $0 start <vmname>"  echo_message "  Description: Starts a specified virtual machine."  echo_message "  Arguments:"  echo_message "    <vmname> - The name of the virtual machine to start."  echo_message "  Example:"  echo_message "    $0 start myvm"}  # ==== Check if bhyve is still running  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then    log "VM '$VMNAME' is still running. Stopping..."    pkill -f "bhyve.*$VMNAME"    sleep 1  fi  # === Destroy VM if still remaining in kernel  if bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1; then    log "VM '$VMNAME' was still in memory. Stopped."  fi  local NETWORK_ARGS=""  local NIC_IDX=0  local DEV_NUM=5 # Starting device number for virtio-net  while true; do    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"    local CURRENT_TAP="${!CURRENT_TAP_VAR}"    local CURRENT_MAC="${!CURRENT_MAC_VAR}"    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"    if [ -z "$CURRENT_TAP" ]; then      break # No more network interfaces configured    fi    # === Create TAP interface if it doesn't exist    if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then      log "TAP '$CURRENT_TAP' does not exist. Creating..."      ifconfig "$CURRENT_TAP" create description "vm-$VMNAME-nic${NIC_IDX}"      ifconfig "$CURRENT_TAP" up      log "TAP '$CURRENT_TAP' created and activated."    else      ifconfig "$CURRENT_TAP" up      log "TAP '$CURRENT_TAP' already exists and activated."    fi    # === Add to bridge if not already a member    if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then      log "Bridge interface '$CURRENT_BRIDGE' does not exist. Creating..."      ifconfig bridge create name "$CURRENT_BRIDGE"      log "Bridge interface '$CURRENT_BRIDGE' successfully created."    else      log "Bridge interface '$CURRENT_BRIDGE' already exists."    fi    if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then      ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP"      log "TAP '$CURRENT_TAP' added to bridge '$CURRENT_BRIDGE'"    else      log "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'"    fi    NETWORK_ARGS+=" -s ${DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\""    DEV_NUM=$((DEV_NUM + 1))    NIC_IDX=$((NIC_IDX + 1))  done  # === Ensure nmdm device is available  if ! [ -e "/dev/${CONSOLE}A" ] && ! [ -e "/dev/${CONSOLE}B" ]; then    log "Creating device /dev/${CONSOLE}A and /dev/${CONSOLE}B"    mdm_number="${CONSOLE##*.}"    mdm_base="${CONSOLE%%.*}"    mdm_device="/dev/${mdm_base}.${mdm_number}"    true > "${mdm_device}A"    true > "${mdm_device}B"  fi  # === Select UEFI firmware ===  if [ -f /usr/local/share/uefi-firmware/BHYVE_UEFI.fd ]; then    LOADER="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"    log "Using UEFI firmware: BHYVE_UEFI.fd"  else    LOADER=""    log "UEFI firmware not found, running without bootrom"  fi  # Run bhyve  log "Starting VM '$VMNAME'..."  bhyve     -c "$CPUS"     -m "$MEMORY"     -AHP     -s 0,hostbridge     -s 3:0,virtio-blk,"$VM_DIR/$DISK"     $NETWORK_ARGS     -l com1,/dev/"${CONSOLE}A"     -s 31,lpc      $LOADER     "$VMNAME" >> "$LOG_FILE" 2>&1 &  BHYVE_PID=$!  # Wait a moment  sleep 1  if ps -p "$BHYVE_PID" > /dev/null 2>&1; then    log "VM '$VMNAME' is running with PID $BHYVE_PID"  else    log "Failed to start VM '$VMNAME' (PID not found)"  fi
-}
+  VMNAME="$1"
+  load_vm_config "$VMNAME"
 
-# === Usage function for start ===
-cmd_start_usage() {
-  echo_message "Usage: $0 start <vmname>"
-  echo_message "  Description: Starts a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to start."
-  echo_message "  Example:"
-  echo_message "    $0 start myvm"
+  log "Preparing Config for $VMNAME"
+
+  # ==== Check if bhyve is still running
+  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    log "VM '$VMNAME' is still running. Stopping..."
+    pkill -f "bhyve.*$VMNAME"
+    sleep 1
+  fi
+
+  # === Destroy VM if still remaining in kernel
+  if bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1; then
+    log "VM '$VMNAME' was still in memory. Stopped."
+  fi
+
+  local NETWORK_ARGS=""
+  local NIC_IDX=0
+  local DEV_NUM=5 # Starting device number for virtio-net
+
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+
+    if [ -z "$CURRENT_TAP" ]; then
+      break # No more network interfaces configured
+    fi
+
+    # === Create TAP interface if it doesn't exist
+    if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
+      log "TAP '$CURRENT_TAP' does not exist. Creating..."
+      ifconfig "$CURRENT_TAP" create description "vm-$VMNAME-nic${NIC_IDX}"
+      ifconfig "$CURRENT_TAP" up
+      log "TAP '$CURRENT_TAP' created and activated."
+    else
+      ifconfig "$CURRENT_TAP" up
+      log "TAP '$CURRENT_TAP' already exists and activated."
+    fi
+
+    # === Add to bridge if not already a member
+    if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
+      log "Bridge interface '$CURRENT_BRIDGE' does not exist. Creating..."
+      ifconfig bridge create name "$CURRENT_BRIDGE"
+      log "Bridge interface '$CURRENT_BRIDGE' successfully created."
+    else
+      log "Bridge interface '$CURRENT_BRIDGE' already exists."
+    fi
+
+    if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
+      ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP"
+      log "TAP '$CURRENT_TAP' added to bridge '$CURRENT_BRIDGE'"
+    else
+      log "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'"
+    fi
+
+    NETWORK_ARGS+=" -s ${DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\""
+    DEV_NUM=$((DEV_NUM + 1))
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+
+  # === Ensure nmdm device is available
+  if ! [ -e "/dev/${CONSOLE}A" ] && ! [ -e "/dev/${CONSOLE}B" ]; then
+    log "Creating device /dev/${CONSOLE}A and /dev/${CONSOLE}B"
+    mdm_number="${CONSOLE##*.}"
+    mdm_base="${CONSOLE%%.*}"
+    mdm_device="/dev/${mdm_base}.${mdm_number}"
+    true > "${mdm_device}A"
+    true > "${mdm_device}B"
+  fi
+
+  # === Select UEFI firmware ===
+  if [ -f /usr/local/share/uefi-firmware/BHYVE_UEFI.fd ]; then
+    LOADER="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
+    log "Using UEFI firmware: BHYVE_UEFI.fd"
+  else
+    LOADER=""
+    log "UEFI firmware not found, running without bootrom"
+  fi
+
+  # Run bhyve
+  log "Starting VM '$VMNAME'..."
+
+  bhyve \
+    -c "$CPUS" \
+    -m "$MEMORY" \
+    -AHP \
+    -s 0,hostbridge \
+    -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
+    $NETWORK_ARGS \
+    -l com1,/dev/"${CONSOLE}A" \
+    -s 31,lpc \
+     $LOADER \
+    "$VMNAME" >> "$LOG_FILE" 2>&1 &
+
+  BHYVE_PID=$!
+
+  # Wait a moment
+  sleep 1
+
+  if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
+    log "VM '$VMNAME' is running with PID $BHYVE_PID"
+  else
+    log "Failed to start VM '$VMNAME' (PID not found)"
+  fi
 }
 
 # === Subcommand: stop ===
 cmd_stop() {
-  if [ "$1" = "--help" ]; then
-    cmd_stop_usage
-    exit 0
-  fi
-
   if [ -z "$1" ]; then
-    echo_message "[ERROR] Missing VM name for 'stop'."
-    cmd_stop_usage
+    echo_message "Usage: $0 stop <vmname>"
     exit 1
   fi
 
@@ -666,26 +694,10 @@ cmd_stop() {
   log "VM '$VMNAME' successfully stopped."
 }
 
-# === Usage function for stop ===
-cmd_stop_usage() {
-  echo_message "Usage: $0 stop <vmname>"
-  echo_message "  Description: Stops a running virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to stop."
-  echo_message "  Example:"
-  echo_message "    $0 stop myvm"
-}
-
 # === Subcommand: console ===
 cmd_console() {
-  if [ "$1" = "--help" ]; then
-    cmd_console_usage
-    exit 0
-  fi
-
   if [ -z "$1" ]; then
-    echo_message "[ERROR] Missing VM name for 'console'."
-    cmd_console_usage
+    echo_message "Usage: $0 console <vmname>"
     exit 1
   fi
 
@@ -708,26 +720,10 @@ cmd_console() {
   cu -l "$DEVICE_B"
 }
 
-# === Usage function for console ===
-cmd_console_usage() {
-  echo_message "Usage: $0 console <vmname>"
-  echo_message "  Description: Accesses the console of a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to connect to."
-  echo_message "  Example:"
-  echo_message "    $0 console myvm"
-}
-
 # === Subcommand: logs ===
 cmd_logs() {
-  if [ "$1" = "--help" ]; then
-    cmd_logs_usage
-    exit 0
-  fi
-
   if [ -z "$1" ]; then
-    echo_message "[ERROR] Missing VM name for 'logs'."
-    cmd_logs_usage
+    echo_message "Usage: $0 logs <vmname>"
     exit 1
   fi
 
@@ -743,20 +739,8 @@ cmd_logs() {
   tail -f "$LOG_FILE"
 }
 
-# === Usage function for logs ===
-cmd_logs_usage() {
-  echo_message "Usage: $0 logs <vmname>"
-  echo_message "  Description: Displays real-time logs for a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to display logs for."
-  echo_message "  Example:"
-  echo_message "    $0 logs myvm"
-}
-  if [ "$1" = "--help" ]; then
-    cmd_status_usage
-    exit 0
-  fi
-
+# === Subcommand: status ===
+cmd_status() {
   local header_format="%-20s %-10s %-12s %-12s %-12s %-12s %-10s\n"
   local header_line
   printf "$header_format" \
@@ -843,21 +827,10 @@ cmd_logs_usage() {
   done
 }
 
-# === Usage function for status ===
-cmd_status_usage() {
-  echo_message "Usage: $0 status"
-  echo_message "  Description: Shows the status of all virtual machines."
-  echo_message "  Example:"
-  echo_message "    $0 status"
-}
-  if [ "$1" = "--help" ]; then
-    cmd_autostart_usage
-    exit 0
-  fi
-
+# === Subcommand: autostart ===
+cmd_autostart() {
   if [ -z "$1" ] || ( [ "$2" != "enable" ] && [ "$2" != "disable" ] ); then
-    echo_message "[ERROR] Missing arguments or invalid action for 'autostart'."
-    cmd_autostart_usage
+    echo_message "Usage: $0 autostart <vmname> <enable|disable>"
     exit 1
   fi
 
@@ -878,28 +851,13 @@ cmd_status_usage() {
   fi
 }
 
-# === Usage function for autostart ===
-cmd_autostart_usage() {
-  echo_message "Usage: $0 autostart <vmname> <enable|disable>"
-  echo_message "  Description: Enables or disables autostart for a specified virtual machine on boot."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>   - The name of the virtual machine."
-  echo_message "    <action>   - 'enable' to enable autostart, 'disable' to disable."
-  echo_message "  Example:"
-  echo_message "    $0 autostart myvm enable"
-    echo_message "    $0 autostart myvm disable"
-}
-
 # === Subcommand: modify ===
 cmd_modify() {
-  if [ "$1" = "--help" ]; then
-    cmd_modify_usage
-    exit 0
-  fi
-
   if [ -z "$1" ]; then
-    echo_message "[ERROR] Missing VM name for 'modify'."
-    cmd_modify_usage
+    echo_message "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--tap <tap_name>] [--bridge <bridge_name>]"
+    echo_message "Example:"
+    echo_message "  $0 modify myvm --cpu 4 --ram 4096M"
+    echo_message "  $0 modify myvm --tap tap1 --bridge bridge1"
     exit 1
   fi
 
@@ -973,31 +931,12 @@ cmd_modify() {
   log "VM '$VMNAME' configuration updated."
 }
 
-# === Usage function for modify ===
-cmd_modify_usage() {
-  echo_message "Usage: $0 modify <vmname> [Option] [Arguments]"
-  echo_message "  Description: Modifies the configuration of a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to modify."
-  echo_message "  Option:"
-  echo_message "    --cpu <num>          - Number of virtual CPUs."
-  echo_message "    --ram <size>         - Amount of RAM (e.g., 2048M, 4G)."
-  echo_message "    --nic <index>        - Index of the network interface to modify (e.g., 0, 1)."
-  echo_message "    --tap <tap_name>     - New TAP interface name for the specified NIC."
-  echo_message "    --mac <mac_address>  - New MAC address for the specified NIC."
-  echo_message "    --bridge <bridge_name> - New bridge name for the specified NIC."
-  echo_message "  Example:"
-  echo_message "    $0 modify myvm --cpu 4 --ram 4096M"
-  echo_message "    $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
-}
-  if [ "$1" = "--help" ]; then
-    cmd_clone_usage
-    exit 0
-  fi
-
+# === Subcommand: clone ===
+cmd_clone() {
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "[ERROR] Missing arguments for 'clone'."
-    cmd_clone_usage
+    echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
+    echo_message "Example:"
+    echo_message "  $0 clone myvm newvm"
     exit 1
   fi
 
@@ -1107,40 +1046,10 @@ EOF
   echo_message "You can now start it with: $0 start $NEW_VMNAME"
 }
 
-# === Usage function for clone ===
-cmd_clone_usage() {
-  echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
-  echo_message "  Description: Creates a clone of an existing virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <source_vmname> - The name of the virtual machine to clone."
-  echo_message "    <new_vmname>    - The name for the new cloned virtual machine."
-  echo_message "  Example:"
-  echo_message "    $0 clone myvm newvm"
-}
-}
-
-# === Usage function for clone ===
-cmd_clone_usage() {
-  echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
-  echo_message "  Description: Creates a clone of an existing virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <source_vmname> - The name of the virtual machine to clone."
-  echo_message "    <new_vmname>    - The name for the new cloned virtual machine."
-  echo_message "  Example:"
-  echo_message "    $0 clone myvm newvm"
-}
-}
-
 # === Subcommand: info ===
 cmd_info() {
-  if [ "$1" = "--help" ]; then
-    cmd_info_usage
-    exit 0
-  fi
-
   if [ -z "$1" ]; then
-    echo_message "[ERROR] Missing VM name for 'info'."
-    cmd_info_usage
+    echo_message "Usage: $0 info <vmname>"
     exit 1
   fi
 
@@ -1221,38 +1130,12 @@ cmd_info() {
   echo_message "----------------------------------------"
 }
 
-# === Usage function for info ===
-cmd_info_usage() {
-  echo_message "Usage: $0 info <vmname>"
-  echo_message "  Description: Displays detailed information about a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to display information for."
-  echo_message "  Example:"
-  echo_message "    $0 info myvm"
-}
-}
-
-# === Usage function for info ===
-cmd_info_usage() {
-  echo_message "Usage: $0 info <vmname>"
-  echo_message "  Description: Displays detailed information about a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname> - The name of the virtual machine to display information for."
-  echo_message "  Example:"
-  echo_message "    $0 info myvm"
-}
-}
-
 # === Subcommand: resize-disk ===
 cmd_resize_disk() {
-  if [ "$1" = "--help" ]; then
-    cmd_resize_disk_usage
-    exit 0
-  fi
-
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "[ERROR] Missing arguments for 'resize-disk'."
-    cmd_resize_disk_usage
+    echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
+    echo_message "Example:"
+    echo_message "  $0 resize-disk myvm 60"
     exit 1
   fi
 
@@ -1295,24 +1178,12 @@ cmd_resize_disk() {
   echo_message "Note: You may need to extend the partition inside the VM operating system."
 }
 
-# === Usage function for resize-disk ===
-cmd_resize_disk_usage() {
-  echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
-  echo_message "  Description: Resizes the disk image of a specified virtual machine. Only supports increasing size."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>       - The name of the virtual machine."
-  echo_message "    <new_size_in_GB> - The new size of the VM disk in Gigabytes (e.g., 60 for 60GB)."
-  echo_message "  Example:"
-  echo_message "    $0 resize-disk myvm 60"
-}
-  if [ "$1" = "--help" ]; then
-    cmd_export_usage
-    exit 0
-  fi
-
+# === Subcommand: export ===
+cmd_export() {
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "[ERROR] Missing arguments for 'export'."
-    cmd_export_usage
+    echo_message "Usage: $0 export <vmname> <destination_path>"
+    echo_message "Example:"
+    echo_message "  $0 export myvm /tmp/myvm_backup.tar.gz"
     exit 1
   fi
 
@@ -1340,24 +1211,12 @@ cmd_resize_disk_usage() {
   log "VM '$VMNAME' exported successfully to '$DEST_PATH'."
 }
 
-# === Usage function for export ===
-cmd_export_usage() {
-  echo_message "Usage: $0 export <vmname> <destination_path>"
-  echo_message "  Description: Exports a virtual machine to a compressed archive file."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>         - The name of the virtual machine to export."
-  echo_message "    <destination_path> - The full path including filename for the output archive (e.g., /tmp/myvm_backup.tar.gz)."
-  echo_message "  Example:"
-  echo_message "    $0 export myvm /tmp/myvm_backup.tar.gz"
-}
-  if [ "$1" = "--help" ]; then
-    cmd_import_usage
-    exit 0
-  fi
-
+# === Subcommand: import ===
+cmd_import() {
   if [ -z "$1" ]; then
-    echo_message "[ERROR] Missing archive path for 'import'."
-    cmd_import_usage
+    echo_message "Usage: $0 import <path_to_vm_archive>"
+    echo_message "Example:"
+    echo_message "  $0 import /tmp/myvm_backup.tar.gz"
     exit 1
   fi
 
@@ -1431,38 +1290,14 @@ cmd_export_usage() {
   echo_message "You can now start it with: $0 start $IMPORTED_VMNAME"
 }
 
-# === Usage function for import ===
-cmd_import_usage() {
-  echo_message "Usage: $0 import <path_to_vm_archive>"
-  echo_message "  Description: Imports a virtual machine from a compressed archive file."
-  echo_message "  Arguments:"
-  echo_message "    <path_to_vm_archive> - The full path to the VM archive file (e.g., /tmp/myvm_backup.tar.gz)."
-  echo_message "  Example:"
-  echo_message "    $0 import /tmp/myvm_backup.tar.gz"
-}
-}
-
-# === Usage function for import ===
-cmd_import_usage() {
-  echo_message "Usage: $0 import <path_to_vm_archive>"
-  echo_message "  Description: Imports a virtual machine from a compressed archive file."
-  echo_message "  Arguments:"
-  echo_message "    <path_to_vm_archive> - The full path to the VM archive file (e.g., /tmp/myvm_backup.tar.gz)."
-  echo_message "  Example:"
-  echo_message "    $0 import /tmp/myvm_backup.tar.gz"
-}
-}
-
 # === Subcommand: network add ===
 cmd_network_add() {
-  if [ "$1" = "--help" ]; then
-    cmd_network_add_usage
-    exit 0
-  fi
-
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "[ERROR] Missing arguments for 'network add'."
-    cmd_network_add_usage
+    echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
+    echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
+    echo_message "Example:"
+    echo_message "  $0 network add myvm bridge1"
+    echo_message "  $0 network add myvm bridge2 58:9c:fc:00:00:01"
     exit 1
   fi
 
@@ -1533,75 +1368,12 @@ cmd_network_add() {
   echo_message "Network interface added to VM '$VMNAME'. Please restart the VM for changes to take effect."
 }
 
-# === Usage function for network add ===
-cmd_network_add_usage() {
-  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
-  echo_message "  Description: Adds a network interface to a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>      - The name of the virtual machine."
-  echo_message "    <bridge_name> - The name of the bridge to connect the new interface to."
-  echo_message "    [mac_address] - Optional. A specific MAC address for the new interface. If omitted, a unique MAC will be assigned."
-  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
-  echo_message "  Example:"
-  echo_message "    $0 network add myvm bridge1"
-  echo_message "    $0 network add myvm bridge2 58:9c:fc:00:00:01"
-}
-}
-
-# === Usage function for network add ===
-cmd_network_add_usage() {
-  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
-  echo_message "  Description: Adds a network interface to a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>      - The name of the virtual machine."
-  echo_message "    <bridge_name> - The name of the bridge to connect the new interface to."
-  echo_message "    [mac_address] - Optional. A specific MAC address for the new interface. If omitted, a unique MAC will be assigned."
-  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
-  echo_message "  Example:"
-  echo_message "    $0 network add myvm bridge1"
-  echo_message "    $0 network add myvm bridge2 58:9c:fc:00:00:01"
-}
-}
-
-# === Usage function for network add ===
-cmd_network_add_usage() {
-  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
-  echo_message "  Description: Adds a network interface to a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>      - The name of the virtual machine."
-  echo_message "    <bridge_name> - The name of the bridge to connect the new interface to."
-  echo_message "    [mac_address] - Optional. A specific MAC address for the new interface. If omitted, a unique MAC will be assigned."
-  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
-  echo_message "  Example:"
-  echo_message "    $0 network add myvm bridge1"
-  echo_message "    $0 network add myvm bridge2 58:9c:fc:00:00:01"
-}
-
-# === Usage function for network add ===
-cmd_network_add_usage() {
-  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
-  echo_message "  Description: Adds a network interface to a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>      - The name of the virtual machine."
-  echo_message "    <bridge_name> - The name of the bridge to connect the new interface to."
-  echo_message "    [mac_address] - Optional. A specific MAC address for the new interface. If omitted, a unique MAC will be assigned."
-  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
-  echo_message "  Example:"
-  echo_message "    $0 network add myvm bridge1"
-  echo_message "    $0 network add myvm bridge2 58:9c:fc:00:00:01"
-}
-}
-
 # === Subcommand: network remove ===
 cmd_network_remove() {
-  if [ "$1" = "--help" ]; then
-    cmd_network_remove_usage
-    exit 0
-  fi
-
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "[ERROR] Missing arguments for 'network remove'."
-    cmd_network_remove_usage
+    echo_message "Usage: $0 network remove <vmname> <tap_name>"
+    echo_message "Example:"
+    echo_message "  $0 network remove myvm tap0"
     exit 1
   fi
 
@@ -1686,42 +1458,6 @@ cmd_network_remove() {
 
   log "Removed network interface '$TAP_TO_REMOVE' from VM '$VMNAME'."
   echo_message "Network interface removed from VM '$VMNAME'. Please restart the VM for changes to take effect."
-}
-
-# === Usage function for network remove ===
-cmd_network_remove_usage() {
-  echo_message "Usage: $0 network remove <vmname> <tap_name>"
-  echo_message "  Description: Removes a network interface from a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>  - The name of the virtual machine."
-  echo_message "    <tap_name> - The name of the TAP interface to remove (e.g., tap0, tap1)."
-  echo_message "  Example:"
-  echo_message "    $0 network remove myvm tap0"
-}
-}
-
-# === Usage function for network remove ===
-cmd_network_remove_usage() {
-  echo_message "Usage: $0 network remove <vmname> <tap_name>"
-  echo_message "  Description: Removes a network interface from a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>  - The name of the virtual machine."
-  echo_message "    <tap_name> - The name of the TAP interface to remove (e.g., tap0, tap1)."
-  echo_message "  Example:"
-  echo_message "    $0 network remove myvm tap0"
-}
-}
-
-# === Usage function for network remove ===
-cmd_network_remove_usage() {
-  echo_message "Usage: $0 network remove <vmname> <tap_name>"
-  echo_message "  Description: Removes a network interface from a specified virtual machine."
-  echo_message "  Arguments:"
-  echo_message "    <vmname>  - The name of the virtual machine."
-  echo_message "    <tap_name> - The name of the TAP interface to remove (e.g., tap0, tap1)."
-  echo_message "  Example:"
-  echo_message "    $0 network remove myvm tap0"
-}
 }
 
 # === Main logic ===
@@ -1826,22 +1562,14 @@ For detailed usage of each command, use: $0 <command> --help"
         shift
         cmd_network_remove "$@"
         ;;
-      --help)
-        echo_message "Usage: $0 network [subcommand] [arguments]"
-        echo_message "
-Subcommands:
-  add    - Add a network interface to a VM
-  remove - Remove a network interface from a VM"
-        exit 0
-        ;;
       *)
-        echo_message "[ERROR] Invalid subcommand or missing arguments for 'network'."
-        echo_message "
-Usage: $0 network [subcommand] [arguments]
-
-Subcommands:
-  add    - Add a network interface to a VM
-  remove - Remove a network interface from a VM"
+        echo_message " "
+        echo_message "Invalid subcommand: $1"
+        echo_message " "
+        echo_message "Usage: $0 network <add|remove> [arguments]"
+        echo_message "  add <vmname> <bridge_name> [mac_address]    - Add a network interface to a VM"
+        echo_message "  remove <vmname> <tap_name>                  - Remove a network interface from a VM"
+        echo_message " "
         exit 1
         ;;
     esac
