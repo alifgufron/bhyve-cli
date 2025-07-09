@@ -174,8 +174,18 @@ cmd_network_usage() {
 
 # === Usage function for network add ===
 cmd_network_add_usage() {
-  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
-  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned.\nExample:\n  $0 network add myvm bridge1\n  $0 network add myvm bridge2 58:9c:fc:00:00:01"
+  echo_message "Usage: $0 network add --vm <vmname> --switch <bridge_name> [--mac <mac_address>]"
+  echo_message "
+  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
+  echo_message "
+Example:"
+  echo_message "  $0 network add --vm myvm --switch bridge1"
+  echo_message "  $0 network add --vm myvm --switch bridge2 --mac 58:9c:fc:00:00:01"
+  echo_message "
+Options:"
+  echo_message "  --vm     - name vm"
+  echo_message "  --switch - name switch"
+  echo_message "  --mac    - MAC address (optional)"
 }
 
 # === Usage function for network remove ===
@@ -1445,14 +1455,39 @@ cmd_import() {
 
 # === Subcommand: network add ===
 cmd_network_add() {
-  if [ -z "$1" ] || [ -z "$2" ]; then
+  local VMNAME=""
+  local BRIDGE_NAME=""
+  local MAC_ADDRESS=""
+
+  # Parse named arguments
+  while (( "$#" )); do
+    case "$1" in
+      --vm)
+        shift
+        VMNAME="$1"
+        ;;
+      --switch)
+        shift
+        BRIDGE_NAME="$1"
+        ;;
+      --mac)
+        shift
+        MAC_ADDRESS="$1"
+        ;;
+      *)
+        echo_message "[ERROR] Invalid option: $1"
+        cmd_network_add_usage
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  # Validate required arguments
+  if [ -z "$VMNAME" ] || [ -z "$BRIDGE_NAME" ]; then
     cmd_network_add_usage
     exit 1
   fi
-
-  VMNAME="$1"
-  BRIDGE_NAME="$2"
-  MAC_ADDRESS="$3"
 
   load_vm_config "$VMNAME"
 
