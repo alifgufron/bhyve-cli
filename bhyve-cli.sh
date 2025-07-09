@@ -147,6 +147,16 @@ Option:
   --vlan <vlan_tag>            - Optional. VLAN ID if the interface to be removed is a VLAN interface. The corresponding VLAN interface (e.g., vlan100) will also be destroyed."
 }
 
+# === Usage function for switch ===
+cmd_switch_usage() {
+  echo_message "Usage: $0 switch [subcommand] [Option] [Arguments]"
+  echo_message "
+Subcommands:
+  add    - Create a bridge and add a physical interface
+  list   - List all bridge interfaces and their members
+  remove - Remove a physical interface from a bridge"
+}
+
 # === Subcommand: switch list ===
 cmd_switch_list() {
   echo_message "List of Bridge Interfaces:"
@@ -1590,31 +1600,24 @@ For detailed usage of each command, use: $0 <command> --help"
         cmd_switch_remove "$@"
         ;;
       --help)
-        echo_message "Usage: $0 switch [subcommand] [Option] [Arguments]"
-        echo_message "
-Subcommands:
-  add    - Create a bridge and add a physical interface
-  list   - List all bridge interfaces and their members
-  remove - Remove a physical interface from a bridge"
+        cmd_switch_usage
         exit 0
         ;;
       *)
-        echo_message "[ERROR] Invalid subcommand or missing arguments for 'switch'."
-        echo_message "
-Usage: $0 switch [subcommand] [Option] [Arguments]
-
-Subcommands:
-  add    - Create a bridge and add a physical interface
-  list   - List all bridge interfaces and their members
-  remove - Remove a physical interface from a bridge"
+        if [ -n "$1" ]; then
+            echo_message "[ERROR] Invalid subcommand for 'switch': $1"
+        fi
+        cmd_switch_usage
         exit 1
         ;;
     esac
     ;;
   *)
-    echo_message " "
-    echo_message "Error: Invalid command: $1"
-    echo_message " "
+    if [ -n "$1" ]; then
+      echo_message " "
+      echo_message "Error: Invalid command: $1"
+      echo_message " "
+    fi
     echo_message "Usage: $0 <command> [options/arguments]"
     echo_message " "
     echo_message "Available Commands:"
