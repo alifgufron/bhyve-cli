@@ -266,6 +266,7 @@ cmd_switch_add() {
       exit 1
     fi
     log "VLAN interface '$VLAN_IF' successfully configured."
+    echo_message "Successfully created interface $VLAN_IF with VLAN $VLAN_TAG and vlandev to $PHYS_IF."
     MEMBER_IF="$VLAN_IF"
   fi
 
@@ -289,7 +290,7 @@ cmd_switch_add() {
     exit 1
   fi
   log "Interface '$MEMBER_IF' successfully added to bridge '$BRIDGE_NAME'."
-  echo_message "Bridge '$BRIDGE_NAME' now has member '$MEMBER_IF'."
+  echo_message "Now interface '$MEMBER_IF' is a member of bridge '$BRIDGE_NAME'."
 }
 
 
@@ -1593,6 +1594,7 @@ cmd_network_add() {
     log "Bridge interface '$BRIDGE_NAME' does not exist. Creating..."
     ifconfig bridge create name "$BRIDGE_NAME"
     log "Bridge interface '$BRIDGE_NAME' successfully created."
+    echo_message "Switch bridge '$BRIDGE_NAME' successfully created."
   else
     log "Bridge interface '$BRIDGE_NAME' already exists."
   fi
