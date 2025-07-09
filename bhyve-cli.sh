@@ -755,10 +755,30 @@ cmd_stop() {
   log "VM '$VMNAME' successfully stopped."
 }
 
+# === Usage function for console ===
+cmd_console_usage() {
+  echo_message "Usage: $0 console <vmname>"
+}
+
+# === Usage function for logs ===
+cmd_logs_usage() {
+  echo_message "Usage: $0 logs <vmname>"
+}
+
+# === Usage function for autostart ===
+cmd_autostart_usage() {
+  echo_message "Usage: $0 autostart <vmname> <enable|disable>"
+}
+
+# === Usage function for info ===
+cmd_info_usage() {
+  echo_message "Usage: $0 info <vmname>"
+}
+
 # === Subcommand: console ===
 cmd_console() {
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 console <vmname>"
+    cmd_console_usage
     exit 1
   fi
 
@@ -784,7 +804,7 @@ cmd_console() {
 # === Subcommand: logs ===
 cmd_logs() {
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 logs <vmname>"
+    cmd_logs_usage
     exit 1
   fi
 
@@ -891,7 +911,7 @@ cmd_status() {
 # === Subcommand: autostart ===
 cmd_autostart() {
   if [ -z "$1" ] || ( [ "$2" != "enable" ] && [ "$2" != "disable" ] ); then
-    echo_message "Usage: $0 autostart <vmname> <enable|disable>"
+    cmd_autostart_usage
     exit 1
   fi
 
