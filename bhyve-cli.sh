@@ -25,7 +25,7 @@ log() {
 
 # === Function to echo messages to console without timestamp ===
 echo_message() {
-  echo "$1" >&2
+  echo -e "$1" >&2
 }
 
 # === Fungsi untuk memuat konfigurasi VM ===
