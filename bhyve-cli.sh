@@ -932,13 +932,30 @@ cmd_autostart() {
   fi
 }
 
+# === Usage function for modify ===
+cmd_modify_usage() {
+  echo_message "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--nic <index> --tap <tap_name> --mac <mac_address> --bridge <bridge_name>]"
+  echo_message "Example:"
+  echo_message "  $0 modify myvm --cpu 4 --ram 4096M"
+  echo_message "  $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
+}
+
+# === Usage function for clone ===
+cmd_clone_usage() {
+  echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
+  echo_message "Example:"
+  echo_message "  $0 clone myvm newvm"
+}
+
+# === Usage function for info ===
+cmd_info_usage() {
+  echo_message "Usage: $0 info <vmname>"
+}
+
 # === Subcommand: modify ===
 cmd_modify() {
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--tap <tap_name>] [--bridge <bridge_name>]"
-    echo_message "Example:"
-    echo_message "  $0 modify myvm --cpu 4 --ram 4096M"
-    echo_message "  $0 modify myvm --tap tap1 --bridge bridge1"
+    cmd_modify_usage
     exit 1
   fi
 
@@ -1015,9 +1032,7 @@ cmd_modify() {
 # === Subcommand: clone ===
 cmd_clone() {
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
-    echo_message "Example:"
-    echo_message "  $0 clone myvm newvm"
+    cmd_clone_usage
     exit 1
   fi
 
@@ -1130,7 +1145,7 @@ EOF
 # === Subcommand: info ===
 cmd_info() {
   if [ -z "$1" ]; then
-    echo_message "Usage: $0 info <vmname>"
+    cmd_info_usage
     exit 1
   fi
 
