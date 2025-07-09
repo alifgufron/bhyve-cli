@@ -100,7 +100,6 @@ cmd_switch_add() {
 
   # Validate required arguments
   if [ -z "$BRIDGE_NAME" ] || [ -z "$PHYS_IF" ]; then
-    echo_message "[ERROR] Bridge name and physical interface must be specified."
     cmd_switch_add_usage
     exit 1
   fi
@@ -241,7 +240,6 @@ cmd_switch_remove() {
 
   # Validate required arguments
   if [ -z "$BRIDGE_NAME" ] || [ -z "$PHYS_IF" ]; then
-    echo_message "[ERROR] Bridge name and physical interface must be specified."
     cmd_switch_remove_usage
     exit 1
   fi
@@ -1401,14 +1399,26 @@ cmd_import() {
   echo_message "You can now start it with: $0 start $IMPORTED_VMNAME"
 }
 
+# === Usage function for network add ===
+cmd_network_add_usage() {
+  echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
+  echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
+  echo_message "Example:"
+  echo_message "  $0 network add myvm bridge1"
+  echo_message "  $0 network add myvm bridge2 58:9c:fc:00:00:01"
+}
+
+# === Usage function for network remove ===
+cmd_network_remove_usage() {
+  echo_message "Usage: $0 network remove <vmname> <tap_name>"
+  echo_message "Example:"
+  echo_message "  $0 network remove myvm tap0"
+}
+
 # === Subcommand: network add ===
 cmd_network_add() {
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "Usage: $0 network add <vmname> <bridge_name> [mac_address]"
-    echo_message "  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
-    echo_message "Example:"
-    echo_message "  $0 network add myvm bridge1"
-    echo_message "  $0 network add myvm bridge2 58:9c:fc:00:00:01"
+    cmd_network_add_usage
     exit 1
   fi
 
@@ -1482,9 +1492,7 @@ cmd_network_add() {
 # === Subcommand: network remove ===
 cmd_network_remove() {
   if [ -z "$1" ] || [ -z "$2" ]; then
-    echo_message "Usage: $0 network remove <vmname> <tap_name>"
-    echo_message "Example:"
-    echo_message "  $0 network remove myvm tap0"
+    cmd_network_remove_usage
     exit 1
   fi
 
@@ -1653,13 +1661,10 @@ case "$1" in
         cmd_network_remove "$@"
         ;;
       *)
-        echo_message " "
-        echo_message "Invalid subcommand: $1"
-        echo_message " "
-        echo_message "Usage: $0 network <add|remove> [arguments]"
-        echo_message "  add <vmname> <bridge_name> [mac_address]    - Add a network interface to a VM"
-        echo_message "  remove <vmname> <tap_name>                  - Remove a network interface from a VM"
-        echo_message " "
+        if [ -n "$1" ]; then
+            echo_message "[ERROR] Invalid subcommand for 'network': $1"
+        fi
+        cmd_network_usage
         exit 1
         ;;
     esac
