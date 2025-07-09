@@ -17,7 +17,8 @@ log() {
   # Log messages will always be written to the VM's specific log file with a timestamp.
   if [ -n "$LOG_FILE" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >> "$LOG_FILE"
-  }
+  fi
+}
 
 # === Function to echo messages to console without timestamp ===
 echo_message() {
