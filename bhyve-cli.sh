@@ -661,6 +661,7 @@ cmd_delete() {
   # === Delete VM directory ===
   log "Deleting VM directory: $VM_DIR"
   rm -rf "$VM_DIR"
+  unset LOG_FILE # Unset LOG_FILE after directory is removed
 
   display_and_log "INFO" "VM '$VMNAME' successfully deleted."
 }
