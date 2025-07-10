@@ -1402,10 +1402,33 @@ cmd_info() {
   echo_message "VM Information for '$VMNAME':"
   echo_message "----------------------------------------"
   local info_format="  %-15s: %s\n"
+
+  # Check runtime status first
+  local PID=$(pgrep -f "bhyve.*$VMNAME")
+  local STATUS_DISPLAY="STOPPED"
+  local CPU_USAGE="N/A"
+  local RAM_USAGE="N/A"
+
+  if [ -n "$PID" ]; then
+    STATUS_DISPLAY="RUNNING (PID: $PID)"
+    local PS_INFO=$(ps -p "$PID" -o %cpu,rss= | tail -n 1)
+    if [ -n "$PS_INFO" ]; then
+      CPU_USAGE=$(echo "$PS_INFO" | awk '{print $1 "%"}')
+      local RAM_RSS_KB=$(echo "$PS_INFO" | awk '{print $2}')
+      if command -v bc >/dev/null 2>&1; then
+        RAM_USAGE=$(echo "scale=0; $RAM_RSS_KB / 1024" | bc) # Convert KB to MB
+        RAM_USAGE="${RAM_USAGE}MB"
+      else
+        RAM_USAGE="${RAM_RSS_KB}KB (bc not found)"
+      fi
+    fi
+  fi
+
   printf "$info_format" "Name" "$VMNAME"
-  printf "$info_format" "UUID" "$UUID"
+  printf "$info_format" "Status" "$STATUS_DISPLAY" # Moved up
   printf "$info_format" "CPUs" "$CPUS"
   printf "$info_format" "Memory" "$MEMORY"
+  printf "$info_format" "Bootloader" "$BOOTLOADER_TYPE" # Added
   printf "$info_format" "Disk Path" "$VM_DIR/$DISK"
   local DISK_USAGE="N/A"
   if [ -f "$VM_DIR/$DISK" ]; then
@@ -1417,12 +1440,14 @@ cmd_info() {
     DISK_SET_DISPLAY="N/A"
   fi
   printf "$info_format" "Disk Set" "$DISK_SET_DISPLAY"
-  printf "$info_format" "TAP" "$TAP"
-  printf "$info_format" "MAC" "$MAC"
-  printf "$info_format" "Bridge" "$BRIDGE"
   printf "$info_format" "Console" "$CONSOLE"
   printf "$info_format" "Log File" "$LOG_FILE"
   printf "$info_format" "Autostart" "$AUTOSTART"
+
+  if [ "$STATUS_DISPLAY" != "STOPPED" ]; then # Only show CPU/RAM usage if running
+    printf "$info_format" "CPU Usage" "$CPU_USAGE"
+    printf "$info_format" "RAM Usage" "$RAM_USAGE"
+  fi
 
   echo_message "  ----------------------------------------"
   echo_message "  Network Interfaces:"
@@ -1447,28 +1472,6 @@ cmd_info() {
     printf "$info_format" "    BRIDGE_${NIC_IDX}" "$CURRENT_BRIDGE"
     NIC_IDX=$((NIC_IDX + 1))
   done
-
-  # Check runtime status
-  local PID=$(pgrep -f "bhyve.*$VMNAME")
-  if [ -n "$PID" ]; then
-    printf "$info_format" "Status" "RUNNING (PID: $PID)"
-    local PS_INFO=$(ps -p "$PID" -o %cpu,rss= | tail -n 1)
-    if [ -n "$PS_INFO" ]; then
-      local CPU_USAGE=$(echo "$PS_INFO" | awk '{print $1 "%"}')
-      local RAM_RSS_KB=$(echo "$PS_INFO" | awk '{print $2}')
-      local RAM_USAGE
-      if command -v bc >/dev/null 2>&1; then
-        RAM_USAGE=$(echo "scale=0; $RAM_RSS_KB / 1024" | bc) # Convert KB to MB
-        RAM_USAGE="${RAM_USAGE}MB"
-      else
-        RAM_USAGE="${RAM_RSS_KB}KB (bc not found)"
-      fi
-      printf "$info_format" "CPU Usage" "$CPU_USAGE"
-      printf "$info_format" "RAM Usage" "$RAM_USAGE"
-    fi
-  else
-    printf "$info_format" "Status" "STOPPED"
-  fi
   echo_message "----------------------------------------"
 }
 
