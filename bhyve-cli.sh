@@ -138,7 +138,9 @@ cmd_delete_usage() {
 
 # === Usage function for install ===
 cmd_install_usage() {
-  echo_message "Usage: $0 install <vmname>"
+  echo_message "Usage: $0 install <vmname> [--bootloader <type>]"
+  echo_message "\nOptions:"
+  echo_message "  --bootloader <type>          - Optional. Override the bootloader type for this installation (bhyveload, UEFI, grub2-bhyve, bootrom)."
 }
 
 # === Usage function for start ===
@@ -669,13 +671,40 @@ cmd_delete() {
 
 # === Subcommand: install ===
 cmd_install() {
-  if [ -z "$1" ]; then
+  local VMNAME=""
+  local INSTALL_BOOTLOADER_TYPE="" # Bootloader type for this installation only
+
+  # Parse arguments
+  VMNAME="$1"
+  shift
+
+  while (( "$#" )); do
+    case "$1" in
+      --bootloader)
+        shift
+        INSTALL_BOOTLOADER_TYPE="$1"
+        ;;
+      *)
+        display_and_log "ERROR" "Invalid option for install: $1"
+        cmd_install_usage
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  if [ -z "$VMNAME" ]; then
     cmd_install_usage
     exit 1
   fi
 
-  VMNAME="$1"
   load_vm_config "$VMNAME"
+
+  # Override BOOTLOADER_TYPE if specified for installation
+  if [ -n "$INSTALL_BOOTLOADER_TYPE" ]; then
+    BOOTLOADER_TYPE="$INSTALL_BOOTLOADER_TYPE"
+    log "Overriding bootloader for installation to: $BOOTLOADER_TYPE"
+  fi
 
   log "Starting VM '$VMNAME' installation..."
 
