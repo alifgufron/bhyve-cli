@@ -760,15 +760,15 @@ cmd_install() {
       ;;
   esac
 
-  # === Set LOADER based on BOOTLOADER_TYPE ===
-  LOADER=""
+  # === Set LOADER based on BOOTLOADER_TYPE and ISO selection ===
+  local BHYVE_LOADER_CLI_ARG=""
   if [ -n "$ISO_PATH" ]; then # If installing from ISO
     if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
       log "Bhyveload is not suitable for ISO installation. Omitting loader for direct ISO boot."
-      LOADER="" # Unset LOADER to allow direct ISO boot
+      # LOADER_CLI_ARG remains empty, bhyve will boot directly from ahci-cd
     elif [ "$BOOTLOADER_TYPE" = "UEFI" ] || [ "$BOOTLOADER_TYPE" = "bootrom" ]; then
       if [ -f "$UEFI_FIRMWARE_PATH" ]; then
-        LOADER="-l bootrom,$UEFI_FIRMWARE_PATH"
+        BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
         log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
       else
         display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH. Please install it or choose a different bootloader."
@@ -776,7 +776,7 @@ cmd_install() {
       fi
     elif [ "$BOOTLOADER_TYPE" = "grub2-bhyve" ]; then
       if [ -f "$VM_DIR/grub.conf" ]; then
-        LOADER="-l grub,${VM_DIR}/grub.conf"
+        BHYVE_LOADER_CLI_ARG="-l grub,${VM_DIR}/grub.conf"
         log "Using grub2-bhyve with config: ${VM_DIR}/grub.conf"
       else
         display_and_log "ERROR" "grub.conf not found in $VM_DIR. Please create it or choose a different bootloader."
@@ -790,10 +790,11 @@ cmd_install() {
     case "$BOOTLOADER_TYPE" in
       bhyveload)
         log "Using bhyveload as bootloader."
+        BHYVE_LOADER_CLI_ARG="-l /boot/loader" # Default bhyveload behavior for installed systems
         ;;
       UEFI|bootrom)
         if [ -f "$UEFI_FIRMWARE_PATH" ]; then
-          LOADER="-l bootrom,$UEFI_FIRMWARE_PATH"
+          BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
           log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
         else
           display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH. Please install it or choose a different bootloader."
@@ -802,7 +803,7 @@ cmd_install() {
         ;;
       grub2-bhyve)
         if [ -f "$VM_DIR/grub.conf" ]; then
-          LOADER="-l grub,${VM_DIR}/grub.conf"
+          BHYVE_LOADER_CLI_ARG="-l grub,${VM_DIR}/grub.conf"
           log "Using grub2-bhyve with config: ${VM_DIR}/grub.conf"
         else
           display_and_log "ERROR" "grub.conf not found in $VM_DIR. Please create it or choose a different bootloader."
@@ -816,19 +817,18 @@ cmd_install() {
     esac
   fi
 
-  # === Run bhyve in background ===
   log "Running bhyve installer in background..."
-  bhyve \
-    -c "$CPUS" \
-    -m "$MEMORY" \
-    -AHP \
-    -s 0,hostbridge \
-    -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
-    -s 4:0,ahci-cd,"$ISO_PATH" \
-    -s 5:0,virtio-net,"$TAP_0" \
-    -l com1,/dev/"${CONSOLE}A" \
-    -s 31,lpc \
-    $LOADER \
+  bhyve 
+    -c "$CPUS" 
+    -m "$MEMORY" 
+    -AHP 
+    -s 0,hostbridge 
+    -s 3:0,virtio-blk,"$VM_DIR/$DISK" 
+    -s 4:0,ahci-cd,"$ISO_PATH" 
+    -s 5:0,virtio-net,"$TAP_0" 
+    -l com1,/dev/"${CONSOLE}A" 
+    -s 31,lpc 
+    ${BHYVE_LOADER_CLI_ARG} 
     "$VMNAME" >> "$LOG_FILE" 2>&1 &
 
   VM_PID=$!
@@ -987,6 +987,14 @@ cmd_start() {
   # Run bhyve
   log "Starting VM '$VMNAME'..."
 
+  # Construct bhyve command arguments dynamically
+  local BHYVE_LOADER_CLI_ARG=""
+  if [ -n "$LOADER" ]; then
+    BHYVE_LOADER_CLI_ARG="-l $LOADER"
+  fi
+
+  log "Starting VM '$VMNAME'..."
+
   bhyve \
     -c "$CPUS" \
     -m "$MEMORY" \
@@ -994,9 +1002,9 @@ cmd_start() {
     -s 0,hostbridge \
     -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
     $NETWORK_ARGS \
-    -l com1,/dev/"${CONSOLE}A" \
+    -l com1,/dev/"${CONSOLE}A" \ # Serial console for bhyve
     -s 31,lpc \
-     $LOADER \
+    ${BHYVE_LOADER_CLI_ARG} \
     "$VMNAME" >> "$LOG_FILE" 2>&1 &
 
   BHYVE_PID=$!
