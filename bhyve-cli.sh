@@ -790,6 +790,12 @@ cmd_install() {
       ;;
   esac
 
+  # If bhyveload is selected and an ISO is used for installation, unset LOADER
+  if [ "$BOOTLOADER_TYPE" = "bhyveload" ] && [ -n "$ISO_PATH" ]; then
+    log "Bhyveload is not suitable for ISO installation. Omitting loader for direct ISO boot."
+    LOADER=""
+  fi
+
   # === Run bhyve in background ===
   log "Running bhyve installer in background..."
   bhyve \
@@ -1073,7 +1079,7 @@ cmd_logs() {
     exit 1
   fi
 
-      display_and_log "INFO" ">>> Displaying logs for VM '$VMNAME' (Press Ctrl+C to exit)"
+      echo_message ">>> Displaying logs for VM '$VMNAME' (Press Ctrl+C to exit)"
   tail -f "$LOG_FILE"
 }
 
