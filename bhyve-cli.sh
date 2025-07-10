@@ -625,7 +625,7 @@ cmd_delete() {
   log "Deleting VM '$VMNAME'..."
 
   # === Stop bhyve if still running ===
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
     log "VM is still running. Stopping bhyve process..."
     pkill -f "bhyve.*$VMNAME"
     sleep 1
@@ -660,6 +660,16 @@ cmd_delete() {
     fi
     NIC_IDX=$((NIC_IDX + 1))
   done
+
+  # === Remove console device files ===
+  if [ -e "/dev/${CONSOLE}A" ]; then
+    log "Removing console device /dev/${CONSOLE}A"
+    rm -f "/dev/${CONSOLE}A"
+  fi
+  if [ -e "/dev/${CONSOLE}B" ]; then
+    log "Removing console device /dev/${CONSOLE}B"
+    rm -f "/dev/${CONSOLE}B"
+  fi
 
   # === Delete VM directory ===
   log "Deleting VM directory: $VM_DIR"
@@ -709,7 +719,7 @@ cmd_install() {
   log "Starting VM '$VMNAME' installation..."
 
   # === Stop bhyve if still active ===
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
     log "VM '$VMNAME' is still running. Stopped..."
     pkill -f "bhyve.*$VMNAME"
     sleep 1
@@ -727,6 +737,7 @@ cmd_install() {
   echo_message "2. Download ISO from URL"
   read -rp "Choice [1/2]: " CHOICE
 
+  local ISO_PATH=""
   case "$CHOICE" in
     1)
       log "Searching for ISO files in $ISO_DIR..."
@@ -760,44 +771,50 @@ cmd_install() {
       ;;
   esac
 
-  # === Set LOADER based on BOOTLOADER_TYPE and ISO selection ===
-  local BHYVE_LOADER_CLI_ARG=""
-  if [ -n "$ISO_PATH" ]; then # If installing from ISO
-    if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
-      log "Bhyveload is not suitable for ISO installation. Omitting loader for direct ISO boot."
-      # LOADER_CLI_ARG remains empty, bhyve will boot directly from ahci-cd
-    elif [ "$BOOTLOADER_TYPE" = "UEFI" ] || [ "$BOOTLOADER_TYPE" = "bootrom" ]; then
-      if [ -f "$UEFI_FIRMWARE_PATH" ]; then
-        BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
-        log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
-      else
-        display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH. Please install it or choose a different bootloader."
-        exit 1
-      fi
-    elif [ "$BOOTLOADER_TYPE" = "grub2-bhyve" ]; then
-      if [ -f "$VM_DIR/grub.conf" ]; then
-        BHYVE_LOADER_CLI_ARG="-l grub,${VM_DIR}/grub.conf"
-        log "Using grub2-bhyve with config: ${VM_DIR}/grub.conf"
-      else
-        display_and_log "ERROR" "grub.conf not found in $VM_DIR. Please create it or choose a different bootloader."
-        exit 1
-      fi
-    else
-      display_and_log "ERROR" "Unsupported bootloader type for ISO installation: $BOOTLOADER_TYPE"
+  if [ -z "$ISO_PATH" ]; then
+    display_and_log "ERROR" "No ISO selected."
+    exit 1
+  fi
+
+  # === Installation Logic ===
+  if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
+    # --- BHYVELOAD INSTALL ---
+    log "Preparing for bhyveload installation from ISO: $ISO_PATH"
+    display_and_log "INFO" "Loading FreeBSD kernel from ISO via bhyveload..."
+    
+    bhyveload -c /dev/"${CONSOLE}A" -m "$MEMORY" -d "$ISO_PATH" "$VMNAME"
+    local bhyveload_exit_code=$?
+
+    if [ $bhyveload_exit_code -ne 0 ]; then
+      display_and_log "ERROR" "bhyveload failed with exit code $bhyveload_exit_code. Cannot proceed with installation."
+      bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1
       exit 1
     fi
-  else # If not installing from ISO, use the configured bootloader
+    log "bhyveload completed successfully."
+
+    log "Starting bhyve for installation..."
+    bhyve \
+      -c "$CPUS" \
+      -m "$MEMORY" \
+      -AHP \
+      -s 0,hostbridge \
+      -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
+      -s 4:0,ahci-cd,"$ISO_PATH" \
+      -s 5:0,virtio-net,"$TAP_0" \
+      -l com1,/dev/"${CONSOLE}A" \
+      -s 31,lpc \
+      "$VMNAME" >> "$LOG_FILE" 2>&1 &
+  else
+    # --- UEFI/GRUB INSTALL ---
+    log "Preparing for non-bhyveload installation..."
+    local BHYVE_LOADER_CLI_ARG=""
     case "$BOOTLOADER_TYPE" in
-      bhyveload)
-        log "Using bhyveload as bootloader."
-        BHYVE_LOADER_CLI_ARG="-l /boot/loader" # Default bhyveload behavior for installed systems
-        ;;
       UEFI|bootrom)
         if [ -f "$UEFI_FIRMWARE_PATH" ]; then
           BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
           log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
         else
-          display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH. Please install it or choose a different bootloader."
+          display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH."
           exit 1
         fi
         ;;
@@ -806,30 +823,30 @@ cmd_install() {
           BHYVE_LOADER_CLI_ARG="-l grub,${VM_DIR}/grub.conf"
           log "Using grub2-bhyve with config: ${VM_DIR}/grub.conf"
         else
-          display_and_log "ERROR" "grub.conf not found in $VM_DIR. Please create it or choose a different bootloader."
+          display_and_log "ERROR" "grub.conf not found in $VM_DIR."
           exit 1
         fi
         ;;
       *)
-        display_and_log "ERROR" "Unsupported bootloader type: $BOOTLOADER_TYPE"
+        display_and_log "ERROR" "Unsupported bootloader type for ISO installation: $BOOTLOADER_TYPE"
         exit 1
         ;;
     esac
-  fi
 
-  log "Running bhyve installer in background..."
-  bhyve 
-    -c "$CPUS" 
-    -m "$MEMORY" 
-    -AHP 
-    -s 0,hostbridge 
-    -s 3:0,virtio-blk,"$VM_DIR/$DISK" 
-    -s 4:0,ahci-cd,"$ISO_PATH" 
-    -s 5:0,virtio-net,"$TAP_0" 
-    -l com1,/dev/"${CONSOLE}A" 
-    -s 31,lpc 
-    ${BHYVE_LOADER_CLI_ARG} 
-    "$VMNAME" >> "$LOG_FILE" 2>&1 &
+    log "Running bhyve installer in background..."
+    bhyve \
+      -c "$CPUS" \
+      -m "$MEMORY" \
+      -AHP \
+      -s 0,hostbridge \
+      -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
+      -s 4:0,ahci-cd,"$ISO_PATH" \
+      -s 5:0,virtio-net,"$TAP_0" \
+      -l com1,/dev/"${CONSOLE}A" \
+      -s 31,lpc \
+      ${BHYVE_LOADER_CLI_ARG} \
+      "$VMNAME" >> "$LOG_FILE" 2>&1 &
+  fi
 
   VM_PID=$!
   log "Bhyve VM started in background with PID $VM_PID"
@@ -884,7 +901,7 @@ cmd_start() {
   log "Preparing Config for $VMNAME"
 
   # ==== Check if bhyve is still running
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
     log "VM '$VMNAME' is still running. Stopping..."
     pkill -f "bhyve.*$VMNAME"
     sleep 1
@@ -954,58 +971,75 @@ cmd_start() {
     true > "${mdm_device}B"
   fi
 
-  # === Set LOADER based on BOOTLOADER_TYPE ===
-  LOADER=""
-  case "$BOOTLOADER_TYPE" in
-    bhyveload)
-      log "Using bhyveload as bootloader."
-      ;;
-    UEFI|bootrom)
-      if [ -f "$UEFI_FIRMWARE_PATH" ]; then
-        LOADER="-l bootrom,$UEFI_FIRMWARE_PATH"
-        log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
-      else
-        display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH. Please install it or choose a different bootloader."
-        exit 1
-      fi
-      ;;
-    grub2-bhyve)
-      if [ -f "$VM_DIR/grub.conf" ]; then
-        LOADER="-l grub,${VM_DIR}/grub.conf"
-        log "Using grub2-bhyve with config: ${VM_DIR}/grub.conf"
-      else
-        display_and_log "ERROR" "grub.conf not found in $VM_DIR. Please create it or choose a different bootloader."
-        exit 1
-      fi
-      ;;
-    *)
-      display_and_log "ERROR" "Unsupported bootloader type: $BOOTLOADER_TYPE"
+  # === Start Logic ===
+  if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
+    # --- BHYVELOAD START ---
+    log "Loading kernel from disk via bhyveload..."
+    display_and_log "INFO" "Booting with bhyveload..."
+
+    bhyveload -c /dev/"${CONSOLE}A" -m "$MEMORY" -d "$VM_DIR/$DISK" "$VMNAME"
+    local bhyveload_exit_code=$?
+
+    if [ $bhyveload_exit_code -ne 0 ]; then
+      display_and_log "ERROR" "bhyveload failed with exit code $bhyveload_exit_code. Cannot start VM."
+      bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1
       exit 1
-      ;;
-  esac
+    fi
+    log "bhyveload completed successfully."
 
-  # Run bhyve
-  log "Starting VM '$VMNAME'..."
+    log "Starting VM '$VMNAME'..."
+    bhyve \
+      -c "$CPUS" \
+      -m "$MEMORY" \
+      -AHP \
+      -s 0,hostbridge \
+      -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
+      $NETWORK_ARGS \
+      -l com1,/dev/"${CONSOLE}A" \
+      -s 31,lpc \
+      "$VMNAME" >> "$LOG_FILE" 2>&1 &
+  else
+    # --- UEFI/GRUB START ---
+    log "Preparing for non-bhyveload start..."
+    local BHYVE_LOADER_CLI_ARG=""
+    case "$BOOTLOADER_TYPE" in
+      UEFI|bootrom)
+        if [ -f "$UEFI_FIRMWARE_PATH" ]; then
+          BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
+          log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
+        else
+          display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH."
+          exit 1
+        fi
+        ;;
+      grub2-bhyve)
+        if [ -f "$VM_DIR/grub.conf" ]; then
+          BHYVE_LOADER_CLI_ARG="-l grub,${VM_DIR}/grub.conf"
+          log "Using grub2-bhyve with config: ${VM_DIR}/grub.conf"
+        else
+          display_and_log "ERROR" "grub.conf not found in $VM_DIR."
+          exit 1
+        fi
+        ;;
+      *)
+        display_and_log "ERROR" "Unsupported bootloader type: $BOOTLOADER_TYPE"
+        exit 1
+        ;;
+    esac
 
-  # Construct bhyve command arguments dynamically
-  local BHYVE_LOADER_CLI_ARG=""
-  if [ -n "$LOADER" ]; then
-    BHYVE_LOADER_CLI_ARG="-l $LOADER"
+    log "Starting VM '$VMNAME'..."
+    bhyve \
+      -c "$CPUS" \
+      -m "$MEMORY" \
+      -AHP \
+      -s 0,hostbridge \
+      -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
+      $NETWORK_ARGS \
+      -l com1,/dev/"${CONSOLE}A" \
+      -s 31,lpc \
+      ${BHYVE_LOADER_CLI_ARG} \
+      "$VMNAME" >> "$LOG_FILE" 2>&1 &
   fi
-
-  log "Starting VM '$VMNAME'..."
-
-  bhyve \
-    -c "$CPUS" \
-    -m "$MEMORY" \
-    -AHP \
-    -s 0,hostbridge \
-    -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
-    $NETWORK_ARGS \
-    -l com1,/dev/"${CONSOLE}A" \ # Serial console for bhyve
-    -s 31,lpc \
-    ${BHYVE_LOADER_CLI_ARG} \
-    "$VMNAME" >> "$LOG_FILE" 2>&1 &
 
   BHYVE_PID=$!
 
@@ -1015,7 +1049,7 @@ cmd_start() {
   if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
     log "VM '$VMNAME' is running with PID $BHYVE_PID"
   else
-    display_and_log "ERROR" "Failed to start VM '$VMNAME' (PID not found)"
+    display_and_log "ERROR" "Failed to start VM '$VMNAME' - PID not found"
   fi
 }
 
@@ -1031,28 +1065,37 @@ cmd_stop() {
 
   log "Stopping VM '$VMNAME'..."
 
-  # === Check PID of active process
-  VM_PID=$(pgrep -f "bhyve.*$VMNAME")
+  # Find the PID of the bhyve process, anchor to end of line for specificity
+  VM_PID=$(ps -ax | grep "[b]hyve .* $VMNAME$" | awk '{print $1}')
 
-  if [ -z "$VM_PID" ]; then
+  if [ -n "$VM_PID" ]; then
+    # Handle multiple PIDs by not quoting the variable
+    log "Sending TERM signal to PID(s): $(echo "$VM_PID" | tr '\n' ' ')"
+    kill $VM_PID
+    sleep 1 # Wait a moment for the processes to terminate
+
+    # Loop through PIDs to check if they are still running and force kill if necessary
+    for pid in $VM_PID; do
+      if ps -p "$pid" > /dev/null 2>&1; then
+        log "PID $pid still running, forcing KILL..."
+        kill -9 "$pid"
+        sleep 1
+      fi
+    done
+    log "bhyve process stopped."
+  else
+    log "No running bhyve process found for '$VMNAME'."
+  fi
+
+  # Always attempt to destroy the VM from the kernel
+  # This is crucial for bhyveload and for cleaning up zombie VMs
+  if bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1; then
+    log "VM '$VMNAME' successfully destroyed from kernel memory."
+    display_and_log "INFO" "VM '$VMNAME' successfully stopped."
+  else
+    log "VM '$VMNAME' was not found in kernel memory (already destroyed or never started)."
     display_and_log "INFO" "VM '$VMNAME' is not running."
-    exit 0
   fi
-
-  # === Send TERM signal to bhyve
-  log "Sending TERM signal to PID $VM_PID"
-  kill "$VM_PID"
-
-  # === Wait for bhyve process to stop
-  sleep 1
-  if ps -p "$VM_PID" > /dev/null 2>&1; then
-    log "PID $VM_PID still running, Forcing KILL..."
-    kill -9 "$VM_PID"
-    sleep 1
-  fi
-
-  log "VM '$VMNAME' successfully stopped."
-  display_and_log "INFO" "VM '$VMNAME' successfully stopped."
 }
 
 
@@ -1143,56 +1186,31 @@ cmd_status() {
     local CPUS="${CPUS:-N/A}"
     local MEMORY="${MEMORY:-N/A}"
 
-    local ALL_TAPS=""
-    local ALL_MACS=""
-    local ALL_BRIDGES=""
-    local NIC_IDX=0
-    while true; do
-      local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
-      local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
-      local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
-
-      local CURRENT_TAP="${!CURRENT_TAP_VAR}"
-      local CURRENT_MAC="${!CURRENT_MAC_VAR}"
-      local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
-
-      if [ -z "$CURRENT_TAP" ]; then
-        break # No more network interfaces configured
-      fi
-
-      if [ -n "$ALL_TAPS" ]; then
-        ALL_TAPS+=","
-        ALL_MACS+=","
-        ALL_BRIDGES+=","
-      fi
-      ALL_TAPS+="$CURRENT_TAP"
-      ALL_MACS+="$CURRENT_MAC"
-      ALL_BRIDGES+="$CURRENT_BRIDGE"
-      NIC_IDX=$((NIC_IDX + 1))
-    done
-
-    local PID=$(pgrep -f "bhyve.*$VMNAME")
+    # Reliable status check, anchor to end of line for specificity
+    local PID=$(ps -ax | grep "[b]hyve .* $VMNAME$" | awk '{print $1}')
+    local BHYVECTL_STATUS=$(bhyvectl --vm="$VMNAME" --get-all 2>/dev/null)
+    local STATUS="STOPPED"
     local CPU_USAGE="N/A"
     local RAM_USAGE="N/A"
 
+    if [ -n "$PID" ] || [ -n "$BHYVECTL_STATUS" ]; then
+        STATUS="RUNNING"
+    fi
+
     if [ -n "$PID" ]; then
-      local STATUS="RUNNING"
       local PS_INFO=$(ps -p "$PID" -o %cpu,rss= | tail -n 1)
-      
       if [ -n "$PS_INFO" ]; then
         CPU_USAGE=$(echo "$PS_INFO" | awk '{print $1 "%"}')
         local RAM_RSS_KB=$(echo "$PS_INFO" | awk '{print $2}')
-        
         if command -v bc >/dev/null 2>&1; then
-          RAM_USAGE=$(echo "scale=0; $RAM_RSS_KB / 1024" | bc) # Convert KB to MB
+          RAM_USAGE=$(echo "scale=0; $RAM_RSS_KB / 1024" | bc)
           RAM_USAGE="${RAM_USAGE}MB"
         else
           RAM_USAGE="${RAM_RSS_KB}KB (bc not found)"
         fi
       fi
     else
-      local STATUS="STOPPED"
-      local PID="-"
+        PID="-"
     fi
 
     printf "$header_format" "$VMNAME" "$STATUS" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$PID"
@@ -1252,7 +1270,7 @@ cmd_modify() {
   local BRIDGE_NEW=""
 
   # Check if VM is running
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
     display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before modifying its configuration."
     exit 1
   fi
@@ -1338,7 +1356,7 @@ cmd_clone() {
   load_vm_config "$SOURCE_VMNAME"
 
   # Check if source VM is running
-  if pgrep -f "bhyve.*$SOURCE_VMNAME" > /dev/null; then
+  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $SOURCE_VMNAME$" > /dev/null; then
     display_and_log "ERROR" "Source VM '$SOURCE_VMNAME' is currently running. Please stop the VM before cloning."
     exit 1
   fi
@@ -1438,7 +1456,7 @@ cmd_info() {
   local info_format="  %-15s: %s\n"
 
   # Check runtime status first
-  local PID=$(pgrep -f "bhyve.*$VMNAME")
+  local PID=$(ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$")
   local STATUS_DISPLAY="STOPPED"
   local CPU_USAGE="N/A"
   local RAM_USAGE="N/A"
@@ -1529,7 +1547,7 @@ cmd_resize_disk() {
   local DISK_PATH="$VM_DIR/$DISK"
 
   # Check if VM is running
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
     display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before resizing its disk."
     exit 1
   fi
@@ -1578,7 +1596,7 @@ cmd_export() {
   fi
 
   # Check if VM is running
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
     display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before exporting."
     exit 1
   fi
@@ -1712,7 +1730,7 @@ cmd_network_add() {
   load_vm_config "$VMNAME"
 
   # Check if VM is running
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
     display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before adding a network interface."
     exit 1
   fi
@@ -1786,7 +1804,7 @@ cmd_network_remove() {
   load_vm_config "$VMNAME"
 
   # Check if VM is running
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
     display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before removing a network interface."
     exit 1
   fi
