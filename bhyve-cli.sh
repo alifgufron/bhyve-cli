@@ -9,6 +9,7 @@ fi
 # === Variabel dasar global ===
 BASEPATH="/home/admin/vm-bhvye"
 ISO_DIR="$BASEPATH/iso"
+UEFI_FIRMWARE_PATH="$BASEPATH/firmware/BHYVE_UEFI.fd"
 VERSION="1.0.0"
 GLOBAL_LOG_FILE="$BASEPATH/log"
 #BRIDGE="bridge100"
@@ -606,7 +607,7 @@ EOF
 
   display_and_log "INFO" "Configuration file created: $CONF"
   display_and_log "INFO" "VM '$VMNAME' successfully created."
-  display_and_log "INFO" "Please continue by running: $0 install $VMNAME"
+  echo_message "\nPlease continue by running: $0 install $VMNAME"
 }
 
 # === Subcommand: delete ===
@@ -737,11 +738,11 @@ cmd_install() {
       log "Using bhyveload as bootloader."
       ;;
     UEFI|bootrom)
-      if [ -f /usr/local/share/uefi-firmware/BHYVE_UEFI.fd ]; then
-        LOADER="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
-        log "Using UEFI firmware: BHYVE_UEFI.fd"
+      if [ -f "$UEFI_FIRMWARE_PATH" ]; then
+        LOADER="-l bootrom,$UEFI_FIRMWARE_PATH"
+        log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
       else
-        display_and_log "ERROR" "UEFI firmware not found at /usr/local/share/uefi-firmware/BHYVE_UEFI.fd. Please install it or choose a different bootloader."
+        display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH. Please install it or choose a different bootloader."
         exit 1
       fi
       ;;
@@ -909,11 +910,11 @@ cmd_start() {
       log "Using bhyveload as bootloader."
       ;;
     UEFI|bootrom)
-      if [ -f /usr/local/share/uefi-firmware/BHYVE_UEFI.fd ]; then
-        LOADER="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
-        log "Using UEFI firmware: BHYVE_UEFI.fd"
+      if [ -f "$UEFI_FIRMWARE_PATH" ]; then
+        LOADER="-l bootrom,$UEFI_FIRMWARE_PATH"
+        log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
       else
-        display_and_log "ERROR" "UEFI firmware not found at /usr/local/share/uefi-firmware/BHYVE_UEFI.fd. Please install it or choose a different bootloader."
+        display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH. Please install it or choose a different bootloader."
         exit 1
       fi
       ;;
