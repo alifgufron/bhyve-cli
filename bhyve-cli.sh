@@ -716,6 +716,31 @@ cmd_install() {
     log "Overriding bootloader for installation to: $BOOTLOADER_TYPE"
   fi
 
+  # For bhyveload, ensure nmdm module is loaded and device exists
+  if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
+    if ! kldstat -q -m nmdm; then
+      display_and_log "INFO" "Loading nmdm kernel module..."
+      kldload nmdm || { display_and_log "ERROR" "Failed to load nmdm kernel module. Cannot proceed."; exit 1; }
+    fi
+
+    # Manually create nmdm device nodes if they don't exist
+    local mdm_instance=$(echo "$CONSOLE" | sed 's/nmdm-.*\.//' | sed 's/[AB]$//')
+    local mdm_major=106 # Common major number for nmdm devices
+    local mdm_minor_A=$((2 * mdm_instance))
+    local mdm_minor_B=$((2 * mdm_instance + 1))
+
+    if [ ! -e "/dev/${CONSOLE}A" ]; then
+      log "Creating nmdm device node /dev/${CONSOLE}A"
+      mknod "/dev/${CONSOLE}A" c "$mdm_major" "$mdm_minor_A" || { display_and_log "ERROR" "Failed to create /dev/${CONSOLE}A"; exit 1; }
+      chmod 660 "/dev/${CONSOLE}A"
+    fi
+    if [ ! -e "/dev/${CONSOLE}B" ]; then
+      log "Creating nmdm device node /dev/${CONSOLE}B"
+      mknod "/dev/${CONSOLE}B" c "$mdm_major" "$mdm_minor_B" || { display_and_log "ERROR" "Failed to create /dev/${CONSOLE}B"; exit 1; }
+      chmod 660 "/dev/${CONSOLE}B"
+    fi
+  fi
+
   log "Starting VM '$VMNAME' installation..."
 
   # === Stop bhyve if still active ===
@@ -778,32 +803,60 @@ cmd_install() {
 
   # === Installation Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
-    # --- BHYVELOAD INSTALL ---
     log "Preparing for bhyveload installation from ISO: $ISO_PATH"
+
+    # Start bhyve in the background first
+    log "Launching bhyve process for installation..."
+    BHYVE_CMD="bhyve -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK -s 4:0,ahci-cd,$ISO_PATH -s 5:0,virtio-net,$TAP_0 -l com1,/dev/${CONSOLE}A -s 31,lpc $VMNAME"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    VM_PID=$!
+    log "Bhyve VM started in background with PID $VM_PID"
+
+    # Give bhyve a moment to initialize and open the nmdm device
+    sleep 2 # Increased sleep to ensure nmdm is ready
+
+    # Ensure no stale cu processes are attached to this console
+    log "Terminating any existing cu processes for /dev/${CONSOLE}B..."
+    pkill -f "cu -l /dev/${CONSOLE}B"
+    sleep 1 # Give time for pkill to take effect
+
+    # Connect cu to the console in the background
+    echo_message ""
+    echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+    cu -l /dev/"${CONSOLE}B" &
+    CU_PID=$!
+    log "Console (cu) started in background with PID $CU_PID"
+
+    # Execute bhyveload in foreground. Its output will go to the console via nmdm.
     display_and_log "INFO" "Loading FreeBSD kernel from ISO via bhyveload..."
-    
     bhyveload -c /dev/"${CONSOLE}A" -m "$MEMORY" -d "$ISO_PATH" "$VMNAME"
     local bhyveload_exit_code=$?
 
     if [ $bhyveload_exit_code -ne 0 ]; then
       display_and_log "ERROR" "bhyveload failed with exit code $bhyveload_exit_code. Cannot proceed with installation."
+      # Kill bhyve if bhyveload fails
+      kill "$VM_PID" 2>/dev/null
       bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1
       exit 1
     fi
     log "bhyveload completed successfully."
 
-    log "Starting bhyve for installation..."
-    bhyve \
-      -c "$CPUS" \
-      -m "$MEMORY" \
-      -AHP \
-      -s 0,hostbridge \
-      -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
-      -s 4:0,ahci-cd,"$ISO_PATH" \
-      -s 5:0,virtio-net,"$TAP_0" \
-      -l com1,/dev/"${CONSOLE}A" \
-      -s 31,lpc \
-      "$VMNAME" >> "$LOG_FILE" 2>&1 &
+    # The main script now waits for the bhyve process to finish.
+    # This is crucial for the VM to continue running the installer after bhyveload.
+    log "Waiting for bhyve process $VM_PID to exit..."
+    if ! wait "$VM_PID"; then
+      display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error. Check VM logs for details."
+      bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>/dev/null
+      exit 1
+    fi
+    log "Bhyve process $VM_PID exited."
+
+    # After bhyve exits, ensure the cu process is also stopped
+    if ps -p "$CU_PID" > /dev/null 2>&1; then
+      log "Bhyve exited. Killing cu process $CU_PID..."
+      kill "$CU_PID" 2>/dev/null
+    fi
+
   else
     # --- UEFI/GRUB INSTALL ---
     log "Preparing for non-bhyveload installation..."
@@ -834,59 +887,94 @@ cmd_install() {
     esac
 
     log "Running bhyve installer in background..."
-    bhyve \
-      -c "$CPUS" \
-      -m "$MEMORY" \
-      -AHP \
-      -s 0,hostbridge \
-      -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
-      -s 4:0,ahci-cd,"$ISO_PATH" \
-      -s 5:0,virtio-net,"$TAP_0" \
-      -l com1,/dev/"${CONSOLE}A" \
-      -s 31,lpc \
-      ${BHYVE_LOADER_CLI_ARG} \
-      "$VMNAME" >> "$LOG_FILE" 2>&1 &
-  fi
+    BHYVE_CMD="bhyve -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK -s 4:0,ahci-cd,$ISO_PATH -s 5:0,virtio-net,$TAP_0 -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} $VMNAME"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    VM_PID=$!
+    log "Bhyve VM started in background with PID $VM_PID"
 
-  VM_PID=$!
-  log "Bhyve VM started in background with PID $VM_PID"
+    # Give bhyve a moment to initialize and open the nmdm device
+    sleep 2 # Increased sleep to ensure nmdm is ready
+
+    # Ensure no stale cu processes are attached to this console
+    log "Terminating any existing cu processes for /dev/${CONSOLE}B..."
+    pkill -f "cu -l /dev/${CONSOLE}B"
+    sleep 1 # Give time for pkill to take effect
+
+    # Connect cu to the console in the foreground
+    echo_message ""
+    echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+    cu -l /dev/"${CONSOLE}B"
+
+    # After cu exits, the main script should wait for the bhyve process to finish.
+    log "cu session ended. Waiting for bhyve process $VM_PID to exit..."
+    if ! wait "$VM_PID"; then
+      display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error. Check VM logs for details."
+      bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>/dev/null
+      exit 1
+    fi
+    log "Bhyve process $VM_PID exited."
 
   # === CTRL+C Handler ===
   cleanup() {
     echo_message ""
-    display_and_log "INFO" "SIGINT received, Force stopping vm-bhyve (PID $VM_PID)..."
-    kill "$VM_PID"
+    display_and_log "INFO" "SIGINT received, Force stopping VM '$VMNAME'..."
 
-    sleep 1
+    # Kill the bhyve process
     if ps -p "$VM_PID" > /dev/null 2>&1; then
-     log "PID $VM_PID still running, Forcing KILL..."
-     kill -9 "$VM_PID"
-     sleep 1
+      log "Killing bhyve process $VM_PID..."
+      kill "$VM_PID" 2>/dev/null
+      sleep 1
+      if ps -p "$VM_PID" > /dev/null 2>&1; then
+        log "bhyve PID $VM_PID still running, forcing KILL..."
+        kill -9 "$VM_PID" 2>/dev/null
+      fi
     fi
 
-    # Do not wait for VM_PID here, let the main script handle it
+    # Kill the bhyveload monitor process if it's still running
+    if [ -n "$BHYVELOAD_MONITOR_PID" ] && ps -p "$BHYVELOAD_MONITOR_PID" > /dev/null 2>&1; then
+      log "Killing bhyveload monitor process $BHYVELOAD_MONITOR_PID..."
+      kill "$BHYVELOAD_MONITOR_PID" 2>/dev/null
+    fi
+
+    # Kill any cu processes connected to this VM's console
+    log "Killing cu processes connected to /dev/${CONSOLE}B..."
+    pkill -f "cu -l /dev/${CONSOLE}B"
+
+    # Ensure VM is destroyed from kernel
+    bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1
     log "Installer for $VMNAME forced stop by user."
     exit 0
   }
   trap cleanup INT
 
-  # === Automatic console ===
-  echo_message ""
-  echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
-  cu -l /dev/"${CONSOLE}B"
-
-  # === Wait for bhyve to finish or fail ===
+  # The main script now waits for the bhyve process to finish,
+  # which means bhyve has exited.
+  # This wait is important to ensure the script doesn't exit before bhyve.
+  # However, if cu is in foreground, this wait will only be reached after cu exits.
+  # The previous `if ps -p "$VM_PID"` block handles stopping bhyve if cu exits first.
+  # So, this final wait is mostly for cases where bhyve exits before cu.
   if ! wait "$VM_PID"; then
     display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error. Check VM logs for details."
+    # Ensure VM is destroyed from kernel if it failed to boot
+    bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1
     exit 1
   fi
 
   log "Installer for $VMNAME has stopped (exit)"
 
+  # Ensure VM is destroyed from kernel after installation completes or VM shuts down
+  if bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1; then
+    log "VM '$VMNAME' successfully destroyed from kernel memory after installation."
+  else
+    log "VM '$VMNAME' was not found in kernel memory after installation (already destroyed or never started)."
+  fi
+
   echo_message ""
   display_and_log "INFO" "Installer finished. If OS installation was successful, start the VM with:"
   display_and_log "INFO" "  $0 start $VMNAME"
+fi
 }
+
 
 # === Subcommand: start ===
 cmd_start() {
@@ -988,16 +1076,8 @@ cmd_start() {
     log "bhyveload completed successfully."
 
     log "Starting VM '$VMNAME'..."
-    bhyve \
-      -c "$CPUS" \
-      -m "$MEMORY" \
-      -AHP \
-      -s 0,hostbridge \
-      -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
-      $NETWORK_ARGS \
-      -l com1,/dev/"${CONSOLE}A" \
-      -s 31,lpc \
-      "$VMNAME" >> "$LOG_FILE" 2>&1 &
+    BHYVE_CMD="bhyve -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc $VMNAME"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
   else
     # --- UEFI/GRUB START ---
     log "Preparing for non-bhyveload start..."
@@ -1028,17 +1108,8 @@ cmd_start() {
     esac
 
     log "Starting VM '$VMNAME'..."
-    bhyve \
-      -c "$CPUS" \
-      -m "$MEMORY" \
-      -AHP \
-      -s 0,hostbridge \
-      -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
-      $NETWORK_ARGS \
-      -l com1,/dev/"${CONSOLE}A" \
-      -s 31,lpc \
-      ${BHYVE_LOADER_CLI_ARG} \
-      "$VMNAME" >> "$LOG_FILE" 2>&1 &
+    BHYVE_CMD="bhyve -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} $VMNAME"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
   fi
 
   BHYVE_PID=$!
@@ -1085,6 +1156,24 @@ cmd_stop() {
     log "bhyve process stopped."
   else
     log "No running bhyve process found for '$VMNAME'."
+  fi
+
+  # === Stop associated console (cu) processes ===
+  log "Attempting to stop associated cu process for /dev/${CONSOLE}B..."
+  pkill -f "cu -l /dev/${CONSOLE}B"
+  if [ $? -eq 0 ]; then
+    log "cu process for /dev/${CONSOLE}B stopped."
+  else
+    log "No cu process found or failed to stop for /dev/${CONSOLE}B."
+  fi
+
+  # === Stop associated log (tail -f) processes ===
+  log "Attempting to stop associated tail -f process for $LOG_FILE..."
+  pkill -f "tail -f $LOG_FILE"
+  if [ $? -eq 0 ]; then
+    log "tail -f process for $LOG_FILE stopped."
+  else
+    log "No tail -f process found or failed to stop for $LOG_FILE."
   fi
 
   # Always attempt to destroy the VM from the kernel
@@ -1456,7 +1545,7 @@ cmd_info() {
   local info_format="  %-15s: %s\n"
 
   # Check runtime status first
-  local PID=$(ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$")
+  local PID=$(ps -ax | grep "[b]hyve .* -s .* $VMNAME$" | awk '{print $1}')
   local STATUS_DISPLAY="STOPPED"
   local CPU_USAGE="N/A"
   local RAM_USAGE="N/A"
