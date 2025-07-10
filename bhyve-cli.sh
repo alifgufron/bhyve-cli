@@ -827,11 +827,10 @@ cmd_install() {
   }
   trap cleanup INT
 
-  # === Automatic console (optional, for debugging during install) ===
-  # If you want to automatically connect to the console during install, uncomment the following lines:
-  # echo_message ""
-  # echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
-  # cu -l /dev/"${CONSOLE}B"
+  # === Automatic console ===
+  echo_message ""
+  echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+  cu -l /dev/"${CONSOLE}B"
 
   # === Wait for bhyve to finish or fail ===
   if ! wait "$VM_PID"; then
