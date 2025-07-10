@@ -762,11 +762,11 @@ cmd_install() {
 
   # === Set LOADER based on BOOTLOADER_TYPE ===
   LOADER=""
-  case "$BOOTLOADER_TYPE" in
-    bhyveload)
-      log "Using bhyveload as bootloader."
-      ;;
-    UEFI|bootrom)
+  if [ -n "$ISO_PATH" ]; then # If installing from ISO
+    if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
+      log "Bhyveload is not suitable for ISO installation. Omitting loader for direct ISO boot."
+      LOADER="" # Unset LOADER to allow direct ISO boot
+    elif [ "$BOOTLOADER_TYPE" = "UEFI" ] || [ "$BOOTLOADER_TYPE" = "bootrom" ]; then
       if [ -f "$UEFI_FIRMWARE_PATH" ]; then
         LOADER="-l bootrom,$UEFI_FIRMWARE_PATH"
         log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
@@ -774,8 +774,7 @@ cmd_install() {
         display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH. Please install it or choose a different bootloader."
         exit 1
       fi
-      ;;
-    grub2-bhyve)
+    elif [ "$BOOTLOADER_TYPE" = "grub2-bhyve" ]; then
       if [ -f "$VM_DIR/grub.conf" ]; then
         LOADER="-l grub,${VM_DIR}/grub.conf"
         log "Using grub2-bhyve with config: ${VM_DIR}/grub.conf"
@@ -783,17 +782,38 @@ cmd_install() {
         display_and_log "ERROR" "grub.conf not found in $VM_DIR. Please create it or choose a different bootloader."
         exit 1
       fi
-      ;;
-    *)
-      display_and_log "ERROR" "Unsupported bootloader type: $BOOTLOADER_TYPE"
+    else
+      display_and_log "ERROR" "Unsupported bootloader type for ISO installation: $BOOTLOADER_TYPE"
       exit 1
-      ;;
-  esac
-
-  # If bhyveload is selected and an ISO is used for installation, unset LOADER
-  if [ "$BOOTLOADER_TYPE" = "bhyveload" ] && [ -n "$ISO_PATH" ]; then
-    log "Bhyveload is not suitable for ISO installation. Omitting loader for direct ISO boot."
-    LOADER=""
+    fi
+  else # If not installing from ISO, use the configured bootloader
+    case "$BOOTLOADER_TYPE" in
+      bhyveload)
+        log "Using bhyveload as bootloader."
+        ;;
+      UEFI|bootrom)
+        if [ -f "$UEFI_FIRMWARE_PATH" ]; then
+          LOADER="-l bootrom,$UEFI_FIRMWARE_PATH"
+          log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
+        else
+          display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH. Please install it or choose a different bootloader."
+          exit 1
+        fi
+        ;;
+      grub2-bhyve)
+        if [ -f "$VM_DIR/grub.conf" ]; then
+          LOADER="-l grub,${VM_DIR}/grub.conf"
+          log "Using grub2-bhyve with config: ${VM_DIR}/grub.conf"
+        else
+          display_and_log "ERROR" "grub.conf not found in $VM_DIR. Please create it or choose a different bootloader."
+          exit 1
+        fi
+        ;;
+      *)
+        display_and_log "ERROR" "Unsupported bootloader type: $BOOTLOADER_TYPE"
+        exit 1
+        ;;
+    esac
   fi
 
   # === Run bhyve in background ===
