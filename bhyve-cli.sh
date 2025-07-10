@@ -770,7 +770,7 @@ cmd_install() {
     -s 0,hostbridge \
     -s 3:0,virtio-blk,"$VM_DIR/$DISK" \
     -s 4:0,ahci-cd,"$ISO_PATH" \
-    -s 5:0,virtio-net,"$TAP" \
+    -s 5:0,virtio-net,"$TAP_0" \
     -l com1,/dev/"${CONSOLE}A" \
     -s 31,lpc \
     $LOADER \
@@ -778,14 +778,6 @@ cmd_install() {
 
   VM_PID=$!
   log "Bhyve VM started in background with PID $VM_PID"
-
-  # === Waiting for nmdmB device to appear ===
-  for i in $(seq 1 10); do
-    if [ -e "/dev/${CONSOLE}B" ]; then
-      break
-    fi
-    sleep 0.5
-  done
 
   # === CTRL+C Handler ===
   cleanup() {
@@ -800,19 +792,24 @@ cmd_install() {
      sleep 1
     fi
 
-    wait "$VM_PID"
+    # Do not wait for VM_PID here, let the main script handle it
     log "Installer for $VMNAME forced stop by user."
     exit 0
   }
   trap cleanup INT
 
-  # === Automatic console ===
-  echo_message ""
-  echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
-  cu -l /dev/"${CONSOLE}B"
+  # === Automatic console (optional, for debugging during install) ===
+  # If you want to automatically connect to the console during install, uncomment the following lines:
+  # echo_message ""
+  # echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+  # cu -l /dev/"${CONSOLE}B"
 
-  # === Wait for bhyve to finish ===
-  wait "$VM_PID" # Changed from BHYVE_PID to VM_PID
+  # === Wait for bhyve to finish or fail ===
+  if ! wait "$VM_PID"; then
+    display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error. Check VM logs for details."
+    exit 1
+  fi
+
   log "Installer for $VMNAME has stopped (exit)"
 
   echo_message ""
