@@ -136,26 +136,26 @@ main_usage() {
 # === Usage function for switch add ===
 cmd_switch_add_usage() {
   echo_message "Usage: $0 switch add --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]"
-  echo_message "\nOption:"
-  echo_message "  --name <bridge_name>         \t\t- Name of the bridge or vSwitch."
-  echo_message "  --interface <physical_interface> \t- Parent physical network interface (e.g., em0, igb1)."
-  echo_message "  --vlan <vlan_tag>            \t\t- Optional. VLAN ID if the parent interface is in trunk mode. A VLAN interface (e.g., vlan100) will be created on top of the physical interface"
-  echo_message "  \t\t\t\t  and tagged to the bridge."
+  echo_message "\nOptions:"
+  echo_message "  --name <bridge_name>         - Name of the bridge or vSwitch."
+  echo_message "  --interface <physical_interface> - Parent physical network interface (e.g., em0, igb1)."
+  echo_message "  --vlan <vlan_tag>            - Optional. VLAN ID if the parent interface is in trunk mode. A VLAN interface (e.g., vlan100) will be created on top of the physical interface and tagged to the bridge."
 }
-
-# === Usage function for switch remove ===
 
 
 # === Usage function for switch destroy ===
 cmd_switch_destroy_usage() {
   echo_message "Usage: $0 switch destroy <bridge_name>"
-  echo_message "  This command will destroy the specified bridge and all its members."
+  echo_message "\nArguments:"
+  echo_message "  <bridge_name> - The name of the bridge to destroy."
 }
 
 # === Usage function for switch delete ===
 cmd_switch_delete_usage() {
-  echo_message "Usage: $0 switch delete --member <interface> --from <bridge_name>"
-  echo_message "  This command will remove a specific member interface from a bridge."
+  echo_message "\nUsage: $0 switch delete --member <interface> --from <bridge_name>"
+  echo_message "\nOptions:"
+  echo_message "  --member <interface> \t- The specific member interface to remove (e.g., tap0, vlan100)."
+  echo_message "  --from <bridge_name> \t- The bridge from which to remove the member."
 }
 
 # === Usage function for switch ===
@@ -175,82 +175,126 @@ cmd_create_usage() {
   echo_message "  --name <vmname>              - Name of the virtual machine."
   echo_message "  --disk-size <size in GB>     - Size of the virtual disk in GB."
   echo_message "  --switch <bridge_name>       - Name of the network bridge to connect the VM to."
-  echo_message "  --bootloader <type>          - Optional. Type of bootloader (bhyveload, UEFI, grub2-bhyve, bootrom). Default: bhyveload."
+  echo_message "  --bootloader <type>          - Optional. Type of bootloader (bhyveload, uefi). Default: bhyveload."
   echo_message "\nExample:"
   echo_message "  $0 create --name vm-bsd --disk-size 40 --switch bridge100"
-  echo_message "  $0 create --name vm-uefi --disk-size 60 --switch bridge101 --bootloader UEFI"
+  echo_message "  $0 create --name vm-uefi --disk-size 60 --switch bridge101 --bootloader uefi"
 }
 
 # === Usage function for delete ===
 cmd_delete_usage() {
   echo_message "Usage: $0 delete <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to permanently delete."
 }
 
 # === Usage function for install ===
 cmd_install_usage() {
   echo_message "Usage: $0 install <vmname> [--bootloader <type>]"
   echo_message "\nOptions:"
-  echo_message "  --bootloader <type>          - Optional. Override the bootloader type for this installation (bhyveload, UEFI, grub2-bhyve, bootrom)."
+  echo_message "  --bootloader <type>          - Optional. Override the bootloader type for this installation (bhyveload, uefi)."
 }
 
 # === Usage function for start ===
 cmd_start_usage() {
   echo_message "Usage: $0 start <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to start."
 }
 
 # === Usage function for stop ===
 cmd_stop_usage() {
   echo_message "Usage: $0 stop <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to stop."
 }
 
 # === Usage function for console ===
 cmd_console_usage() {
   echo_message "Usage: $0 console <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to connect to."
 }
 
 # === Usage function for logs ===
 cmd_logs_usage() {
   echo_message "Usage: $0 logs <vmname>"
+  echo_message "
+Arguments:"
+  echo_message "  <vmname>    - The name of the virtual machine whose logs you want to view."
 }
 
 # === Usage function for autostart ===
 cmd_autostart_usage() {
   echo_message "Usage: $0 autostart <vmname> <enable|disable>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine."
+  echo_message "  <action>    - 'enable' to set the VM to autostart on boot, or 'disable' to prevent it."
 }
 
 # === Usage function for info ===
 cmd_info_usage() {
   echo_message "Usage: $0 info <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to display information about."
 }
 
 # === Usage function for modify ===
 cmd_modify_usage() {
   echo_message "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--nic <index> --tap <tap_name> --mac <mac_address> --bridge <bridge_name>]"
-  echo_message "Example:\n  $0 modify myvm --cpu 4 --ram 4096M\n  $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to modify."
+  echo_message "\nOptions:"
+  echo_message "  --cpu <num>                  - Set the number of virtual CPUs for the VM."
+  echo_message "  --ram <size>                 - Set the amount of RAM for the VM (e.g., 2G, 4096M)."
+  echo_message "  --nic <index>                - Specify the index of the network interface to modify (e.g., 0 for TAP_0)."
+  echo_message "  --tap <tap_name>             - Assign a new TAP device name to the specified NIC."
+  echo_message "  --mac <mac_address>          - Assign a new MAC address to the specified NIC."
+  echo_message "  --bridge <bridge_name>       - Connect the specified NIC to a different bridge."
+  echo_message "\nExample:"
+  echo_message "  $0 modify myvm --cpu 4 --ram 4096M"
+  echo_message "  $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
 }
 
 # === Usage function for clone ===
 cmd_clone_usage() {
   echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
-  echo_message "Example:\n  $0 clone myvm newvm"
+  echo_message "\nArguments:"
+  echo_message "  <source_vmname>    - The name of the existing virtual machine to clone."
+  echo_message "  <new_vmname>       - The name for the new cloned virtual machine."
+  echo_message "\nExample:"
+  echo_message "  $0 clone myvm newvm"
 }
 
 # === Usage function for resize-disk ===
 cmd_resize_disk_usage() {
   echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
-  echo_message "Example:\n  $0 resize-disk myvm 60"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>         - The name of the virtual machine whose disk you want to resize."
+  echo_message "  <new_size_in_GB> - The new size of the virtual disk in GB. Must be larger than the current size."
+  echo_message "\nExample:"
+  echo_message "  $0 resize-disk myvm 60"
 }
 
 # === Usage function for export ===
 cmd_export_usage() {
   echo_message "Usage: $0 export <vmname> <destination_path>"
-  echo_message "Example:\n  $0 export myvm /tmp/myvm_backup.tar.gz"
+  echo_message "
+Arguments:"
+  echo_message "  <vmname>           - The name of the virtual machine to export."
+  echo_message "  <destination_path> - The full path including the filename for the exported archive (e.g., /tmp/myvm_backup.tar.gz)."
+  echo_message "
+Example:"
+  echo_message "  $0 export myvm /tmp/myvm_backup.tar.gz"
 }
 
 # === Usage function for import ===
 cmd_import_usage() {
   echo_message "Usage: $0 import <path_to_vm_archive>"
-  echo_message "Example:\n  $0 import /tmp/myvm_backup.tar.gz"
+  echo_message "\nArguments:"
+  echo_message "  <path_to_vm_archive> - The full path to the VM archive file to import (e.g., /tmp/myvm_backup.tar.gz)."
+  echo_message "\nExample:"
+  echo_message "  $0 import /tmp/myvm_backup.tar.gz"
 }
 
 # === Usage function for network ===
@@ -265,20 +309,23 @@ cmd_network_usage() {
 # === Usage function for network add ===
 cmd_network_add_usage() {
   echo_message "Usage: $0 network add --vm <vmname> --switch <bridge_name> [--mac <mac_address>]"
-  echo_message "\n  Note: A unique TAP interface (e.g., tap0, tap1) will be automatically assigned."
+  echo_message "\nOptions:"
+  echo_message "  --vm <vmname>                - Name of the virtual machine to add the network interface to."
+  echo_message "  --switch <bridge_name>       - Name of the network bridge to connect the new interface to."
+  echo_message "  --mac <mac_address>          - Optional. Specific MAC address for the new interface. If omitted, a random one is generated."
   echo_message "\nExample:"
   echo_message "  $0 network add --vm myvm --switch bridge1"
   echo_message "  $0 network add --vm myvm --switch bridge2 --mac 58:9c:fc:00:00:01"
-  echo_message "\nOptions:"
-  echo_message "  --vm     - name vm"
-  echo_message "  --switch - name switch"
-  echo_message "  --mac    - MAC address (optional)"
 }
 
 # === Usage function for network remove ===
 cmd_network_remove_usage() {
   echo_message "Usage: $0 network remove <vmname> <tap_name>"
-  echo_message "Example:\n  $0 network remove myvm tap0"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to remove the network interface from."
+  echo_message "  <tap_name>  - The name of the TAP interface to remove (e.g., tap0, tap1)."
+  echo_message "\nExample:"
+  echo_message "  $0 network remove myvm tap0"
 }
 
 
@@ -1104,12 +1151,7 @@ cmd_stop() {
 
 
 
-# === Usage function for info ===
-cmd_info_usage() {
-  echo_message "Usage: $0 info <vmname>"
-}
 
-# === Subcommand: console ===
 cmd_console() {
   if [ -z "$1" ]; then
     cmd_console_usage
@@ -1245,12 +1287,7 @@ cmd_autostart() {
 
 
 
-# === Usage function for info ===
-cmd_info_usage() {
-  echo_message "Usage: $0 info <vmname>"
-}
 
-# === Subcommand: modify ===
 cmd_modify() {
   if [ -z "$1" ]; then
     cmd_modify_usage
