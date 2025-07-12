@@ -12,7 +12,11 @@ ISO_DIR="$BASEPATH/iso"
 UEFI_FIRMWARE_PATH="$BASEPATH/firmware/BHYVE_UEFI.fd"
 VERSION="1.0.0"
 GLOBAL_LOG_FILE="$BASEPATH/log"
-#BRIDGE="bridge100"
+
+# === bin bhyve ===
+BHYVE="/usr/sbin/bhyve"
+BHYVECTL="/usr/sbin/$BHYVECTL"
+BHYVELOAD="/usr/sbin/bhyveload"
 
 # === Fungsi log dengan timestamp ===
 log() {
@@ -40,6 +44,52 @@ display_and_log() {
   # Always write to global log file
   echo "$TIMESTAMP_MESSAGE" >> "$GLOBAL_LOG_FILE"
 }
+
+# === Prerequisite Checks ===
+check_root() {
+  if [ "$(id -u)" -ne 0 ]; then
+    display_and_log "ERROR" "This script must be run with superuser (root) privileges."
+    exit 1
+  fi
+}
+
+check_kld() {
+  if ! kldstat -q -m "$1"; then
+    display_and_log "ERROR" "Kernel module '$1.ko' is not loaded. Please run 'kldload $1'."
+    exit 1
+  fi
+}
+
+# === Helper Functions ===
+ensure_nmdm_device_nodes() {
+  local CONSOLE_DEVICE="$1"
+  if [ ! -e "/dev/${CONSOLE_DEVICE}A" ]; then
+    log "Creating nmdm device node /dev/${CONSOLE_DEVICE}A"
+    mknod "/dev/${CONSOLE_DEVICE}A" c 106 0 || { display_and_log "ERROR" "Failed to create /dev/${CONSOLE_DEVICE}A"; exit 1; }
+    chmod 660 "/dev/${CONSOLE_DEVICE}A"
+  fi
+  if [ ! -e "/dev/${CONSOLE_DEVICE}B" ]; then
+    log "Creating nmdm device node /dev/${CONSOLE_DEVICE}B"
+    mknod "/dev/${CONSOLE_DEVICE}B" c 106 1 || { display_and_log "ERROR" "Failed to create /dev/${CONSOLE_DEVICE}B"; exit 1; }
+    chmod 660 "/dev/${CONSOLE_DEVICE}B"
+  fi
+}
+
+run_bhyveload() {
+  local DATA_PATH="$1"
+
+  display_and_log "INFO" "Loading kernel via bhyveload..."
+  $BHYVELOAD -m "$MEMORY" -d "$DATA_PATH" -c stdio "$VMNAME"
+  local exit_code=$?
+  if [ $exit_code -ne 0 ]; then
+    display_and_log "ERROR" "bhyveload failed with exit code $exit_code. Cannot proceed."
+    $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
+    return 1
+  fi
+  log "bhyveload completed successfully."
+  return 0
+}
+
 
 # === Fungsi untuk memuat konfigurasi VM ===
 load_vm_config() {
@@ -371,16 +421,14 @@ cmd_switch_destroy() {
       echo_message "  - $MEMBER"
     done
     echo_message "\nDestroying this bridge will also remove all its members."
-    echo_message "Are you sure you want to destroy bridge '$BRIDGE_NAME' and all its members? (y/n): "
-    read -rp "" CONFIRM_DESTROY
+    read -rp "Are you sure you want to destroy bridge '$BRIDGE_NAME' and all its members? (y/n): " CONFIRM_DESTROY
     if ! [[ "$CONFIRM_DESTROY" =~ ^[Yy]$ ]]; then
       display_and_log "INFO" "Bridge '$BRIDGE_NAME' not destroyed."
       exit 0
     fi
   else
     echo_message "\nBridge '$BRIDGE_NAME' is empty."
-    echo_message "Are you sure you want to destroy bridge '$BRIDGE_NAME'? (y/n): "
-    read -rp "" CONFIRM_DESTROY
+    read -rp "Are you sure you want to destroy bridge '$BRIDGE_NAME'? (y/n): " CONFIRM_DESTROY
     if ! [[ "$CONFIRM_DESTROY" =~ ^[Yy]$ ]]; then
       display_and_log "INFO" "Bridge '$BRIDGE_NAME' not destroyed."
       exit 0
@@ -461,8 +509,7 @@ cmd_switch_delete() {
   # Check if bridge is empty after removal
   MEMBERS=$(ifconfig "$BRIDGE_NAME" | grep 'member:' | awk '{print $2}')
   if [ -z "$MEMBERS" ]; then
-    echo_message "\nBridge '$BRIDGE_NAME' is now empty. Destroy this bridge as well? (y/n): "
-    read -rp "" CONFIRM_DESTROY
+    read -rp "Bridge '$BRIDGE_NAME' is now empty. Destroy this bridge as well? (y/n): " CONFIRM_DESTROY
     if [[ "$CONFIRM_DESTROY" =~ ^[Yy]$ ]]; then
       log "Destroying bridge '$BRIDGE_NAME'..."
       ifconfig "$BRIDGE_NAME" destroy
@@ -632,7 +679,7 @@ cmd_delete() {
   fi
 
   # === Destroy from kernel memory ===
-  if bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1; then
+  if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
     log "VM destroyed from kernel memory."
   fi
 
@@ -716,30 +763,7 @@ cmd_install() {
     log "Overriding bootloader for installation to: $BOOTLOADER_TYPE"
   fi
 
-  # For bhyveload, ensure nmdm module is loaded and device exists
-  if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
-    if ! kldstat -q -m nmdm; then
-      display_and_log "INFO" "Loading nmdm kernel module..."
-      kldload nmdm || { display_and_log "ERROR" "Failed to load nmdm kernel module. Cannot proceed."; exit 1; }
-    fi
-
-    # Manually create nmdm device nodes if they don't exist
-    local mdm_instance=$(echo "$CONSOLE" | sed 's/nmdm-.*\.//' | sed 's/[AB]$//')
-    local mdm_major=106 # Common major number for nmdm devices
-    local mdm_minor_A=$((2 * mdm_instance))
-    local mdm_minor_B=$((2 * mdm_instance + 1))
-
-    if [ ! -e "/dev/${CONSOLE}A" ]; then
-      log "Creating nmdm device node /dev/${CONSOLE}A"
-      mknod "/dev/${CONSOLE}A" c "$mdm_major" "$mdm_minor_A" || { display_and_log "ERROR" "Failed to create /dev/${CONSOLE}A"; exit 1; }
-      chmod 660 "/dev/${CONSOLE}A"
-    fi
-    if [ ! -e "/dev/${CONSOLE}B" ]; then
-      log "Creating nmdm device node /dev/${CONSOLE}B"
-      mknod "/dev/${CONSOLE}B" c "$mdm_major" "$mdm_minor_B" || { display_and_log "ERROR" "Failed to create /dev/${CONSOLE}B"; exit 1; }
-      chmod 660 "/dev/${CONSOLE}B"
-    fi
-  fi
+  ensure_nmdm_device_nodes "$CONSOLE"
 
   log "Starting VM '$VMNAME' installation..."
 
@@ -751,7 +775,7 @@ cmd_install() {
   fi
 
   # === Destroy if still remaining in kernel ===
-  if bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1; then
+  if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
     log "VM '$VMNAME' was still in memory. Destroyed."
   fi
 
@@ -803,71 +827,38 @@ cmd_install() {
 
   # === Installation Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
-    log "Preparing for bhyveload installation from ISO: $ISO_PATH"
+    run_bhyveload "$ISO_PATH" || exit 1
 
-    # Start bhyve in the background first
-    log "Launching bhyve process for installation..."
-    BHYVE_CMD="bhyve -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK -s 4:0,ahci-cd,$ISO_PATH -s 5:0,virtio-net,$TAP_0 -l com1,/dev/${CONSOLE}A -s 31,lpc $VMNAME"
-    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    display_and_log "INFO" "Starting VM with nmdm console for installation..."
+    $BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK -s 4:0,ahci-cd,$ISO_PATH -s 5:0,virtio-net,$TAP_0 -l com1,/dev/${CONSOLE}A -s 31,lpc "$VMNAME" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
     log "Bhyve VM started in background with PID $VM_PID"
 
-    # Give bhyve a moment to initialize and open the nmdm device
-    sleep 2 # Increased sleep to ensure nmdm is ready
-
-    # Ensure no stale cu processes are attached to this console
-    log "Terminating any existing cu processes for /dev/${CONSOLE}B..."
-    pkill -f "cu -l /dev/${CONSOLE}B"
-    sleep 1 # Give time for pkill to take effect
-
-    # Connect cu to the console in the background
+    sleep 2 # Give bhyve a moment to start
     echo_message ""
-    echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
-    cu -l /dev/"${CONSOLE}B" &
-    CU_PID=$!
-    log "Console (cu) started in background with PID $CU_PID"
+    echo_message ">>> Entering VM '$VMNAME' installation console (exit with ~.)"
+    cu -l /dev/"${CONSOLE}B"
 
-    # Execute bhyveload in foreground. Its output will go to the console via nmdm.
-    display_and_log "INFO" "Loading FreeBSD kernel from ISO via bhyveload..."
-    bhyveload -c /dev/"${CONSOLE}A" -m "$MEMORY" -d "$ISO_PATH" "$VMNAME"
-    local bhyveload_exit_code=$?
-
-    if [ $bhyveload_exit_code -ne 0 ]; then
-      display_and_log "ERROR" "bhyveload failed with exit code $bhyveload_exit_code. Cannot proceed with installation."
-      # Kill bhyve if bhyveload fails
-      kill "$VM_PID" 2>/dev/null
-      bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1
-      exit 1
-    fi
-    log "bhyveload completed successfully."
-
-    # The main script now waits for the bhyve process to finish.
-    # This is crucial for the VM to continue running the installer after bhyveload.
-    log "Waiting for bhyve process $VM_PID to exit..."
+    log "cu session ended. Waiting for bhyve process $VM_PID to exit..."
     if ! wait "$VM_PID"; then
-      display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error. Check VM logs for details."
-      bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>/dev/null
+      display_and_log "ERROR" "Virtual machine '$VMNAME' installer exited with an error. Check VM logs for details."
+      $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>/dev/null
       exit 1
     fi
     log "Bhyve process $VM_PID exited."
-
-    # After bhyve exits, ensure the cu process is also stopped
-    if ps -p "$CU_PID" > /dev/null 2>&1; then
-      log "Bhyve exited. Killing cu process $CU_PID..."
-      kill "$CU_PID" 2>/dev/null
-    fi
+    display_and_log "INFO" "Installation finished. You can now start the VM with: $0 start $VMNAME"
 
   else
-    # --- UEFI/GRUB INSTALL ---
+    # --- uefi/GRUB INSTALL ---
     log "Preparing for non-bhyveload installation..."
     local BHYVE_LOADER_CLI_ARG=""
     case "$BOOTLOADER_TYPE" in
-      UEFI|bootrom)
+      uefi|bootrom)
         if [ -f "$UEFI_FIRMWARE_PATH" ]; then
           BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
-          log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
+          log "Using uefi firmware: $UEFI_FIRMWARE_PATH"
         else
-          display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH."
+          display_and_log "ERROR" "uefi firmware not found at $UEFI_FIRMWARE_PATH."
           exit 1
         fi
         ;;
@@ -887,92 +878,23 @@ cmd_install() {
     esac
 
     log "Running bhyve installer in background..."
-    BHYVE_CMD="bhyve -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK -s 4:0,ahci-cd,$ISO_PATH -s 5:0,virtio-net,$TAP_0 -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} $VMNAME"
-    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    $BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK -s 4:0,ahci-cd,$ISO_PATH -s 5:0,virtio-net,$TAP_0 -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
     log "Bhyve VM started in background with PID $VM_PID"
 
-    # Give bhyve a moment to initialize and open the nmdm device
-    sleep 2 # Increased sleep to ensure nmdm is ready
-
-    # Ensure no stale cu processes are attached to this console
-    log "Terminating any existing cu processes for /dev/${CONSOLE}B..."
-    pkill -f "cu -l /dev/${CONSOLE}B"
-    sleep 1 # Give time for pkill to take effect
-
-    # Connect cu to the console in the foreground
+    sleep 2
     echo_message ""
     echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
     cu -l /dev/"${CONSOLE}B"
 
-    # After cu exits, the main script should wait for the bhyve process to finish.
     log "cu session ended. Waiting for bhyve process $VM_PID to exit..."
     if ! wait "$VM_PID"; then
       display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error. Check VM logs for details."
-      bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>/dev/null
+      $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>/dev/null
       exit 1
     fi
     log "Bhyve process $VM_PID exited."
-
-  # === CTRL+C Handler ===
-  cleanup() {
-    echo_message ""
-    display_and_log "INFO" "SIGINT received, Force stopping VM '$VMNAME'..."
-
-    # Kill the bhyve process
-    if ps -p "$VM_PID" > /dev/null 2>&1; then
-      log "Killing bhyve process $VM_PID..."
-      kill "$VM_PID" 2>/dev/null
-      sleep 1
-      if ps -p "$VM_PID" > /dev/null 2>&1; then
-        log "bhyve PID $VM_PID still running, forcing KILL..."
-        kill -9 "$VM_PID" 2>/dev/null
-      fi
-    fi
-
-    # Kill the bhyveload monitor process if it's still running
-    if [ -n "$BHYVELOAD_MONITOR_PID" ] && ps -p "$BHYVELOAD_MONITOR_PID" > /dev/null 2>&1; then
-      log "Killing bhyveload monitor process $BHYVELOAD_MONITOR_PID..."
-      kill "$BHYVELOAD_MONITOR_PID" 2>/dev/null
-    fi
-
-    # Kill any cu processes connected to this VM's console
-    log "Killing cu processes connected to /dev/${CONSOLE}B..."
-    pkill -f "cu -l /dev/${CONSOLE}B"
-
-    # Ensure VM is destroyed from kernel
-    bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1
-    log "Installer for $VMNAME forced stop by user."
-    exit 0
-  }
-  trap cleanup INT
-
-  # The main script now waits for the bhyve process to finish,
-  # which means bhyve has exited.
-  # This wait is important to ensure the script doesn't exit before bhyve.
-  # However, if cu is in foreground, this wait will only be reached after cu exits.
-  # The previous `if ps -p "$VM_PID"` block handles stopping bhyve if cu exits first.
-  # So, this final wait is mostly for cases where bhyve exits before cu.
-  if ! wait "$VM_PID"; then
-    display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error. Check VM logs for details."
-    # Ensure VM is destroyed from kernel if it failed to boot
-    bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1
-    exit 1
   fi
-
-  log "Installer for $VMNAME has stopped (exit)"
-
-  # Ensure VM is destroyed from kernel after installation completes or VM shuts down
-  if bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1; then
-    log "VM '$VMNAME' successfully destroyed from kernel memory after installation."
-  else
-    log "VM '$VMNAME' was not found in kernel memory after installation (already destroyed or never started)."
-  fi
-
-  echo_message ""
-  display_and_log "INFO" "Installer finished. If OS installation was successful, start the VM with:"
-  display_and_log "INFO" "  $0 start $VMNAME"
-fi
 }
 
 
@@ -996,7 +918,7 @@ cmd_start() {
   fi
 
   # === Destroy VM if still remaining in kernel
-  if bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1; then
+  if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
     log "VM '$VMNAME' was still in memory. Stopped."
   fi
 
@@ -1062,33 +984,23 @@ cmd_start() {
   # === Start Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
     # --- BHYVELOAD START ---
-    log "Loading kernel from disk via bhyveload..."
-    display_and_log "INFO" "Booting with bhyveload..."
-
-    bhyveload -c /dev/"${CONSOLE}A" -m "$MEMORY" -d "$VM_DIR/$DISK" "$VMNAME"
-    local bhyveload_exit_code=$?
-
-    if [ $bhyveload_exit_code -ne 0 ]; then
-      display_and_log "ERROR" "bhyveload failed with exit code $bhyveload_exit_code. Cannot start VM."
-      bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1
-      exit 1
-    fi
-    log "bhyveload completed successfully."
+    display_and_log "INFO" "Preparing for bhyveload start..."
+    ensure_nmdm_device_nodes "$CONSOLE"
+    run_bhyveload "$VM_DIR/$DISK" || exit 1
 
     log "Starting VM '$VMNAME'..."
-    BHYVE_CMD="bhyve -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc $VMNAME"
-    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    $BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc "$VMNAME" >> "$LOG_FILE" 2>&1 &
   else
-    # --- UEFI/GRUB START ---
-    log "Preparing for non-bhyveload start..."
+    # --- uefi/GRUB START ---
+    log "Preparing for non-uefi start..."
     local BHYVE_LOADER_CLI_ARG=""
     case "$BOOTLOADER_TYPE" in
-      UEFI|bootrom)
+      uefi|bootrom)
         if [ -f "$UEFI_FIRMWARE_PATH" ]; then
           BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
-          log "Using UEFI firmware: $UEFI_FIRMWARE_PATH"
+          log "Using uefi firmware: $UEFI_FIRMWARE_PATH"
         else
-          display_and_log "ERROR" "UEFI firmware not found at $UEFI_FIRMWARE_PATH."
+          display_and_log "ERROR" "uefi firmware not found at $UEFI_FIRMWARE_PATH."
           exit 1
         fi
         ;;
@@ -1108,8 +1020,7 @@ cmd_start() {
     esac
 
     log "Starting VM '$VMNAME'..."
-    BHYVE_CMD="bhyve -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} $VMNAME"
-    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    $BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME" >> "$LOG_FILE" 2>&1 &
   fi
 
   BHYVE_PID=$!
@@ -1178,7 +1089,7 @@ cmd_stop() {
 
   # Always attempt to destroy the VM from the kernel
   # This is crucial for bhyveload and for cleaning up zombie VMs
-  if bhyvectl --vm="$VMNAME" --destroy > /dev/null 2>&1; then
+  if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
     log "VM '$VMNAME' successfully destroyed from kernel memory."
     display_and_log "INFO" "VM '$VMNAME' successfully stopped."
   else
@@ -1277,7 +1188,7 @@ cmd_status() {
 
     # Reliable status check, anchor to end of line for specificity
     local PID=$(ps -ax | grep "[b]hyve .* $VMNAME$" | awk '{print $1}')
-    local BHYVECTL_STATUS=$(bhyvectl --vm="$VMNAME" --get-all 2>/dev/null)
+    local BHYVECTL_STATUS=$($BHYVECTL --vm="$VMNAME" --get-all 2>/dev/null)
     local STATUS="STOPPED"
     local CPU_USAGE="N/A"
     local RAM_USAGE="N/A"
@@ -1971,6 +1882,10 @@ cmd_network_remove() {
 }
 
 # === Main logic ===
+check_root
+check_kld vmm
+check_kld nmdm
+
 case "$1" in
   --version)
     echo_message "bhyve-cli.sh version $VERSION"
