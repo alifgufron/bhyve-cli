@@ -160,7 +160,6 @@ main_usage() {
   echo_message "  resize-disk   - Resize a VM's disk image."
   echo_message "  export        - Export a VM to an archive file."
   echo_message "  import        - Import a VM from an archive file."
-  echo_message "  network       - Manage network interfaces for a VM."
   echo_message "  iso           - Manage ISO images (list and download)."
   echo_message "  status        - Show the status of all virtual machines."
   echo_message "  switch        - Manage network bridges and physical interfaces."
@@ -1246,18 +1245,28 @@ cmd_start() {
   VMNAME="$1"
   load_vm_config "$VMNAME"
 
-  log "Preparing Config for $VMNAME"
+  display_and_log "INFO" "Loading VM configuration for '$VMNAME'..."
+  log "VM Name: $VMNAME"
+  log "CPUs: $CPUS"
+  log "Memory: $MEMORY"
+  log "Disk Image: $VM_DIR/$DISK"
+  if [ -f "$VM_DIR/$DISK" ]; then
+    log "Disk image '$VM_DIR/$DISK' found."
+  else
+    display_and_log "ERROR" "Disk image '$VM_DIR/$DISK' not found!"
+    exit 1
+  fi
 
   # === Check if bhyve is still running ===
   if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
-    log "VM '$VMNAME' is still running. Stopping..."
+    display_and_log "INFO" "VM '$VMNAME' is still running. Attempting to stop..."
     pkill -f "bhyve.*$VMNAME"
     sleep 1
   fi
 
   # === Destroy VM if still remaining in kernel ===
   if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
-    log "VM '$VMNAME' was still in memory. Stopped."
+    display_and_log "INFO" "VM '$VMNAME' was still in kernel memory. Destroyed."
   fi
 
   local NETWORK_ARGS=""
@@ -1277,31 +1286,34 @@ cmd_start() {
       break # No more network interfaces configured
     fi
 
+    display_and_log "INFO" "Checking network interface NIC_${NIC_IDX} (TAP: $CURRENT_TAP, MAC: $CURRENT_MAC, Bridge: $CURRENT_BRIDGE)"
+
     # === Create TAP interface if it doesn't exist ===
     if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
-      log "TAP '$CURRENT_TAP' does not exist. Creating..."
-      ifconfig "$CURRENT_TAP" create description "vm-$VMNAME-nic${NIC_IDX}"
-      ifconfig "$CURRENT_TAP" up
-      log "TAP '$CURRENT_TAP' created and activated."
+      display_and_log "INFO" "TAP '$CURRENT_TAP' does not exist. Creating..."
+      ifconfig "$CURRENT_TAP" create description "vm-$VMNAME-nic${NIC_IDX}" || { display_and_log "ERROR" "Failed to create TAP interface '$CURRENT_TAP'"; exit 1; }
+      ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate TAP interface '$CURRENT_TAP'"; exit 1; }
+      display_and_log "INFO" "TAP '$CURRENT_TAP' created and activated."
     else
-      ifconfig "$CURRENT_TAP" up
-      log "TAP '$CURRENT_TAP' already exists and activated."
+      ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate existing TAP interface '$CURRENT_TAP'"; exit 1; }
+      display_and_log "INFO" "TAP '$CURRENT_TAP' already exists and activated."
     fi
 
     # === Add to bridge if not already a member ===
     if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
-      log "Bridge interface '$CURRENT_BRIDGE' does not exist. Creating..."
-      ifconfig bridge create name "$CURRENT_BRIDGE"
-      log "Bridge interface '$CURRENT_BRIDGE' successfully created."
+      display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' does not exist. Creating..."
+      ifconfig bridge create name "$CURRENT_BRIDGE" || { display_and_log "ERROR" "Failed to create bridge '$CURRENT_BRIDGE'"; exit 1; }
+      display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' successfully created."
     else
-      log "Bridge interface '$CURRENT_BRIDGE' already exists."
+      display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' already exists."
     fi
 
     if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
-      ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP"
-      log "TAP '$CURRENT_TAP' added to bridge '$CURRENT_BRIDGE'"
+      display_and_log "INFO" "Adding TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'..."
+      ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP" || { display_and_log "ERROR" "Failed to add TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'"; exit 1; }
+      display_and_log "INFO" "TAP '$CURRENT_TAP' added to bridge '$CURRENT_BRIDGE'."
     else
-      log "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'"
+      display_and_log "INFO" "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'."
     fi
 
     NETWORK_ARGS+=" -s ${DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\""
@@ -1309,28 +1321,36 @@ cmd_start() {
     NIC_IDX=$((NIC_IDX + 1))
   done
 
-  # === Ensure nmdm device is available ===
-  if ! [ -e "/dev/${CONSOLE}A" ] && ! [ -e "/dev/${CONSOLE}B" ]; then
-    log "Creating device /dev/${CONSOLE}A and /dev/${CONSOLE}B"
-    mdm_number="${CONSOLE##*.}"
-    mdm_base="${CONSOLE%%.*}"
-    mdm_device="/dev/${mdm_base}.${mdm_number}"
-    true > "${mdm_device}A"
-    true > "${mdm_device}B"
-  fi
 
   # === Start Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
     # --- BHYVELOAD START ---
     display_and_log "INFO" "Preparing for bhyveload start..."
     ensure_nmdm_device_nodes "$CONSOLE"
+    sleep 1 # Give nmdm devices a moment to be ready
+    
+    display_and_log "INFO" "Verifying nmdm device nodes:"
+    if [ -e "/dev/${CONSOLE}A" ]; then
+      display_and_log "INFO" "/dev/${CONSOLE}A exists with permissions: $(stat -f "%Sp" /dev/${CONSOLE}A)"
+    else
+      display_and_log "ERROR" "/dev/${CONSOLE}A does NOT exist!"
+      exit 1
+    fi
+    if [ -e "/dev/${CONSOLE}B" ]; then
+      display_and_log "INFO" "/dev/${CONSOLE}B exists with permissions: $(stat -f "%Sp" /dev/${CONSOLE}B)"
+    else
+      display_and_log "ERROR" "/dev/${CONSOLE}B does NOT exist!"
+      exit 1
+    fi
+
     run_bhyveload "$VM_DIR/$DISK" || exit 1
 
-    log "Starting VM '$VMNAME'..."
-    $BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc "$VMNAME" >> "$LOG_FILE" 2>&1 &
+    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
+    log "Executing bhyve command: $BHYVE_CMD"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
   else
     # --- uefi/GRUB START ---
-    log "Preparing for non-uefi start..."
+    display_and_log "INFO" "Preparing for non-bhyveload start..."
     local BHYVE_LOADER_CLI_ARG=""
     case "$BOOTLOADER_TYPE" in
       uefi|bootrom)
@@ -1365,6 +1385,8 @@ cmd_start() {
 
   # Wait a moment
   sleep 1
+
+  display_and_log "INFO" "VM '$VMNAME' started. Please connect to the console using: $0 console $VMNAME"
 
   if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
     log "VM '$VMNAME' is running with PID $BHYVE_PID"
