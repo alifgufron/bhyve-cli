@@ -1179,6 +1179,9 @@ cmd_install() {
     log "cu session ended. Waiting for bhyve process $VM_PID to exit..."
     if ! wait "$VM_PID"; then
       display_and_log "ERROR" "Virtual machine '$VMNAME' installer exited with an error. Check VM logs for details."
+      pkill -f "bhyve.*$VMNAME" > /dev/null 2>&1
+      pkill -f "cu -l /dev/${CONSOLE}B" > /dev/null 2>&1
+      pkill -f "tail -f $LOG_FILE" > /dev/null 2>&1
       $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>/dev/null
       exit 1
     fi
@@ -1187,15 +1190,25 @@ cmd_install() {
 
   else
     # --- uefi/GRUB INSTALL ---
+  
     log "Preparing for non-bhyveload installation..."
     local BHYVE_LOADER_CLI_ARG=""
     case "$BOOTLOADER_TYPE" in
       uefi|bootrom)
+        local UEFI_FIRMWARE_FOUND=false
         if [ -f "$UEFI_FIRMWARE_PATH" ]; then
           BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
-          log "Using uefi firmware: $UEFI_FIRMWARE_PATH"
-        else
-          display_and_log "ERROR" "uefi firmware not found at $UEFI_FIRMWARE_PATH."
+          log "Using uefi firmware from configured path: $UEFI_FIRMWARE_PATH"
+          UEFI_FIRMWARE_FOUND=true
+        elif [ -f "/usr/local/share/uefi-firmware/BHYVE_UEFI.fd" ]; then
+          BHYVE_LOADER_CLI_ARG="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
+          log "Using uefi firmware from default system path: /usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
+          UEFI_FIRMWARE_FOUND=true
+        fi
+
+        if [ "$UEFI_FIRMWARE_FOUND" = false ]; then
+          display_and_log "ERROR" "UEFI firmware not found."
+          echo_message "Please ensure 'edk2-bhyve' is installed (pkg install edk2-bhyve) or copy a compatible UEFI firmware file to $UEFI_FIRMWARE_PATH."
           exit 1
         fi
         ;;
@@ -1214,19 +1227,22 @@ cmd_install() {
         ;;
     esac
 
+    clear # Clear screen before console
+
     log "Running bhyve installer in background..."
     $BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK -s 4:0,ahci-cd,$ISO_PATH -s 5:0,virtio-net,$TAP_0 -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
     log "Bhyve VM started in background with PID $VM_PID"
 
-    sleep 2
-    echo_message ""
     echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
     cu -l /dev/"${CONSOLE}B"
 
     log "cu session ended. Waiting for bhyve process $VM_PID to exit..."
     if ! wait "$VM_PID"; then
       display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error. Check VM logs for details."
+      pkill -f "bhyve.*$VMNAME" > /dev/null 2>&1
+      pkill -f "cu -l /dev/${CONSOLE}B" > /dev/null 2>&1
+      pkill -f "tail -f $LOG_FILE" > /dev/null 2>&1
       $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>/dev/null
       exit 1
     fi
