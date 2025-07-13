@@ -104,6 +104,83 @@ run_bhyveload() {
   return 0
 }
 
+# === Function to clean up VM network interfaces ===
+cleanup_vm_network_interfaces() {
+  local VMNAME_CLEANUP="$1"
+  local VM_DIR_CLEANUP="$VM_CONFIG_BASE_DIR/$VMNAME_CLEANUP"
+  local CONF_FILE_CLEANUP="$VM_DIR_CLEANUP/vm.conf"
+
+  if [ ! -f "$CONF_FILE_CLEANUP" ]; then
+    log "VM config file not found for $VMNAME_CLEANUP. Skipping network cleanup."
+    return
+  fi
+
+  # Temporarily load VM config to get network details
+  local ORIGINAL_VMNAME="$VMNAME"
+  local ORIGINAL_CPUS="$CPUS"
+  local ORIGINAL_MEMORY="$MEMORY"
+  local ORIGINAL_TAP_0="$TAP_0"
+  local ORIGINAL_MAC_0="$MAC_0"
+  local ORIGINAL_BRIDGE_0="$BRIDGE_0"
+  local ORIGINAL_DISK="$DISK"
+  local ORIGINAL_DISKSIZE="$DISKSIZE"
+  local ORIGINAL_CONSOLE="$CONSOLE"
+  local ORIGINAL_LOG="$LOG_FILE"
+  local ORIGINAL_AUTOSTART="$AUTOSTART"
+  local ORIGINAL_BOOTLOADER_TYPE="$BOOTLOADER_TYPE"
+
+  . "$CONF_FILE_CLEANUP"
+  local LOG_FILE_CLEANUP="$VM_DIR_CLEANUP/vm.log" # Set LOG_FILE for this function's scope
+
+  log "Cleaning up network interfaces for VM '$VMNAME_CLEANUP'..."
+
+  local NIC_IDX=0
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+
+    if [ -z "$CURRENT_TAP" ]; then
+      break # No more network interfaces configured
+    fi
+
+    if ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
+      log "Removing TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'..."
+      ifconfig "$CURRENT_BRIDGE" deletem "$CURRENT_TAP"
+      if [ $? -ne 0 ]; then
+        log "WARNING: Failed to remove TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'."
+      fi
+    fi
+
+    if ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
+      log "Destroying TAP interface '$CURRENT_TAP'..."
+      ifconfig "$CURRENT_TAP" destroy
+      if [ $? -ne 0 ]; then
+        log "WARNING: Failed to destroy TAP interface '$CURRENT_TAP'."
+      fi
+    fi
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+  log "Network interface cleanup for '$VMNAME_CLEANUP' complete."
+
+  # Restore original VM config variables
+  VMNAME="$ORIGINAL_VMNAME"
+  CPUS="$ORIGINAL_CPUS"
+  MEMORY="$ORIGINAL_MEMORY"
+  TAP_0="$ORIGINAL_TAP_0"
+  MAC_0="$ORIGINAL_MAC_0"
+  BRIDGE_0="$ORIGINAL_BRIDGE_0"
+  DISK="$ORIGINAL_DISK"
+  DISKSIZE="$ORIGINAL_DISKSIZE"
+  CONSOLE="$ORIGINAL_CONSOLE"
+  LOG_FILE="$ORIGINAL_LOG"
+  AUTOSTART="$ORIGINAL_AUTOSTART"
+  BOOTLOADER_TYPE="$ORIGINAL_BOOTLOADER_TYPE"
+}
+
+
 
 # === Function to load main configuration ===
 load_config() {
@@ -162,6 +239,7 @@ main_usage() {
   echo_message "  import        - Import a VM from an archive file."
   echo_message "  iso           - Manage ISO images (list and download)."
   echo_message "  status        - Show the status of all virtual machines."
+  echo_message "  restart       - Restart a virtual machine."
   echo_message "  switch        - Manage network bridges and physical interfaces."
   echo_message " "
   echo_message "For detailed usage of each command, use: $0 <command> --help"
@@ -347,6 +425,13 @@ cmd_import_usage() {
   echo_message "  <path_to_vm_archive> - The full path to the VM archive file to import (e.g., /tmp/myvm_backup.tar.gz)."
   echo_message "\nExample:"
   echo_message "  $0 import /tmp/myvm_backup.tar.gz"
+}
+
+# === Usage function for restart ===
+cmd_restart_usage() {
+  echo_message "Usage: $0 restart <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to restart."
 }
 
 # === Usage function for network ===
@@ -1045,30 +1130,7 @@ cmd_delete() {
     log "VM destroyed from kernel memory."
   fi
 
-  # === Remove all TAPs from bridge and destroy TAP interfaces ===
-  local NIC_IDX=0
-  while true; do
-    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
-    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
-
-    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
-    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
-
-    if [ -z "$CURRENT_TAP" ]; then
-      break # No more network interfaces configured
-    fi
-
-    if ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
-      log "Removing TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'..."
-      ifconfig "$CURRENT_BRIDGE" deletem "$CURRENT_TAP"
-    fi
-
-    if ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
-      log "Destroying TAP interface '$CURRENT_TAP'..."
-      ifconfig "$CURRENT_TAP" destroy
-    fi
-    NIC_IDX=$((NIC_IDX + 1))
-  done
+  cleanup_vm_network_interfaces "$VMNAME"
 
   # === Remove console device files ===
   if [ -e "/dev/${CONSOLE}A" ]; then
@@ -1092,6 +1154,23 @@ cmd_delete() {
   fi
 
   display_and_log "INFO" "VM '$VMNAME' successfully deleted."
+}
+
+# === Subcommand: restart ===
+cmd_restart() {
+  if [ -z "$1" ]; then
+    cmd_restart_usage
+    exit 1
+  fi
+
+  local VMNAME="$1"
+
+  display_and_log "INFO" "Restarting VM '$VMNAME'..."
+  cmd_stop "$VMNAME"
+  # Give it a moment to fully stop and clean up
+  sleep 2
+  cmd_start "$VMNAME"
+  display_and_log "INFO" "VM '$VMNAME' restart initiated."
 }
 
 # === Subcommand: install ===
@@ -1636,6 +1715,9 @@ cmd_stop() {
     log "VM '$VMNAME' was not found in kernel memory (already destroyed or never started)."
     display_and_log "INFO" "VM '$VMNAME' is not running."
   fi
+
+  # Clean up network interfaces after stopping
+  cleanup_vm_network_interfaces "$VMNAME"
 
   # Remove vm.pid file
   if [ -f "$VM_DIR/vm.pid" ]; then
@@ -2552,6 +2634,10 @@ case "$1" in
   iso)
     shift
     cmd_iso "$@"
+    ;;
+  restart)
+    shift
+    cmd_restart "$@"
     ;;
   network)
     shift
