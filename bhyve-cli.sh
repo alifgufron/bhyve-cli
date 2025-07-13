@@ -1534,7 +1534,7 @@ cmd_start() {
     # === Create TAP interface if it doesn't exist ===
     if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
       display_and_log "INFO" "TAP '$CURRENT_TAP' does not exist. Creating..."
-      ifconfig "$CURRENT_TAP" create description "vm-$VMNAME-nic${NIC_IDX}" || { display_and_log "ERROR" "Failed to create TAP interface '$CURRENT_TAP'"; exit 1; }
+      ifconfig "$CURRENT_TAP" create description "vmnet/${VMNAME}/${NIC_IDX}/${CURRENT_BRIDGE}" || { display_and_log "ERROR" "Failed to create TAP interface '$CURRENT_TAP'"; exit 1; }
       ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate TAP interface '$CURRENT_TAP'"; exit 1; }
       display_and_log "INFO" "TAP '$CURRENT_TAP' created and activated."
     else
