@@ -1485,11 +1485,20 @@ cmd_start() {
     local BHYVE_LOADER_CLI_ARG=""
     case "$BOOTLOADER_TYPE" in
       uefi|bootrom)
+        local UEFI_FIRMWARE_FOUND=false
         if [ -f "$UEFI_FIRMWARE_PATH" ]; then
           BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
-          log "Using uefi firmware: $UEFI_FIRMWARE_PATH"
-        else
-          display_and_log "ERROR" "uefi firmware not found at $UEFI_FIRMWARE_PATH."
+          log "Using uefi firmware from configured path: $UEFI_FIRMWARE_PATH"
+          UEFI_FIRMWARE_FOUND=true
+        elif [ -f "/usr/local/share/uefi-firmware/BHYVE_UEFI.fd" ]; then
+          BHYVE_LOADER_CLI_ARG="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
+          log "Using uefi firmware from default system path: /usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
+          UEFI_FIRMWARE_FOUND=true
+        fi
+
+        if [ "$UEFI_FIRMWARE_FOUND" = false ]; then
+          display_and_log "ERROR" "UEFI firmware not found."
+          echo_message "Please ensure 'edk2-bhyve' is installed (pkg install edk2-bhyve) or copy a compatible UEFI firmware file to $UEFI_FIRMWARE_PATH."
           exit 1
         fi
         ;;
@@ -1509,7 +1518,9 @@ cmd_start() {
     esac
 
     log "Starting VM '$VMNAME'..."
-    $BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME" >> "$LOG_FILE" 2>&1 &
+    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
+    log "Executing bhyve command: $BHYVE_CMD"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
   fi
 
   BHYVE_PID=$!
