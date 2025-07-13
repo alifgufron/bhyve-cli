@@ -7,11 +7,16 @@ if [ -z "$BASH_VERSION" ]; then
 fi
 
 # === Global Variables ===
-BASEPATH="/home/admin/vm-bhvye"
-ISO_DIR="$BASEPATH/iso"
-UEFI_FIRMWARE_PATH="$BASEPATH/firmware/BHYVE_UEFI.fd"
-VERSION="1.0.0"
-GLOBAL_LOG_FILE="$BASEPATH/log"
+CONFIG_DIR="/usr/local/etc/bhyve-cli"
+MAIN_CONFIG_FILE="$CONFIG_DIR/bhyve-cli.conf"
+VM_CONFIG_BASE_DIR="$CONFIG_DIR/vm.d"
+SWITCH_CONFIG_FILE="$CONFIG_DIR/switch.conf"
+VERSION="1.1.0"
+
+# These will be loaded from the main config file
+ISO_DIR=""
+UEFI_FIRMWARE_PATH=""
+GLOBAL_LOG_FILE=""
 
 # === Bhyve Binaries Paths ===
 BHYVE="/usr/sbin/bhyve"
@@ -91,10 +96,30 @@ run_bhyveload() {
 }
 
 
+# === Function to load main configuration ===
+load_config() {
+  if [ -f "$MAIN_CONFIG_FILE" ]; then
+    . "$MAIN_CONFIG_FILE"
+    # Set default log file if not set in config
+    GLOBAL_LOG_FILE="${GLOBAL_LOG_FILE:-/var/log/bhyve-cli.log}"
+  fi
+}
+
+# === Function to check if the script has been initialized ===
+check_initialization() {
+  if [ "$1" != "init" ] && [ ! -f "$MAIN_CONFIG_FILE" ]; then
+    echo_message "
+[ERROR] bhyve-cli has not been initialized."
+    echo_message "Please run the command '$0 init' to generate the required configuration files."
+    exit 1
+  fi
+}
+
+
 # === Function to load VM configuration ===
 load_vm_config() {
   VMNAME="$1"
-  VM_DIR="$BASEPATH/vm/$VMNAME"
+  VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
   CONF_FILE="$VM_DIR/vm.conf"
 
   if [ ! -f "$CONF_FILE" ]; then
@@ -111,6 +136,7 @@ main_usage() {
   echo_message "Usage: $0 <command> [options/arguments]"
   echo_message " "
   echo_message "Available Commands:"
+  echo_message "  init          - Initialize bhyve-cli configuration."
   echo_message "  create        - Create a new virtual machine."
   echo_message "  delete        - Delete an existing virtual machine."
   echo_message "  install       - Install an operating system on a VM."
@@ -134,6 +160,21 @@ main_usage() {
 }
 
 # === Usage Functions for All Commands ===
+# === Usage function for init ===
+cmd_init_usage() {
+  echo_message "Usage: $0 init"
+  echo_message "\nDescription:"
+  echo_message "  Initializes the bhyve-cli configuration directory and files."
+}
+
+# === Usage function for switch init ===
+cmd_switch_init_usage() {
+  echo_message "Usage: $0 switch init"
+  echo_message "\nDescription:"
+  echo_message "  Re-initializes all saved switch configurations from the switch config file."
+  echo_message "  This is useful for restoring network configuration after a host reboot."
+}
+
 # === Usage function for switch add ===
 cmd_switch_add_usage() {
   echo_message "Usage: $0 switch add --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]"
@@ -163,7 +204,9 @@ cmd_switch_delete_usage() {
 cmd_switch_usage() {
   echo_message "Usage: $0 switch [subcommand] [Option] [Arguments]"
   echo_message "\nSubcommands:"
+  echo_message "  init        - Re-initialize all saved switch configurations."
   echo_message "  add         - Create a bridge and add a physical interface"
+
   echo_message "  list        - List all bridge interfaces and their members"
   echo_message "  destroy     - Destroy a bridge and all its members"
   echo_message "  delete      - Remove a specific member from a bridge"
@@ -473,6 +516,28 @@ cmd_switch_add() {
   fi
   log "Interface '$MEMBER_IF' successfully added to bridge '$BRIDGE_NAME'."
     display_and_log "INFO" "Now interface '$MEMBER_IF' is a member of bridge '$BRIDGE_NAME'."
+
+  # Save switch configuration
+  echo "$BRIDGE_NAME $PHYS_IF $VLAN_TAG" >> "$SWITCH_CONFIG_FILE"
+  log "Switch configuration saved to $SWITCH_CONFIG_FILE"
+}
+
+# === Subcommand: switch init ===
+cmd_switch_init() {
+    if [ ! -f "$SWITCH_CONFIG_FILE" ]; then
+        display_and_log "INFO" "Switch configuration file not found. Nothing to do."
+        return
+    fi
+
+    display_and_log "INFO" "Initializing switches from $SWITCH_CONFIG_FILE..."
+    while read -r bridge_name phys_if vlan_tag; do
+        local args=("--name" "$bridge_name" "--interface" "$phys_if")
+        if [ -n "$vlan_tag" ]; then
+            args+=("--vlan" "$vlan_tag")
+        fi
+        cmd_switch_add "${args[@]}"
+    done < "$SWITCH_CONFIG_FILE"
+    display_and_log "INFO" "Switch initialization complete."
 }
 
 
@@ -683,7 +748,7 @@ cmd_create() {
     exit 1
   fi
 
-  VM_DIR="$BASEPATH/vm/$VMNAME"
+  VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
   CONF="$VM_DIR/vm.conf"
 
   display_and_log "INFO" "Creating VM directory: $VM_DIR"
@@ -767,6 +832,42 @@ EOF
   display_and_log "INFO" "Configuration file created: $CONF"
   display_and_log "INFO" "VM '$VMNAME' successfully created."
   echo_message "\nPlease continue by running: $0 install $VMNAME"
+}
+
+# === Subcommand: init ===
+cmd_init() {
+    GLOBAL_LOG_FILE="/var/log/bhyve-cli.log"
+    touch "$GLOBAL_LOG_FILE" || { echo_message "[ERROR] Could not create log file at $GLOBAL_LOG_FILE. Please check permissions."; exit 1; }
+
+    if [ -f "$MAIN_CONFIG_FILE" ]; then
+        read -rp "Configuration file already exists. Overwrite? (y/n): " choice
+        if [[ "$choice" != "y" ]]; then
+            exit 0
+        fi
+    fi
+
+    display_and_log "INFO" "Initializing bhyve-cli..."
+
+    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$VM_CONFIG_BASE_DIR"
+
+    read -rp "Enter the full path for storing ISO images [/var/bhyve/iso]: " iso_path
+    ISO_DIR=${iso_path:-/var/bhyve/iso}
+    mkdir -p "$ISO_DIR"
+    display_and_log "INFO" "ISO directory set to: $ISO_DIR"
+
+    UEFI_FIRMWARE_PATH="$CONFIG_DIR/firmware"
+    mkdir -p "$UEFI_FIRMWARE_PATH"
+    display_and_log "INFO" "UEFI firmware path set to: $UEFI_FIRMWARE_PATH"
+
+    echo "ISO_DIR=\"$ISO_DIR\"" > "$MAIN_CONFIG_FILE"
+    echo "UEFI_FIRMWARE_PATH=\"$UEFI_FIRMWARE_PATH\"" >> "$MAIN_CONFIG_FILE"
+    echo "GLOBAL_LOG_FILE=\"$GLOBAL_LOG_FILE\"" >> "$MAIN_CONFIG_FILE"
+
+    display_and_log "INFO" "bhyve-cli initialized."
+    display_and_log "INFO" "Configuration file created at: $MAIN_CONFIG_FILE"
+    echo_message "bhyve-cli initialized successfully."
+    echo_message "Configuration file created at: $MAIN_CONFIG_FILE"
 }
 
 # === Subcommand: delete ===
@@ -1284,9 +1385,10 @@ cmd_status() {
     "----------")
   echo_message "${header_line// /}" # Remove spaces to make it a continuous line
 
-  for VMCONF in "$BASEPATH"/vm/*/vm.conf; do
+  for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
     [ -f "$VMCONF" ] || continue
     . "$VMCONF"
+
 
     local VMNAME="${VMNAME:-N/A}"
     local CPUS="${CPUS:-N/A}"
@@ -1993,7 +2095,14 @@ check_root
 check_kld vmm
 check_kld nmdm
 
+check_initialization "$1"
+load_config
+
 case "$1" in
+  init)
+    cmd_init
+    exit 0
+    ;;
   --version)
     echo_message "bhyve-cli.sh version $VERSION"
     exit 0
