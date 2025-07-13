@@ -2137,6 +2137,7 @@ cmd_resize_disk() {
   display_and_log "INFO" "Note: You may need to extend the partition inside the VM operating system."
 }
 
+
 # === Subcommand: export ===
 cmd_export() {
   if [ -z "$1" ] || [ -z "$2" ]; then
