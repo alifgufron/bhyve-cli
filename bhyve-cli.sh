@@ -25,10 +25,13 @@ BHYVELOAD="/usr/sbin/bhyveload"
 
 # === Log Function with Timestamp ===
 log() {
-  # Log messages will always be written to the VM's specific log file with a timestamp.
+  local TIMESTAMP_MESSAGE="[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1"
+  # Write to VM-specific log file if LOG_FILE is set
   if [ -n "$LOG_FILE" ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >> "$LOG_FILE"
+    echo "$TIMESTAMP_MESSAGE" >> "$LOG_FILE"
   fi
+  # Always write to global log file for verbose debugging
+  echo "$TIMESTAMP_MESSAGE" >> "$GLOBAL_LOG_FILE"
 }
 
 # === Function to echo messages to console without timestamp ===
@@ -106,6 +109,7 @@ run_bhyveload() {
 
 # === Function to clean up VM network interfaces ===
 cleanup_vm_network_interfaces() {
+  log "Entering cleanup_vm_network_interfaces function for VM: $1"
   local VMNAME_CLEANUP="$1"
   local VM_DIR_CLEANUP="$VM_CONFIG_BASE_DIR/$VMNAME_CLEANUP"
   local CONF_FILE_CLEANUP="$VM_DIR_CLEANUP/vm.conf"
@@ -164,6 +168,7 @@ cleanup_vm_network_interfaces() {
     NIC_IDX=$((NIC_IDX + 1))
   done
   log "Network interface cleanup for '$VMNAME_CLEANUP' complete."
+  log "Exiting cleanup_vm_network_interfaces function for VM: $VMNAME_CLEANUP"
 
   # Restore original VM config variables
   VMNAME="$ORIGINAL_VMNAME"
@@ -334,9 +339,11 @@ cmd_start_usage() {
 
 # === Usage function for stop ===
 cmd_stop_usage() {
-  echo_message "Usage: $0 stop <vmname>"
+  echo_message "Usage: $0 stop <vmname> [--graceful]"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to stop."
+  echo_message "\nOptions:"
+  echo_message "  --graceful  - Attempt a graceful shutdown (ACPI poweroff) before forceful termination."
 }
 
 # === Usage function for console ===
@@ -1108,6 +1115,7 @@ cmd_init() {
 
 # === Subcommand: delete ===
 cmd_delete() {
+  log "Entering cmd_delete function for VM: $1"
   if [ -z "$1" ]; then
     cmd_delete_usage
     exit 1
@@ -1154,10 +1162,12 @@ cmd_delete() {
   fi
 
   display_and_log "INFO" "VM '$VMNAME' successfully deleted."
+  log "Exiting cmd_delete function for VM: $VMNAME"
 }
 
 # === Subcommand: restart ===
 cmd_restart() {
+  log "Entering cmd_restart function for VM: $1"
   if [ -z "$1" ]; then
     cmd_restart_usage
     exit 1
@@ -1166,15 +1176,17 @@ cmd_restart() {
   local VMNAME="$1"
 
   display_and_log "INFO" "Restarting VM '$VMNAME'..."
-  cmd_stop "$VMNAME"
+  cmd_stop "$VMNAME" --graceful
   # Give it a moment to fully stop and clean up
   sleep 2
   cmd_start "$VMNAME"
   display_and_log "INFO" "VM '$VMNAME' restart initiated."
+  log "Exiting cmd_restart function for VM: $VMNAME"
 }
 
 # === Subcommand: install ===
 cmd_install() {
+  log "Entering cmd_install function for VM: $1"
   local VMNAME=""
   local INSTALL_BOOTLOADER_TYPE="" # Bootloader type for this installation only
 
@@ -1475,11 +1487,13 @@ cmd_install() {
     fi
     log "Bhyve process $VM_PID exited."
   fi
+  log "Exiting cmd_install function for VM: $VMNAME"
 }
 
 
 # === Subcommand: start ===
 cmd_start() {
+  log "Entering cmd_start function for VM: $1"
   if [ -z "$1" ]; then
     cmd_start_usage
     exit 1
@@ -1648,45 +1662,114 @@ cmd_start() {
   else
     display_and_log "ERROR" "Failed to start VM '$VMNAME' - PID not found"
   fi
+  log "Exiting cmd_start function for VM: $VMNAME"
 }
 
 # === Subcommand: stop ===
 cmd_stop() {
+  log "Entering cmd_stop function for VM: $1"
   if [ -z "$1" ]; then
     cmd_stop_usage
     exit 1
   fi
 
-  VMNAME="$1"
+  local VMNAME="$1"
+  local GRACEFUL_SHUTDOWN=false
+
+  # Parse arguments for graceful shutdown
+  local ARGS=()
+  for arg in "$@"; do
+    if [[ "$arg" == "--graceful" ]]; then
+      GRACEFUL_SHUTDOWN=true
+    else
+      ARGS+=("$arg")
+    fi
+  done
+
+  # Ensure VMNAME is set from ARGS if it was shifted out by graceful option
+  if [ -z "$VMNAME" ] && [ ${#ARGS[@]} -gt 0 ]; then
+    VMNAME="${ARGS[0]}"
+  fi
+
+  if [ -z "$VMNAME" ]; then
+    cmd_stop_usage
+    exit 1
+  fi
+
   load_vm_config "$VMNAME"
 
   log "Stopping VM '$VMNAME'..."
 
-  # === Find the PID of the bhyve process, anchor to end of line for specificity ===
-  local VM_PID=""
-  if [ -f "$VM_DIR/vm.pid" ]; then
-    VM_PID=$(cat "$VM_DIR/vm.pid")
+  local VM_RUNNING=false
+  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
+    VM_RUNNING=true
+    log "VM '$VMNAME' is detected as running."
   else
-    VM_PID=$(ps -ax | grep "[b]hyve .* $VMNAME" | awk '{print $1}')
+    log "VM '$VMNAME' is not detected as running by ps."
   fi
 
-  if [ -n "$VM_PID" ]; then
-    # Handle multiple PIDs by not quoting the variable
-    log "Sending TERM signal to PID(s): $(echo "$VM_PID" | tr '\n' ' ')"
-    kill $VM_PID
-    sleep 1 # Wait a moment for the processes to terminate
+  if [ "$GRACEFUL_SHUTDOWN" = true ] && [ "$VM_RUNNING" = true ]; then
+    log "Attempting graceful shutdown for VM '$VMNAME'..."
+    display_and_log "INFO" "Attempting graceful shutdown for VM '$VMNAME'..."
+    $BHYVECTL --vm="$VMNAME" --poweroff
+    if [ $? -ne 0 ]; then
+      log "WARNING: bhyvectl --poweroff failed for '$VMNAME'. Proceeding with forceful shutdown."
+      display_and_log "WARNING" "Graceful shutdown failed. Proceeding with forceful shutdown."
+    else
+      log "ACPI poweroff signal sent to VM '$VMNAME'. Waiting for VM to shut down..."
+      local TIMEOUT=30 # seconds
+      local ELAPSED_TIME=0
+      local VM_STOPPED=false
 
-    # Loop through PIDs to check if they are still running and force kill if necessary
-    for pid in $VM_PID; do
-      if ps -p "$pid" > /dev/null 2>&1; then
-        log "PID $pid still running, forcing KILL..."
-        kill -9 "$pid"
+      while [ "$ELAPSED_TIME" -lt "$TIMEOUT" ]; do
+        if ! ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
+          log "VM '$VMNAME' has gracefully shut down."
+          display_and_log "INFO" "VM '$VMNAME' has gracefully shut down."
+          VM_STOPPED=true
+          break
+        fi
         sleep 1
+        ELAPSED_TIME=$((ELAPSED_TIME + 1))
+      done
+
+      if [ "$VM_STOPPED" = false ]; then
+        log "WARNING: VM '$VMNAME' did not shut down gracefully within $TIMEOUT seconds. Proceeding with forceful termination."
+        display_and_log "WARNING" "VM '$VMNAME' did not shut down gracefully. Forcing termination."
       fi
-    done
-    log "bhyve process stopped."
-  else
-    log "No running bhyve process found for '$VMNAME'."
+    fi
+  fi
+
+  # Forceful termination (if not gracefully stopped or if --graceful not used)
+  if [ "$VM_RUNNING" = true ] && [ "$VM_STOPPED" = false ]; then
+    log "Initiating forceful termination for VM '$VMNAME'..."
+    # === Find the PID of the bhyve process, anchor to end of line for specificity ===
+    local VM_PID=""
+    if [ -f "$VM_DIR/vm.pid" ]; then
+      VM_PID=$(cat "$VM_DIR/vm.pid")
+      log "Found VM PID from vm.pid file: $VM_PID"
+    else
+      VM_PID=$(ps -ax | grep "[b]hyve .* $VMNAME" | awk '{print $1}')
+      log "Found VM PID by ps grep: $VM_PID"
+    fi
+
+    if [ -n "$VM_PID" ]; then
+      # Handle multiple PIDs by not quoting the variable
+      log "Sending TERM signal to PID(s): $(echo "$VM_PID" | tr '\n' ' ')"
+      kill $VM_PID
+      sleep 1 # Wait a moment for the processes to terminate
+
+      # Loop through PIDs to check if they are still running and force kill if necessary
+      for pid in $VM_PID; do
+        if ps -p "$pid" > /dev/null 2>&1; then
+          log "PID $pid still running, forcing KILL..."
+          kill -9 "$pid"
+          sleep 1
+        fi
+      done
+      log "bhyve process stopped."
+    else
+      log "No running bhyve process found for '$VMNAME' to kill."
+    fi
   fi
 
   # === Stop associated console (cu) processes ===
@@ -1724,6 +1807,7 @@ cmd_stop() {
     rm "$VM_DIR/vm.pid"
     log "Removed vm.pid file."
   fi
+  log "Exiting cmd_stop function for VM: $VMNAME"
 }
 
 
@@ -1890,6 +1974,7 @@ cmd_autostart() {
 
 # === Subcommand: modify ===
 cmd_modify() {
+  log "Entering cmd_modify function for VM: $1"
   if [ -z "$1" ]; then
     cmd_modify_usage
     exit 1
@@ -1975,6 +2060,7 @@ cmd_modify() {
   done
 
   display_and_log "INFO" "VM '$VMNAME' configuration updated."
+  log "Exiting cmd_modify function for VM: $VMNAME"
 }
 
 # === Subcommand: clone ===
