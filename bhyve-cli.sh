@@ -1877,11 +1877,13 @@ cmd_clone() {
     exit 1
   fi
 
-  SOURCE_VMNAME="$1"
-  NEW_VMNAME="$2"
+  local SOURCE_VMNAME="$1"
+  local NEW_VMNAME="$2"
 
-  SOURCE_VM_DIR="$BASEPATH/vm/$SOURCE_VMNAME"
-  NEW_VM_DIR="$BASEPATH/vm/$NEW_VMNAME"
+  local SOURCE_VM_DIR="$VM_CONFIG_BASE_DIR/$SOURCE_VMNAME"
+  local NEW_VM_DIR="$VM_CONFIG_BASE_DIR/$NEW_VMNAME"
+  local SOURCE_CONF_FILE="$SOURCE_VM_DIR/vm.conf"
+  local NEW_CONF_FILE="$NEW_VM_DIR/vm.conf"
 
   # === Check if source VM exists ===
   if [ ! -d "$SOURCE_VM_DIR" ]; then
@@ -1891,7 +1893,7 @@ cmd_clone() {
 
   # === Check if new VM already exists ===
   if [ -d "$NEW_VM_DIR" ]; then
-    display_and_log "ERROR" "Destination VM '$NEW_VM_NAME' already exists: $NEW_VM_DIR"
+    display_and_log "ERROR" "Destination VM '$NEW_VMNAME' already exists: $NEW_VM_DIR"
     exit 1
   fi
 
@@ -1904,15 +1906,17 @@ cmd_clone() {
     exit 1
   fi
 
-  log "Cloning VM '$SOURCE_VMNAME' to '$NEW_VMNAME'..."
+  display_and_log "INFO" "Cloning VM '$SOURCE_VMNAME' to '$NEW_VMNAME'..."
 
   # === Create new VM directory ===
   mkdir -p "$NEW_VM_DIR"
   log "Created new VM directory: $NEW_VM_DIR"
 
   # === Copy disk image ===
-  log "Copying disk image from $SOURCE_VM_DIR/disk.img to $NEW_VM_DIR/disk.img..."
-  cp "$SOURCE_VM_DIR/disk.img" "$NEW_VM_DIR/disk.img"
+  local SOURCE_DISK_PATH="$SOURCE_VM_DIR/$DISK"
+  local NEW_DISK_PATH="$NEW_VM_DIR/$DISK"
+  display_and_log "INFO" "Copying disk image from $SOURCE_DISK_PATH to $NEW_DISK_PATH..."
+  cp "$SOURCE_DISK_PATH" "$NEW_DISK_PATH"
   if [ $? -ne 0 ]; then
     display_and_log "ERROR" "Failed to copy disk image."
     rm -rf "$NEW_VM_DIR"
@@ -1920,74 +1924,56 @@ cmd_clone() {
   fi
   log "Disk image copied."
 
-  # === Generate new UUID, MAC, TAP, CONSOLE ===
-  NEW_UUID=$(uuidgen)
-  NEW_MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
-  
-  NEXT_TAP_NUM=0
-  while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
-    NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
-  done
-  NEW_TAP="tap${NEXT_TAP_NUM}"
+  # === Copy config file ===
+  cp "$SOURCE_CONF_FILE" "$NEW_CONF_FILE"
+  log "Copied configuration file to $NEW_CONF_FILE"
 
-  NEW_CONSOLE="nmdm-${NEW_VMNAME}.1"
+  # === Generate new unique values ===
+  local NEW_UUID=$(uuidgen)
+  local NEW_CONSOLE="nmdm-${NEW_VMNAME}.1"
+  local NEW_LOG_FILE="$NEW_VM_DIR/vm.log"
 
-  # === Create new vm.conf ===
-  NEW_CONF_FILE="$NEW_VM_DIR/vm.conf"
-  cat > "$NEW_CONF_FILE" <<EOF
-VMNAME=$NEW_VMNAME
-UUID=$NEW_UUID
-CPUS=$CPUS
-MEMORY=$MEMORY
-TAP_0=$TAP_0
-MAC_0=$MAC_0
-BRIDGE_0=$VM_BRIDGE
-DISK=disk.img
-DISKSIZE=$DISKSIZE
-CONSOLE=$NEW_CONSOLE
-LOG=$NEW_VM_DIR/vm.log
-AUTOSTART=no
-BOOTLOADER_TYPE=$BOOTLOADER_TYPE
-EOF
+  # === Update new config file ===
+  log "Updating configuration for new VM '$NEW_VMNAME'..."
+  sed -i '' "s/^VMNAME=.*/VMNAME=$NEW_VMNAME/" "$NEW_CONF_FILE"
+  sed -i '' "s/^UUID=.*/UUID=$NEW_UUID/" "$NEW_CONF_FILE"
+  sed -i '' "s/^CONSOLE=.*/CONSOLE=$NEW_CONSOLE/" "$NEW_CONF_FILE"
+  sed -i '' "s#^LOG=.*#LOG=$NEW_LOG_FILE#" "$NEW_CONF_FILE"
+  sed -i '' "s/^AUTOSTART=.*/AUTOSTART=no/" "$NEW_CONF_FILE" # Cloned VMs should not autostart by default
 
-  # === Copy and modify network interfaces ===
+  # === Update network interfaces ===
   local NIC_IDX=0
   while true; do
-    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
-    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
-    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
-
-    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
-    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
-    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
-
-    if [ -z "$CURRENT_TAP" ]; then
-      break # No more network interfaces configured
+    # Check if TAP_ and MAC_ variables exist for the current index in the source config
+    if ! grep -q "^TAP_${NIC_IDX}=" "$NEW_CONF_FILE"; then
+      break # No more NICs
     fi
 
-    local NEW_TAP_CLONE
-    NEXT_TAP_NUM=0
+    log "Updating NIC_${NIC_IDX} for clone..."
+
+    # Generate new TAP
+    local NEXT_TAP_NUM=0
     while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
       NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
     done
-    NEW_TAP_CLONE="tap${NEXT_TAP_NUM}"
+    local NEW_TAP="tap${NEXT_TAP_NUM}"
+    log "Generated new TAP for NIC_${NIC_IDX}: $NEW_TAP"
 
-    local NEW_MAC_CLONE="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+    # Generate new MAC
+    local NEW_MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+    log "Generated new MAC for NIC_${NIC_IDX}: $NEW_MAC"
 
-    echo "TAP_${NIC_IDX}=$NEW_TAP_CLONE" >> "$NEW_CONF_FILE"
-    echo "MAC_${NIC_IDX}=$NEW_MAC_CLONE" >> "$NEW_CONF_FILE"
-    echo "BRIDGE_${NIC_IDX}=$SOURCE_BRIDGE" >> "$NEW_CONF_FILE"
+    # Update the new config file
+    sed -i '' "s/^TAP_${NIC_IDX}=.*/TAP_${NIC_IDX}=$NEW_TAP/" "$NEW_CONF_FILE"
+    sed -i '' "s/^MAC_${NIC_IDX}=.*/MAC_${NIC_IDX}=$NEW_MAC/" "$NEW_CONF_FILE"
 
     NIC_IDX=$((NIC_IDX + 1))
   done
 
-  log "New configuration file created: $NEW_CONF_FILE"
-  log "VM '$NEW_VMNAME' cloned successfully."
-  display_and_log "INFO" "VM '$NEW_VMNAME' has been cloned from '$SOURCE_VMNAME'."
+  display_and_log "INFO" "VM '$NEW_VMNAME' cloned successfully."
   display_and_log "INFO" "You can now start it with: $0 start $NEW_VMNAME"
 }
 
-# === Subcommand: info ===
 # === Subcommand: info ===
 cmd_info() {
   if [ -z "$1" ]; then
@@ -2160,7 +2146,7 @@ cmd_export() {
 
   VMNAME="$1"
   DEST_PATH="$2"
-  VM_DIR="$BASEPATH/vm/$VMNAME"
+  VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
 
   if [ ! -d "$VM_DIR" ]; then
     display_and_log "ERROR" "VM '$VMNAME' not found: $VM_DIR"
@@ -2174,7 +2160,7 @@ cmd_export() {
   fi
 
   log "Exporting VM '$VMNAME' to '$DEST_PATH'..."
-  tar -czf "$DEST_PATH" -C "$BASEPATH/vm" "$VMNAME"
+  tar -czf "$DEST_PATH" -C "$VM_CONFIG_BASE_DIR" "$VMNAME"
   if [ $? -ne 0 ]; then
     display_and_log "ERROR" "Failed to export VM '$VMNAME'."
     exit 1
@@ -2189,74 +2175,72 @@ cmd_import() {
     exit 1
   fi
 
-  ARCHIVE_PATH="$1"
+  local ARCHIVE_PATH="$1"
 
   if [ ! -f "$ARCHIVE_PATH" ]; then
-    display_and_log "ERROR" "VM archive not found: $ARCHIVE_PATH"
+    display_and_log "ERROR" "Archive file not found: '$ARCHIVE_PATH'"
     exit 1
   fi
 
-  log "Importing VM from '$ARCHIVE_PATH'..."
-
-  # === Extract archive to a temporary directory first to get VMNAME ===
-  local TEMP_DIR=$(mktemp -d)
-  tar -xzf "$ARCHIVE_PATH" -C "$TEMP_DIR"
-  if [ $? -ne 0 ]; then
-    display_and_log "ERROR" "Failed to extract VM archive."
-    rm -rf "$TEMP_DIR"
-    exit 1
+  # === Extract VM name from archive path to avoid collisions ===
+  local EXTRACTED_DIR_NAME=$(tar -tf "$ARCHIVE_PATH" | head -n 1 | cut -d'/' -f1)
+  if [ -z "$EXTRACTED_DIR_NAME" ]; then
+      display_and_log "ERROR" "Could not determine VM name from archive."
+      exit 1
   fi
 
-  # === Find the VM directory inside the extracted archive ===
-  local EXTRACTED_VM_DIR=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "vm-*" -print -quit)
-  if [ -z "$EXTRACTED_VM_DIR" ]; then
-    EXTRACTED_VM_DIR=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "*" -print -quit)
-  fi
-
-  local IMPORTED_VMNAME=$(basename "$EXTRACTED_VM_DIR")
-  local NEW_VM_DIR="$BASEPATH/vm/$IMPORTED_VMNAME"
+  local NEW_VM_DIR="$VM_CONFIG_BASE_DIR/$EXTRACTED_DIR_NAME"
 
   if [ -d "$NEW_VM_DIR" ]; then
-    display_and_log "ERROR" "VM '$IMPORTED_VMNAME' already exists. Please delete the existing VM or choose a different name."
-    rm -rf "$TEMP_DIR"
+    display_and_log "ERROR" "A VM named '$EXTRACTED_DIR_NAME' already exists. Please remove it or rename the directory in the archive."
     exit 1
   fi
 
-  # === Move extracted VM to BASEPATH/vm ===
-  mv "$EXTRACTED_VM_DIR" "$BASEPATH/vm/"
+  display_and_log "INFO" "Importing VM from '$ARCHIVE_PATH'..."
+
+  # === Extract the archive ===
+  tar -xzf "$ARCHIVE_PATH" -C "$VM_CONFIG_BASE_DIR"
   if [ $? -ne 0 ]; then
-    display_and_log "ERROR" "Failed to move extracted VM to destination."
-    rm -rf "$TEMP_DIR"
+    display_and_log "ERROR" "Failed to extract VM archive."
+    rm -rf "$NEW_VM_DIR" # Clean up partial extraction
     exit 1
   fi
-  rm -rf "$TEMP_DIR"
 
-  # === Load the imported VM's config ===
+  local IMPORTED_VMNAME="$EXTRACTED_DIR_NAME"
   load_vm_config "$IMPORTED_VMNAME"
 
   # === Generate new UUID, MAC, TAP, CONSOLE for the imported VM to avoid conflicts ===
   local NEW_UUID=$(uuidgen)
-  local NEW_MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
-  
-  NEXT_TAP_NUM=0
-  while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
-    NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
-  done
-  local NEW_TAP="tap${NEXT_TAP_NUM}"
-
   local NEW_CONSOLE="nmdm-${IMPORTED_VMNAME}.1"
+  local NEW_LOG_FILE="$NEW_VM_DIR/vm.log"
 
-  local CONF_FILE="$VM_DIR/vm.conf"
+  local CONF_FILE="$NEW_VM_DIR/vm.conf"
   sed -i '' "s/^UUID=.*/UUID=$NEW_UUID/" "$CONF_FILE"
-  sed -i '' "s/^MAC=.*/MAC=$NEW_MAC/" "$CONF_FILE"
-  sed -i '' "s/^TAP=.*/TAP=$NEW_TAP/" "$CONF_FILE"
   sed -i '' "s/^CONSOLE=.*/CONSOLE=$NEW_CONSOLE/" "$CONF_FILE"
-  sed -i '' "s/^LOG=.*/LOG=$VM_DIR/vm.log/" "$CONF_FILE"
-  sed -i '' "s/^VMNAME=.*/VMNAME=$IMPORTED_VMNAME/" "$CONF_FILE"
+  sed -i '' "s#^LOG=.*#LOG=$NEW_LOG_FILE#" "$CONF_FILE"
 
-  log "VM '$IMPORTED_VMNAME' imported successfully."
-  display_and_log "INFO" "VM '$IMPORTED_VMNAME' has been imported."
-  display_and_log "INFO" "You can now start it with: $0 start $IMPORTED_VMNAME"
+  # === Update network interfaces ===
+  local NIC_IDX=0
+  while true; do
+    if ! grep -q "^TAP_${NIC_IDX}=" "$CONF_FILE"; then
+      break # No more NICs
+    fi
+
+    local NEXT_TAP_NUM=0
+    while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
+      NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
+    done
+    local NEW_TAP="tap${NEXT_TAP_NUM}"
+    local NEW_MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+
+    sed -i '' "s/^TAP_${NIC_IDX}=.*/TAP_${NIC_IDX}=$NEW_TAP/" "$CONF_FILE"
+    sed -i '' "s/^MAC_${NIC_IDX}=.*/MAC_${NIC_IDX}=$NEW_MAC/" "$CONF_FILE"
+
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+
+  display_and_log "INFO" "VM '$IMPORTED_VMNAME' successfully imported."
+  display_and_log "INFO" "You may need to review the configuration with '$0 modify $IMPORTED_VMNAME' if the host environment has changed."
 }
 
 
