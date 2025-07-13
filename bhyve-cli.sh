@@ -1060,6 +1060,12 @@ cmd_delete() {
   rm -rf "$VM_DIR"
   unset LOG_FILE # Unset LOG_FILE after directory is removed
 
+  # Remove vm.pid file if it exists
+  if [ -f "$VM_DIR/vm.pid" ]; then
+    rm "$VM_DIR/vm.pid"
+    log "Removed vm.pid file."
+  fi
+
   display_and_log "INFO" "VM '$VMNAME' successfully deleted."
 }
 
@@ -1169,6 +1175,7 @@ cmd_install() {
     display_and_log "INFO" "Starting VM with nmdm console for installation..."
     $BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK -s 4:0,ahci-cd,$ISO_PATH -s 5:0,virtio-net,$TAP_0 -l com1,/dev/${CONSOLE}A -s 31,lpc "$VMNAME" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
+    echo "$VM_PID" > "$VM_DIR/vm.pid"
     log "Bhyve VM started in background with PID $VM_PID"
 
     sleep 2 # Give bhyve a moment to start
@@ -1287,6 +1294,7 @@ cmd_install() {
     log "Running bhyve installer in background..."
     $BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK -s 4:0,ahci-cd,$ISO_PATH -s 5:0,virtio-net,$TAP_0 -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
+    echo "$VM_PID" > "$VM_DIR/vm.pid"
     log "Bhyve VM started in background with PID $VM_PID"
 
     echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
@@ -1524,6 +1532,7 @@ cmd_start() {
   fi
 
   BHYVE_PID=$!
+  echo "$BHYVE_PID" > "$VM_DIR/vm.pid"
 
   # Wait a moment
   sleep 1
@@ -1550,7 +1559,12 @@ cmd_stop() {
   log "Stopping VM '$VMNAME'..."
 
   # === Find the PID of the bhyve process, anchor to end of line for specificity ===
-  VM_PID=$(ps -ax | grep "[b]hyve .* $VMNAME$" | awk '{print $1}')
+  local VM_PID=""
+  if [ -f "$VM_DIR/vm.pid" ]; then
+    VM_PID=$(cat "$VM_DIR/vm.pid")
+  else
+    VM_PID=$(ps -ax | grep "[b]hyve .* $VMNAME" | awk '{print $1}')
+  fi
 
   if [ -n "$VM_PID" ]; then
     # Handle multiple PIDs by not quoting the variable
@@ -1580,7 +1594,6 @@ cmd_stop() {
     log "No cu process found or failed to stop for /dev/${CONSOLE}B."
   fi
 
-  # === Stop associated log (tail -f) processes ===
   log "Attempting to stop associated tail -f process for $LOG_FILE..."
   pkill -f "tail -f $LOG_FILE"
   if [ $? -eq 0 ]; then
@@ -1597,6 +1610,12 @@ cmd_stop() {
   else
     log "VM '$VMNAME' was not found in kernel memory (already destroyed or never started)."
     display_and_log "INFO" "VM '$VMNAME' is not running."
+  fi
+
+  # Remove vm.pid file
+  if [ -f "$VM_DIR/vm.pid" ]; then
+    rm "$VM_DIR/vm.pid"
+    log "Removed vm.pid file."
   fi
 }
 
@@ -1678,24 +1697,43 @@ cmd_status() {
 
   for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
     [ -f "$VMCONF" ] || continue
-    . "$VMCONF"
-
-
+    
+    local current_vmname=$(basename "$(dirname "$VMCONF")")
+    load_vm_config "$current_vmname" # This will set VMNAME, VM_DIR, and LOG_FILE correctly.
+    
     local VMNAME="${VMNAME:-N/A}"
     local CPUS="${CPUS:-N/A}"
     local MEMORY="${MEMORY:-N/A}"
+   
+    local PID="" # Initialize to empty string
 
-    # === Reliable status check, anchor to end of line for specificity ===
-    local PID=$(ps -ax | grep "[b]hyve .* $VMNAME$" | awk '{print $1}')
+    # Try to get PID from vm.pid file first
+    if [ -f "$VM_DIR/vm.pid" ]; then
+      local STORED_PID=$(cat "$VM_DIR/vm.pid")
+      if [ -n "$STORED_PID" ] && ps -p "$STORED_PID" > /dev/null 2>&1; then
+        PID="$STORED_PID"
+      fi
+    fi
+
+    # If PID is still empty, try to find it with grep
+    if [ -z "$PID" ]; then
+      local GREPPED_PID=$(ps -ax | grep "[b]hyve .* $VMNAME" | awk '{print $1}')
+      if [ -n "$GREPPED_PID" ] && ps -p "$GREPPED_PID" > /dev/null 2>&1; then
+        PID="$GREPPED_PID"
+      fi
+    fi
+
     local BHYVECTL_STATUS=$($BHYVECTL --vm="$VMNAME" --get-all 2>/dev/null)
     local STATUS="STOPPED"
     local CPU_USAGE="N/A"
     local RAM_USAGE="N/A"
 
+    # Determine overall status
     if [ -n "$PID" ] || [ -n "$BHYVECTL_STATUS" ]; then
         STATUS="RUNNING"
     fi
 
+    # Calculate CPU/RAM usage only if a valid PID is found
     if [ -n "$PID" ]; then
       local PS_INFO=$(ps -p "$PID" -o %cpu,rss= | tail -n 1)
       if [ -n "$PS_INFO" ]; then
@@ -1708,8 +1746,6 @@ cmd_status() {
           RAM_USAGE="${RAM_RSS_KB}KB (bc not found)"
         fi
       fi
-    else
-        PID="-"
     fi
 
     printf "$header_format" "$VMNAME" "$STATUS" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$PID"
