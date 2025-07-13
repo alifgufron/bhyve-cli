@@ -392,8 +392,12 @@ cmd_iso() {
         display_and_log "INFO" "No ISO files found in $ISO_DIR."
       else
         echo_message "\nAvailable ISOs in $ISO_DIR:"
+        local count=1
         for iso in "${ISO_LIST[@]}"; do
-          echo_message "- $(basename "$iso") (Path: $iso)"
+          local iso_filename=$(basename "$iso")
+          local iso_size_bytes=$(stat -f %z "$iso")
+          local iso_size_gb=$(echo "scale=2; $iso_size_bytes / (1024 * 1024 * 1024)" | bc)
+          echo_message "$((count++)). $iso_filename (${iso_size_gb}GB)"
         done
       fi
       ;;
