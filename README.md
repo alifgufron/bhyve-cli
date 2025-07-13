@@ -81,7 +81,7 @@ Before using `bhyve-cli.sh`, ensure your FreeBSD system meets the following requ
     The first time you run `bhyve-cli.sh`, you need to initialize its configuration. This will create necessary directories and a main configuration file.
 
     ```bash
-    sudo ./bhyve-cli.sh init
+    ./bhyve-cli.sh init
     ```
     During initialization, you will be prompted to specify a directory for storing ISO images. The default is `/var/bhyve/iso`.
 
@@ -104,13 +104,13 @@ Key configuration variables:
 ### General Usage
 
 ```bash
-sudo ./bhyve-cli.sh <command> [options/arguments]
+./bhyve-cli.sh <command> [options/arguments]
 ```
 
 For detailed usage of any specific command, use:
 
 ```bash
-sudo ./bhyve-cli.sh <command> --help
+./bhyve-cli.sh <command> --help
 ```
 
 ### Commands
@@ -120,7 +120,7 @@ sudo ./bhyve-cli.sh <command> --help
 Initializes the `bhyve-cli` configuration directory and files.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh init
+Usage: ./bhyve-cli.sh init
 ```
 
 #### `create`
@@ -128,7 +128,7 @@ Usage: sudo ./bhyve-cli.sh init
 Creates a new virtual machine.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh create --name <vmname> --disk-size <disksize in GB> --switch <bridge_name> [--bootloader <type>]
+Usage: ./bhyve-cli.sh create --name <vmname> --disk-size <disksize in GB> --switch <bridge_name> [--bootloader <type>]
 
 Options:
   --name <vmname>              - Name of the virtual machine.
@@ -137,8 +137,8 @@ Options:
   --bootloader <type>          - Optional. Type of bootloader (bhyveload, uefi). Default: bhyveload.
 
 Example:
-  sudo ./bhyve-cli.sh create --name vm-bsd --disk-size 40 --switch bridge100
-  sudo ./bhyve-cli.sh create --name vm-uefi --disk-size 60 --switch bridge101 --bootloader uefi
+./bhyve-cli.sh create --name vm-bsd --disk-size 40 --switch bridge100
+./bhyve-cli.sh create --name vm-uefi --disk-size 60 --switch bridge101 --bootloader uefi
 ```
 
 #### `delete`
@@ -146,7 +146,7 @@ Example:
 Deletes an existing virtual machine permanently.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh delete <vmname>
+Usage: ./bhyve-cli.sh delete <vmname>
 
 Arguments:
   <vmname>    - The name of the virtual machine to permanently delete.
@@ -157,7 +157,7 @@ Arguments:
 Installs an operating system on a VM. This command will guide you through selecting an ISO and connecting to the VM's console for installation.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh install <vmname> [--bootloader <type>]
+Usage: ./bhyve-cli.sh install <vmname> [--bootloader <type>]
 
 Options:
   --bootloader <type>          - Optional. Override the bootloader type for this installation (bhyveload, uefi).
@@ -168,7 +168,7 @@ Options:
 Starts a virtual machine.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh start <vmname>
+Usage: ./bhyve-cli.sh start <vmname>
 
 Arguments:
   <vmname>    - The name of the virtual machine to start.
@@ -179,7 +179,7 @@ Arguments:
 Stops a running virtual machine.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh stop <vmname>
+Usage: ./bhyve-cli.sh stop <vmname>
 
 Arguments:
   <vmname>    - The name of the virtual machine to stop.
@@ -190,7 +190,7 @@ Arguments:
 Restarts a virtual machine.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh restart <vmname>
+Usage: ./bhyve-cli.sh restart <vmname>
 
 Arguments:
   <vmname>    - The name of the virtual machine to restart.
@@ -201,7 +201,7 @@ Arguments:
 Accesses the console of a VM.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh console <vmname>
+Usage: ./bhyve-cli.sh console <vmname>
 
 Arguments:
   <vmname>    - The name of the virtual machine to connect to.
@@ -212,7 +212,7 @@ Arguments:
 Displays real-time logs for a VM.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh logs <vmname>
+Usage: ./bhyve-cli.sh logs <vmname>
 
 Arguments:
   <vmname>    - The name of the virtual machine whose logs you want to view.
@@ -223,7 +223,7 @@ Arguments:
 Enables or disables VM autostart on boot.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh autostart <vmname> <enable|disable>
+Usage: ./bhyve-cli.sh autostart <vmname> <enable|disable>
 
 Arguments:
   <vmname>    - The name of the virtual machine.
@@ -235,7 +235,7 @@ Arguments:
 Modifies VM configuration (CPU, RAM, network, etc.). The VM must be stopped before modification.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh modify <vmname> [--cpu <num>] [--ram <size>] [--nic <index> --tap <tap_name> --mac <mac_address> --bridge <bridge_name>]
+Usage: ./bhyve-cli.sh modify <vmname> [--cpu <num>] [--ram <size>] [--nic <index> --tap <tap_name> --mac <mac_address> --bridge <bridge_name>]
 
 Arguments:
   <vmname>    - The name of the virtual machine to modify.
@@ -249,8 +249,8 @@ Options:
   --bridge <bridge_name>       - Connect the specified NIC to a different bridge.
 
 Example:
-  sudo ./bhyve-cli.sh modify myvm --cpu 4 --ram 4096M
-  sudo ./bhyve-cli.sh modify myvm --nic 0 --tap tap1 --bridge bridge1
+ ./bhyve-cli.sh modify myvm --cpu 4 --ram 4096M
+ ./bhyve-cli.sh modify myvm --nic 0 --tap tap1 --bridge bridge1
 ```
 
 #### `clone`
@@ -258,14 +258,14 @@ Example:
 Creates a clone of an existing VM. The source VM must be stopped.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh clone <source_vmname> <new_vmname>
+Usage: ./bhyve-cli.sh clone <source_vmname> <new_vmname>
 
 Arguments:
   <source_vmname>    - The name of the existing virtual machine to clone.
   <new_vmname>       - The name for the new cloned virtual machine.
 
 Example:
-  sudo ./bhyve-cli.sh clone myvm newvm
+ ./bhyve-cli.sh clone myvm newvm
 ```
 
 #### `info`
@@ -273,7 +273,7 @@ Example:
 Displays detailed information about a VM.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh info <vmname>
+Usage: ./bhyve-cli.sh info <vmname>
 
 Arguments:
   <vmname>    - The name of the virtual machine to display information about.
@@ -284,14 +284,14 @@ Arguments:
 Resizes a VM's disk image. The VM must be stopped.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh resize-disk <vmname> <new_size_in_GB>
+Usage: ./bhyve-cli.sh resize-disk <vmname> <new_size_in_GB>
 
 Arguments:
   <vmname>         - The name of the virtual machine whose disk you want to resize.
   <new_size_in_GB> - The new size of the virtual disk in GB. Must be larger than the current size.
 
 Example:
-  sudo ./bhyve-cli.sh resize-disk myvm 60
+ ./bhyve-cli.sh resize-disk myvm 60
 ```
 
 #### `export`
@@ -299,14 +299,14 @@ Example:
 Exports a VM to an archive file. The VM must be stopped.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh export <vmname> <destination_path>
+Usage: ./bhyve-cli.sh export <vmname> <destination_path>
 
 Arguments:
   <vmname>           - The name of the virtual machine to export.
   <destination_path> - The full path including the filename for the exported archive (e.g., /tmp/myvm_backup.tar.gz).
 
 Example:
-  sudo ./bhyve-cli.sh export myvm /tmp/myvm_backup.tar.gz
+ ./bhyve-cli.sh export myvm /tmp/myvm_backup.tar.gz
 ```
 
 #### `import`
@@ -314,13 +314,13 @@ Example:
 Imports a VM from an archive file.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh import <path_to_vm_archive>
+Usage: ./bhyve-cli.sh import <path_to_vm_archive>
 
 Arguments:
   <path_to_vm_archive> - The full path to the VM archive file to import (e.g., /tmp/myvm_backup.tar.gz).
 
 Example:
-  sudo ./bhyve-cli.sh import /tmp/myvm_backup.tar.gz
+ ./bhyve-cli.sh import /tmp/myvm_backup.tar.gz
 ```
 
 #### `iso`
@@ -328,15 +328,15 @@ Example:
 Manages ISO images (list and download).
 
 ```bash
-Usage: sudo ./bhyve-cli.sh iso [list | <URL>]
+Usage: ./bhyve-cli.sh iso [list | <URL>]
 
 Subcommands:
   list         - List all ISO images in $ISO_DIR.
   <URL>        - Download an ISO image from the specified URL to $ISO_DIR.
 
 Example:
-  sudo ./bhyve-cli.sh iso list
-  sudo ./bhyve-cli.sh iso https://example.com/freebsd.iso
+ ./bhyve-cli.sh iso list
+ ./bhyve-cli.sh iso https://example.com/freebsd.iso
 ```
 
 #### `status`
@@ -344,7 +344,7 @@ Example:
 Shows the status of all virtual machines.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh status
+Usage: ./bhyve-cli.sh status
 ```
 
 #### `switch`
@@ -352,7 +352,7 @@ Usage: sudo ./bhyve-cli.sh status
 Manages network bridges and physical interfaces.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh switch [subcommand] [Option] [Arguments]
+Usage: ./bhyve-cli.sh switch [subcommand] [Option] [Arguments]
 
 Subcommands:
   init        - Re-initialize all saved switch configurations.
@@ -367,7 +367,7 @@ Subcommands:
 Re-initializes all saved switch configurations from the switch config file. This is useful for restoring network configuration after a host reboot.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh switch init
+Usage: ./bhyve-cli.sh switch init
 ```
 
 ##### `switch add`
@@ -375,7 +375,7 @@ Usage: sudo ./bhyve-cli.sh switch init
 Creates a bridge and adds a physical interface to it.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh switch add --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]
+Usage: ./bhyve-cli.sh switch add --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]
 
 Options:
   --name <bridge_name>         - Name of the bridge or vSwitch.
@@ -388,7 +388,7 @@ Options:
 Lists all bridge interfaces and their members.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh switch list
+Usage: ./bhyve-cli.sh switch list
 ```
 
 ##### `switch destroy`
@@ -396,7 +396,7 @@ Usage: sudo ./bhyve-cli.sh switch list
 Destroys a bridge and all its members.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh switch destroy <bridge_name>
+Usage: ./bhyve-cli.sh switch destroy <bridge_name>
 
 Arguments:
   <bridge_name> - The name of the bridge to destroy.
@@ -407,7 +407,7 @@ Arguments:
 Removes a specific member from a bridge.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh switch delete --member <interface> --from <bridge_name>
+Usage: ./bhyve-cli.sh switch delete --member <interface> --from <bridge_name>
 
 Options:
   --member <interface>         - The specific member interface to remove (e.g., tap0, vlan100).
@@ -419,13 +419,13 @@ Options:
 Manages network interfaces for individual VMs.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh network [subcommand] [arguments]
+Usage: ./bhyve-cli.sh network [subcommand] [arguments]
 
 Subcommands:
   add    - Add a network interface to a VM.
   remove - Remove a network interface from a VM.
 
-For detailed usage of each subcommand, use: sudo ./bhyve-cli.sh network <subcommand> --help
+For detailed usage of each subcommand, use: ./bhyve-cli.sh network <subcommand> --help
 ```
 
 ##### `network add`
@@ -433,7 +433,7 @@ For detailed usage of each subcommand, use: sudo ./bhyve-cli.sh network <subcomm
 Adds a network interface to a VM.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh network add --vm <vmname> --switch <bridge_name> [--mac <mac_address>]
+Usage: ./bhyve-cli.sh network add --vm <vmname> --switch <bridge_name> [--mac <mac_address>]
 
 Options:
   --vm <vmname>                - Name of the virtual machine to add the network interface to.
@@ -441,8 +441,8 @@ Options:
   --mac <mac_address>          - Optional. Specific MAC address for the new interface. If omitted, a random one is generated.
 
 Example:
-  sudo ./bhyve-cli.sh network add --vm myvm --switch bridge1
-  sudo ./bhyve-cli.sh network add --vm myvm --switch bridge2 --mac 58:9c:fc:00:00:01
+ ./bhyve-cli.sh network add --vm myvm --switch bridge1
+ ./bhyve-cli.sh network add --vm myvm --switch bridge2 --mac 58:9c:fc:00:00:01
 ```
 
 ##### `network remove`
@@ -450,14 +450,14 @@ Example:
 Removes a network interface from a VM.
 
 ```bash
-Usage: sudo ./bhyve-cli.sh network remove <vmname> <tap_name>
+Usage: ./bhyve-cli.sh network remove <vmname> <tap_name>
 
 Arguments:
   <vmname>    - The name of the virtual machine to remove the network interface from.
   <tap_name>  - The name of the TAP interface to remove (e.g., tap0, tap1).
 
 Example:
-  sudo ./bhyve-cli.sh network remove myvm tap0
+ ./bhyve-cli.sh network remove myvm tap0
 ```
 
 ## Logging
@@ -473,9 +473,9 @@ The global log file is located at `/var/log/bhyve-cli.log`.
 
 ## Troubleshooting
 
--   **"This script must be run with superuser (root) privileges."**: Ensure you are running the script with `sudo`.
--   **"Kernel module 'vmm.ko' is not loaded." or "'nmdm.ko' is not loaded."**: Load the required kernel modules using `sudo kldload vmm` and `sudo kldload nmdm`. For persistence across reboots, add `vmm_load="YES"` and `nmdm_load="YES"` to `/etc/rc.conf`.
--   **"bhyve-cli has not been initialized."**: Run `sudo ./bhyve-cli.sh init` to set up the necessary configuration files.
+-   **"This script must be run with superuser (root) privileges.
+-   **"Kernel module 'vmm.ko' is not loaded." or "'nmdm.ko' is not loaded."**: Load the required kernel modules using `kldload vmm` and `kldload nmdm`. For persistence across reboots, add `vmm_load="YES"` and `nmdm_load="YES"` to `/etc/rc.conf`.
+-   **"bhyve-cli has not been initialized."**: Run `./bhyve-cli.sh init` to set up the necessary configuration files.
 -   **VM not stopping/starting correctly**: Check the VM's specific log file (`VM_CONFIG_BASE_DIR/<vmname>/vm.log`) and the global log file (`/var/log/bhyve-cli.log`) for error messages.
--   **Network issues**: Use `sudo ./bhyve-cli.sh switch list` to inspect bridge and TAP interface configurations. Ensure physical interfaces are correctly added to bridges.
+-   **Network issues**: Use `./bhyve-cli.sh switch list` to inspect bridge and TAP interface configurations. Ensure physical interfaces are correctly added to bridges.
 -   **"UEFI firmware not found."**: Install `edk2-bhyve` using `pkg install edk2-bhyve` or manually place a compatible UEFI firmware file in the configured `UEFI_FIRMWARE_PATH
