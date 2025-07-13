@@ -50,6 +50,15 @@ display_and_log() {
   echo "$TIMESTAMP_MESSAGE" >> "$GLOBAL_LOG_FILE"
 }
 
+# === Function to write to global log file only ===
+log_to_global_file() {
+  local LEVEL="$1"
+  local MESSAGE="$2"
+  if [ -n "$GLOBAL_LOG_FILE" ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$LEVEL] $MESSAGE" >> "$GLOBAL_LOG_FILE"
+  fi
+}
+
 # === Prerequisite Checks ===
 check_root() {
   if [ "$(id -u)" -ne 0 ]; then
@@ -434,10 +443,49 @@ cmd_network_remove_usage() {
 }
 
 
+# === Subcommand: switch ===
+cmd_switch() {
+  if [ -z "$1" ]; then
+    cmd_switch_usage
+    exit 1
+  fi
+
+  local SUBCOMMAND="$1"
+  shift
+
+  case "$SUBCOMMAND" in
+    init)
+      cmd_switch_init
+      ;;
+    add)
+      cmd_switch_add "$@"
+      ;;
+    list)
+      cmd_switch_list
+      ;;
+    destroy)
+      cmd_switch_destroy "$@"
+      ;;
+    delete)
+      cmd_switch_delete "$@"
+      ;;
+    --help|help)
+      cmd_switch_usage
+      ;;
+    *)
+      display_and_log "ERROR" "Invalid subcommand for 'switch': $SUBCOMMAND"
+      cmd_switch_usage
+      exit 1
+      ;;
+  esac
+}
+
+
 cmd_switch_add() {
   local BRIDGE_NAME=""
   local PHYS_IF=""
   local VLAN_TAG=""
+  local SAVE_CONFIG=true
 
   # Parse named arguments
   while (( "$#" )); do
@@ -454,6 +502,9 @@ cmd_switch_add() {
         shift
         VLAN_TAG="$1"
         ;;
+      --no-save)
+        SAVE_CONFIG=false
+        ;;
       *)
         display_and_log "ERROR" "Invalid option: $1"
         cmd_switch_add_usage
@@ -469,7 +520,7 @@ cmd_switch_add() {
     exit 1
   fi
 
-  log "Checking physical interface '$PHYS_IF'..."
+  log_to_global_file "INFO" "Checking physical interface '$PHYS_IF'..."
   if ! ifconfig "$PHYS_IF" > /dev/null 2>&1; then
     display_and_log "ERROR" "Physical interface '$PHYS_IF' not found."
     exit 1
@@ -478,48 +529,64 @@ cmd_switch_add() {
   MEMBER_IF="$PHYS_IF"
   if [ -n "$VLAN_TAG" ]; then
     VLAN_IF="vlan${VLAN_TAG}"
-    log "Creating VLAN interface '$VLAN_IF'..."
-    ifconfig "$VLAN_IF" create
-    if [ $? -ne 0 ]; then
-      display_and_log "ERROR" "Failed to create VLAN interface '$VLAN_IF'."
-      exit 1
+    if ! ifconfig "$VLAN_IF" > /dev/null 2>&1; then
+      log_to_global_file "INFO" "Creating VLAN interface '$VLAN_IF'..."
+      ifconfig "$VLAN_IF" create
+      if [ $? -ne 0 ]; then
+        display_and_log "ERROR" "Failed to create VLAN interface '$VLAN_IF'."
+        exit 1
+      fi
+      log_to_global_file "INFO" "Configuring '$VLAN_IF' with tag '$VLAN_TAG' on top of '$PHYS_IF'..."
+      ifconfig "$VLAN_IF" vlan "$VLAN_TAG" vlandev "$PHYS_IF"
+      if [ $? -ne 0 ]; then
+        display_and_log "ERROR" "Failed to configure VLAN interface '$VLAN_IF'."
+        exit 1
+      fi
+      log_to_global_file "INFO" "VLAN interface '$VLAN_IF' successfully configured."
+      display_and_log "INFO" "Successfully created interface $VLAN_IF with VLAN $VLAN_TAG and vlandev to $PHYS_IF."
+    else
+      log_to_global_file "INFO" "VLAN interface '$VLAN_IF' already exists."
     fi
-    log "Configuring '$VLAN_IF' with tag '$VLAN_TAG' on top of '$PHYS_IF'..."
-    ifconfig "$VLAN_IF" vlan "$VLAN_TAG" vlandev "$PHYS_IF"
-    if [ $? -ne 0 ]; then
-      display_and_log "ERROR" "Failed to configure VLAN interface '$VLAN_IF'."
-      exit 1
-    fi
-    log "VLAN interface '$VLAN_IF' successfully configured."
-    display_and_log "INFO" "Successfully created interface $VLAN_IF with VLAN $VLAN_TAG and vlandev to $PHYS_IF."
     MEMBER_IF="$VLAN_IF"
   fi
 
-  log "Checking bridge '$BRIDGE_NAME'..."
+  log_to_global_file "INFO" "Checking bridge '$BRIDGE_NAME'..."
   if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
-    log "Bridge interface '$BRIDGE_NAME' does not exist. Creating..."
+    log_to_global_file "INFO" "Bridge interface '$BRIDGE_NAME' does not exist. Creating..."
     ifconfig bridge create name "$BRIDGE_NAME"
     if [ $? -ne 0 ]; then
       display_and_log "ERROR" "Failed to create bridge '$BRIDGE_NAME'."
       exit 1
     fi
-    log "Bridge interface '$BRIDGE_NAME' successfully created."
+    log_to_global_file "INFO" "Bridge interface '$BRIDGE_NAME' successfully created."
   else
-    log "Bridge interface '$BRIDGE_NAME' already exists."
+    log_to_global_file "INFO" "Bridge interface '$BRIDGE_NAME' already exists."
   fi
 
-  log "Adding '$MEMBER_IF' to bridge '$BRIDGE_NAME'..."
-  ifconfig "$BRIDGE_NAME" addm "$MEMBER_IF"
-  if [ $? -ne 0 ]; then
-    display_and_log "ERROR" "Failed to add '$MEMBER_IF' to bridge '$BRIDGE_NAME'."
-    exit 1
-  fi
-  log "Interface '$MEMBER_IF' successfully added to bridge '$BRIDGE_NAME'."
+  if ! ifconfig "$BRIDGE_NAME" | grep -qw "$MEMBER_IF"; then
+    log_to_global_file "INFO" "Adding '$MEMBER_IF' to bridge '$BRIDGE_NAME'..."
+    ifconfig "$BRIDGE_NAME" addm "$MEMBER_IF"
+    if [ $? -ne 0 ]; then
+      display_and_log "ERROR" "Failed to add '$MEMBER_IF' to bridge '$BRIDGE_NAME'."
+      exit 1
+    fi
+    log_to_global_file "INFO" "Interface '$MEMBER_IF' successfully added to bridge '$BRIDGE_NAME'."
     display_and_log "INFO" "Now interface '$MEMBER_IF' is a member of bridge '$BRIDGE_NAME'."
+  else
+    log_to_global_file "INFO" "Interface '$MEMBER_IF' is already a member of bridge '$BRIDGE_NAME'."
+  fi
 
-  # Save switch configuration
-  echo "$BRIDGE_NAME $PHYS_IF $VLAN_TAG" >> "$SWITCH_CONFIG_FILE"
-  log "Switch configuration saved to $SWITCH_CONFIG_FILE"
+  # Save switch configuration only if called directly
+  if [ "$SAVE_CONFIG" = true ]; then
+    touch "$SWITCH_CONFIG_FILE"
+    # Check for duplicates before saving
+    if ! grep -qxF "$BRIDGE_NAME $PHYS_IF $VLAN_TAG" "$SWITCH_CONFIG_FILE"; then
+        echo "$BRIDGE_NAME $PHYS_IF $VLAN_TAG" >> "$SWITCH_CONFIG_FILE"
+        log_to_global_file "INFO" "Switch configuration saved to $SWITCH_CONFIG_FILE"
+    else
+        log_to_global_file "INFO" "Switch configuration for '$BRIDGE_NAME' already exists."
+    fi
+  fi
 }
 
 # === Subcommand: switch init ===
@@ -531,7 +598,7 @@ cmd_switch_init() {
 
     display_and_log "INFO" "Initializing switches from $SWITCH_CONFIG_FILE..."
     while read -r bridge_name phys_if vlan_tag; do
-        local args=("--name" "$bridge_name" "--interface" "$phys_if")
+        local args=("--name" "$bridge_name" "--interface" "$phys_if" "--no-save")
         if [ -n "$vlan_tag" ]; then
             args+=("--vlan" "$vlan_tag")
         fi
@@ -583,40 +650,82 @@ cmd_switch_destroy() {
 
   local BRIDGE_NAME="$1"
 
-  log "Checking bridge '$BRIDGE_NAME'..."
+  log_to_global_file "INFO" "Initiating destruction of bridge '$BRIDGE_NAME'."
   if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
-    display_and_log "ERROR" "Bridge '$BRIDGE_NAME' not found."
+    echo_message "[ERROR] Bridge '$BRIDGE_NAME' not found."
+    log_to_global_file "ERROR" "Bridge '$BRIDGE_NAME' not found. Aborting destruction."
     exit 1
   fi
 
   MEMBERS=$(ifconfig "$BRIDGE_NAME" | grep 'member:' | awk '{print $2}')
+
   if [ -n "$MEMBERS" ]; then
-    echo_message "\nWARNING: Bridge '$BRIDGE_NAME' has active members:"
+    echo_message "
+WARNING: Bridge '$BRIDGE_NAME' has active members:"
     for MEMBER in $MEMBERS; do
       echo_message "  - $MEMBER"
     done
-    echo_message "\nDestroying this bridge will also remove all its members."
+    echo_message "
+Destroying this bridge will also remove all its members and their configurations."
     read -rp "Are you sure you want to destroy bridge '$BRIDGE_NAME' and all its members? (y/n): " CONFIRM_DESTROY
     if ! [[ "$CONFIRM_DESTROY" =~ ^[Yy]$ ]]; then
-      display_and_log "INFO" "Bridge '$BRIDGE_NAME' not destroyed."
+      echo_message "Bridge destruction cancelled."
+      log_to_global_file "INFO" "User cancelled bridge destruction."
       exit 0
     fi
   else
-    echo_message "\nBridge '$BRIDGE_NAME' is empty."
+    echo_message "
+Bridge '$BRIDGE_NAME' is empty."
     read -rp "Are you sure you want to destroy bridge '$BRIDGE_NAME'? (y/n): " CONFIRM_DESTROY
     if ! [[ "$CONFIRM_DESTROY" =~ ^[Yy]$ ]]; then
-      display_and_log "INFO" "Bridge '$BRIDGE_NAME' not destroyed."
+      echo_message "Bridge destruction cancelled."
+      log_to_global_file "INFO" "User cancelled bridge destruction."
       exit 0
     fi
   fi
 
-  log "Destroying bridge '$BRIDGE_NAME'..."
+  if [ -n "$MEMBERS" ]; then
+    echo_message "Removing members from bridge '$BRIDGE_NAME'..."
+    for MEMBER in $MEMBERS; do
+      log_to_global_file "INFO" "Executing: ifconfig \"$BRIDGE_NAME\" deletem \"$MEMBER\""
+      ifconfig "$BRIDGE_NAME" deletem "$MEMBER"
+      if [ $? -ne 0 ]; then
+        echo_message "[WARNING] Failed to remove member '$MEMBER' from bridge '$BRIDGE_NAME'."
+        log_to_global_file "WARNING" "Command 'ifconfig \"$BRIDGE_NAME\" deletem \"$MEMBER\"' failed."
+      else
+        echo_message "  - Member '$MEMBER' removed."
+        log_to_global_file "INFO" "Member '$MEMBER' successfully removed from bridge '$BRIDGE_NAME'."
+      fi
+
+      if [[ "$MEMBER" =~ ^vlan[0-9]+$ ]]; then
+        log_to_global_file "INFO" "Executing: ifconfig \"$MEMBER\" destroy"
+        ifconfig "$MEMBER" destroy
+        if [ $? -ne 0 ]; then
+          echo_message "[WARNING] Failed to destroy VLAN interface '$MEMBER'."
+          log_to_global_file "WARNING" "Command 'ifconfig \"$MEMBER\" destroy' failed."
+        else
+          echo_message "  - VLAN interface '$MEMBER' destroyed."
+          log_to_global_file "INFO" "VLAN interface '$MEMBER' successfully destroyed."
+        fi
+      fi
+    done
+  fi
+
+  echo_message "Destroying bridge '$BRIDGE_NAME'..."
+  log_to_global_file "INFO" "Executing: ifconfig \"$BRIDGE_NAME\" destroy"
   ifconfig "$BRIDGE_NAME" destroy
   if [ $? -ne 0 ]; then
-    display_and_log "ERROR" "Failed to destroy bridge '$BRIDGE_NAME'."
+    echo_message "[ERROR] Failed to destroy bridge '$BRIDGE_NAME'."
+    log_to_global_file "ERROR" "Command 'ifconfig \"$BRIDGE_NAME\" destroy' failed."
     exit 1
   fi
-  display_and_log "INFO" "Bridge '$BRIDGE_NAME' successfully destroyed."
+  echo_message "Bridge '$BRIDGE_NAME' successfully destroyed."
+  log_to_global_file "INFO" "Bridge '$BRIDGE_NAME' successfully destroyed."
+
+  if [ -f "$SWITCH_CONFIG_FILE" ]; then
+    log_to_global_file "INFO" "Removing configuration line for '$BRIDGE_NAME' from $SWITCH_CONFIG_FILE."
+    sed -i '' "/^$BRIDGE_NAME /d" "$SWITCH_CONFIG_FILE"
+  fi
 }
 
 # === Subcommand: switch delete ===
@@ -2101,6 +2210,11 @@ load_config
 case "$1" in
   init)
     cmd_init
+    exit 0
+    ;;
+  switch)
+    shift
+    cmd_switch "$@"
     exit 0
     ;;
   --version)
