@@ -1174,23 +1174,78 @@ cmd_install() {
     sleep 2 # Give bhyve a moment to start
     echo_message ""
     echo_message ">>> Entering VM '$VMNAME' installation console (exit with ~.)"
+    echo_message ">>> IMPORTANT: After shutting down the VM from within, you MUST type '~.' (tilde then dot) to exit this console and allow the script to continue cleanup."
     cu -l /dev/"${CONSOLE}B"
 
-    log "cu session ended. Waiting for bhyve process $VM_PID to exit..."
-    if ! wait "$VM_PID"; then
-      display_and_log "ERROR" "Virtual machine '$VMNAME' installer exited with an error. Check VM logs for details."
-      pkill -f "bhyve.*$VMNAME" > /dev/null 2>&1
-      pkill -f "cu -l /dev/${CONSOLE}B" > /dev/null 2>&1
-      pkill -f "tail -f $LOG_FILE" > /dev/null 2>&1
-      $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>/dev/null
-      exit 1
+    log "cu session ended. Initiating cleanup..."
+
+    # Explicitly kill bhyve process associated with this VMNAME
+    local VM_PIDS_TO_KILL=$(ps -ax | grep "[b]hyve .* $VMNAME$" | awk '{print $1}')
+    if [ -n "$VM_PIDS_TO_KILL" ]; then
+        local PIDS_STRING=$(echo "$VM_PIDS_TO_KILL" | tr '
+' ' ')
+        log "Sending TERM signal to bhyve PID(s): $PIDS_STRING"
+        kill $VM_PIDS_TO_KILL
+        sleep 1 # Give it a moment to terminate
+
+        for pid_to_check in $VM_PIDS_TO_KILL; do
+            if ps -p "$pid_to_check" > /dev/null 2>&1; then
+                log "PID $pid_to_check still running, forcing KILL..."
+                kill -9 "$pid_to_check"
+                sleep 1
+            fi
+        done
+        log "bhyve process(es) stopped."
+    else
+        log "No bhyve process found for '$VMNAME' to kill."
     fi
-    log "Bhyve process $VM_PID exited."
+
+    # Now, destroy from kernel memory (important for bhyveload)
+    if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
+        log "VM '$VMNAME' successfully destroyed from kernel memory."
+    else
+        log "VM '$VMNAME' was not found in kernel memory (already destroyed or never started)."
+    fi
+
+    # Kill any lingering cu or tail -f processes
+    log "Attempting to stop associated cu process for /dev/${CONSOLE}B..."
+    pkill -f "cu -l /dev/${CONSOLE}B" > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        log "cu process for /dev/${CONSOLE}B stopped."
+    else
+        log "No cu process found or failed to stop for /dev/${CONSOLE}B."
+    fi
+
+    log "Attempting to stop associated cu process for /dev/${CONSOLE}A..."
+    pkill -f "cu -l /dev/${CONSOLE}A" > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        log "cu process for /dev/${CONSOLE}A stopped."
+    else
+        log "No cu process found or failed to stop for /dev/${CONSOLE}A."
+    fi
+
+    log "Attempting to stop associated tail -f process for $LOG_FILE..."
+    pkill -f "tail -f $LOG_FILE" > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        log "tail -f process for $LOG_FILE stopped."
+    else
+        log "No tail -f process found or failed to stop for $LOG_FILE."
+    fi
+
+    # Check the exit status of the bhyve process
+    wait "$VM_PID"
+    local BHYVE_EXIT_STATUS=$?
+
+    if [ "$BHYVE_EXIT_STATUS" -eq 3 ] || [ "$BHYVE_EXIT_STATUS" -eq 4 ]; then
+        display_and_log "ERROR" "Virtual machine '$VMNAME' installer exited with an error (exit code: $BHYVE_EXIT_STATUS). Check VM logs for details."
+        exit 1
+    else
+        log "Bhyve process $VM_PID exited cleanly (status: $BHYVE_EXIT_STATUS)."
+    fi
     display_and_log "INFO" "Installation finished. You can now start the VM with: $0 start $VMNAME"
 
   else
     # --- uefi/GRUB INSTALL ---
-  
     log "Preparing for non-bhyveload installation..."
     local BHYVE_LOADER_CLI_ARG=""
     case "$BOOTLOADER_TYPE" in
@@ -1235,16 +1290,76 @@ cmd_install() {
     log "Bhyve VM started in background with PID $VM_PID"
 
     echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+    echo_message ">>> IMPORTANT: After shutting down the VM from within, you MUST type '~.' (tilde then dot) to exit this console and allow the script to continue cleanup."
     cu -l /dev/"${CONSOLE}B"
 
-    log "cu session ended. Waiting for bhyve process $VM_PID to exit..."
-    if ! wait "$VM_PID"; then
-      display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error. Check VM logs for details."
-      pkill -f "bhyve.*$VMNAME" > /dev/null 2>&1
-      pkill -f "cu -l /dev/${CONSOLE}B" > /dev/null 2>&1
-      pkill -f "tail -f $LOG_FILE" > /dev/null 2>&1
-      $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>/dev/null
-      exit 1
+    log "cu session ended. Initiating cleanup..."
+
+    # Explicitly kill bhyve process associated with this VMNAME
+    local VM_PIDS_TO_KILL=$(ps -ax | grep "[b]hyve .* $VMNAME$" | awk '{print $1}')
+    if [ -n "$VM_PIDS_TO_KILL" ]; then
+        local PIDS_STRING=$(echo "$VM_PIDS_TO_KILL" | tr '
+' ' ')
+        log "Sending TERM signal to bhyve PID(s): $PIDS_STRING"
+        kill $VM_PIDS_TO_KILL
+        sleep 1 # Give it a moment to terminate
+
+        for pid_to_check in $VM_PIDS_TO_KILL; do
+            if ps -p "$pid_to_check" > /dev/null 2>&1; then
+                log "PID $pid_to_check still running, forcing KILL..."
+                kill -9 "$pid_to_check"
+                sleep 1
+            fi
+        done
+        log "bhyve process(es) stopped."
+    else
+        log "No bhyve process found for '$VMNAME' to kill."
+    fi
+
+    # Now, destroy from kernel memory (important for bhyveload)
+    if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
+        log "VM '$VMNAME' successfully destroyed from kernel memory."
+    else
+        log "VM '$VMNAME' was not found in kernel memory (already destroyed or never started)."
+    fi
+
+    # Kill any lingering cu or tail -f processes
+    log "Attempting to stop associated cu process for /dev/${CONSOLE}B..."
+    pkill -f "cu -l /dev/${CONSOLE}B" > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        log "cu process for /dev/${CONSOLE}B stopped."
+    else
+        log "No cu process found or failed to stop for /dev/${CONSOLE}B."
+    fi
+
+    log "Attempting to stop associated cu process for /dev/${CONSOLE}A..."
+    pkill -f "cu -l /dev/${CONSOLE}A" > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        log "cu process for /dev/${CONSOLE}A stopped."
+    else
+        log "No cu process found or failed to stop for /dev/${CONSOLE}A."
+    fi
+
+    log "Attempting to stop associated tail -f process for $LOG_FILE..."
+    pkill -f "tail -f $LOG_FILE" > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        log "tail -f process for $LOG_FILE stopped."
+    else
+        log "No tail -f process found or failed to stop for $LOG_FILE."
+    fi
+
+    # Wait for the bhyve process to exit.
+    # Capture its exit status.
+    wait "$VM_PID"
+    local BHYVE_EXIT_STATUS=$?
+
+    # Check the exit status of the bhyve process
+    if [ "$BHYVE_EXIT_STATUS" -eq 3 ] || [ "$BHYVE_EXIT_STATUS" -eq 4 ]; then
+        # If bhyve exited due to a fault or error, then display error message
+        display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error (exit code: $BHYVE_EXIT_STATUS). Check VM logs for details."
+        exit 1
+    else
+        log "Bhyve process $VM_PID exited cleanly (status: $BHYVE_EXIT_STATUS)."
     fi
     log "Bhyve process $VM_PID exited."
   fi
