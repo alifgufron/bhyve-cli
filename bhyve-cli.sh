@@ -299,7 +299,7 @@ cmd_modify_usage() {
   echo_message "\nOptions:"
   echo_message "  --cpu <num>                  - Set the number of virtual CPUs for the VM."
   echo_message "  --ram <size>                 - Set the amount of RAM for the VM (e.g., 2G, 4096M)."
-  echo_message "  --nic <index>                - Specify the index of the network interface to modify (e.g., 0 for TAP_0)."
+  echo_message "  --nic <index>                - Specify the index of the network interface to modify (e.g., 0 for TAP_0). Required when using --tap, --mac, or --bridge."
   echo_message "  --tap <tap_name>             - Assign a new TAP device name to the specified NIC."
   echo_message "  --mac <mac_address>          - Assign a new MAC address to the specified NIC."
   echo_message "  --bridge <bridge_name>       - Connect the specified NIC to a different bridge."
@@ -1831,18 +1831,30 @@ cmd_modify() {
       --tap)
         shift
         TAP_NEW="$1"
+        if [ -z "$NIC_TO_MODIFY" ]; then
+          display_and_log "ERROR" "--nic <index> must be specified before --tap."
+          exit 1
+        fi
         log "Setting TAP for NIC ${NIC_TO_MODIFY} to $TAP_NEW for VM '$VMNAME'."
         sed -i '' "s/^TAP_${NIC_TO_MODIFY}=.*/TAP_${NIC_TO_MODIFY}=$TAP_NEW/" "$CONF_FILE"
         ;;
       --mac)
         shift
         MAC_NEW="$1"
+        if [ -z "$NIC_TO_MODIFY" ]; then
+          display_and_log "ERROR" "--nic <index> must be specified before --mac."
+          exit 1
+        fi
         log "Setting MAC for NIC ${NIC_TO_MODIFY} to $MAC_NEW for VM '$VMNAME'."
         sed -i '' "s/^MAC_${NIC_TO_MODIFY}=.*/MAC_${NIC_TO_MODIFY}=$MAC_NEW/" "$CONF_FILE"
         ;;
       --bridge)
         shift
         BRIDGE_NEW="$1"
+        if [ -z "$NIC_TO_MODIFY" ]; then
+          display_and_log "ERROR" "--nic <index> must be specified before --bridge."
+          exit 1
+        fi
         log "Setting BRIDGE for NIC ${NIC_TO_MODIFY} to $BRIDGE_NEW for VM '$VMNAME'."
         sed -i '' "s/^BRIDGE_${NIC_TO_MODIFY}=.*/BRIDGE_${NIC_TO_MODIFY}=$BRIDGE_NEW/" "$CONF_FILE"
         ;;
@@ -1992,13 +2004,37 @@ cmd_info() {
   local info_format="  %-15s: %s\n"
 
   # === Check runtime status first ===
-  local PID=$(ps -ax | grep "[b]hyve .* -s .* $VMNAME$" | awk '{print $1}')
+  local PID="" # Initialize to empty string
+
+  # Try to get PID from vm.pid file first
+  if [ -f "$VM_DIR/vm.pid" ]; then
+    local STORED_PID=$(cat "$VM_DIR/vm.pid")
+    if [ -n "$STORED_PID" ] && ps -p "$STORED_PID" > /dev/null 2>&1; then
+      PID="$STORED_PID"
+    fi
+  fi
+
+  # If PID is still empty, try to find it with grep
+  if [ -z "$PID" ]; then
+    local GREPPED_PID=$(ps -ax | grep "[b]hyve .* $VMNAME" | awk '{print $1}')
+    if [ -n "$GREPPED_PID" ] && ps -p "$GREPPED_PID" > /dev/null 2>&1; then
+      PID="$GREPPED_PID"
+    fi
+  fi
+
+  local BHYVECTL_STATUS=$($BHYVECTL --vm="$VMNAME" --get-all 2>/dev/null)
   local STATUS_DISPLAY="STOPPED"
   local CPU_USAGE="N/A"
   local RAM_USAGE="N/A"
 
+  if [ -n "$PID" ] || [ -n "$BHYVECTL_STATUS" ]; then
+      STATUS_DISPLAY="RUNNING"
+      if [ -n "$PID" ]; then
+        STATUS_DISPLAY="RUNNING (PID: $PID)"
+      fi
+  fi
+
   if [ -n "$PID" ]; then
-    STATUS_DISPLAY="RUNNING (PID: $PID)"
     local PS_INFO=$(ps -p "$PID" -o %cpu,rss= | tail -n 1)
     if [ -n "$PS_INFO" ]; then
       CPU_USAGE=$(echo "$PS_INFO" | awk '{print $1 "%"}')
