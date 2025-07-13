@@ -621,9 +621,23 @@ cmd_switch_list() {
     return
   fi
 
+  # Read switch.conf into an associative array for quick lookup
+  declare -A BRIDGE_VLAN_MAP
+  if [ -f "$SWITCH_CONFIG_FILE" ]; then
+    while read -r bridge_name phys_if vlan_tag; do
+      if [ -n "$vlan_tag" ]; then
+        BRIDGE_VLAN_MAP["$bridge_name"]="$phys_if"
+      fi
+    done < "$SWITCH_CONFIG_FILE"
+  fi
+
   for BRIDGE_IF in $BRIDGES; do
     echo_message "----------------------------------------"
-    echo_message "Bridge: $BRIDGE_IF"
+    local DISPLAY_NAME="$BRIDGE_IF"
+    if [ -n "${BRIDGE_VLAN_MAP["$BRIDGE_IF"]}" ]; then
+      DISPLAY_NAME="$BRIDGE_IF vlandev ${BRIDGE_VLAN_MAP["$BRIDGE_IF"]}"
+    fi
+    echo_message "Name: $DISPLAY_NAME"
     MEMBERS=$(ifconfig "$BRIDGE_IF" | grep 'member:' | awk '{print $2}')
     if [ -n "$MEMBERS" ]; then
       echo_message "  Members:"
