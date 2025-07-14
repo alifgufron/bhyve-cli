@@ -683,6 +683,12 @@ cmd_switch_add() {
     exit 1
   fi
 
+  # Bring up the physical interface
+  log_to_global_file "INFO" "Activating physical interface '$PHYS_IF'..."
+  if ! ifconfig "$PHYS_IF" up; then
+      log_to_global_file "WARNING" "Could not bring up physical interface '$PHYS_IF', it may already be up."
+  fi
+
   MEMBER_IF="$PHYS_IF"
   if [ -n "$VLAN_TAG" ]; then
     VLAN_IF="vlan${VLAN_TAG}"
@@ -705,6 +711,11 @@ cmd_switch_add() {
       log_to_global_file "INFO" "VLAN interface '$VLAN_IF' already exists."
     fi
     MEMBER_IF="$VLAN_IF"
+    # Bring up the vlan interface
+    log_to_global_file "INFO" "Activating VLAN interface '$MEMBER_IF'..."
+    if ! ifconfig "$MEMBER_IF" up; then
+        log_to_global_file "WARNING" "Could not bring up vlan interface '$MEMBER_IF', it may already be up."
+    fi
   fi
 
   log_to_global_file "INFO" "Checking bridge '$BRIDGE_NAME'..."
@@ -718,6 +729,12 @@ cmd_switch_add() {
     log_to_global_file "INFO" "Bridge interface '$BRIDGE_NAME' successfully created."
   else
     log_to_global_file "INFO" "Bridge interface '$BRIDGE_NAME' already exists."
+  fi
+
+  # Bring up the bridge interface
+  log_to_global_file "INFO" "Activating bridge interface '$BRIDGE_NAME'..."
+  if ! ifconfig "$BRIDGE_NAME" up; then
+      log_to_global_file "WARNING" "Could not bring up bridge interface '$BRIDGE_NAME', it may already be up."
   fi
 
   if ! ifconfig "$BRIDGE_NAME" | grep -qw "$MEMBER_IF"; then
