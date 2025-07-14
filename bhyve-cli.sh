@@ -185,6 +185,68 @@ cleanup_vm_network_interfaces() {
   BOOTLOADER_TYPE="$ORIGINAL_BOOTLOADER_TYPE"
 }
 
+# === Function to stop bhyve processes and clean up kernel memory ===
+cleanup_vm_processes() {
+  local VM_NAME_CLEANUP="$1"
+  local CONSOLE_DEVICE_CLEANUP="$2"
+  local LOG_FILE_CLEANUP="$3"
+
+  log "Entering cleanup_vm_processes for VM: $VM_NAME_CLEANUP"
+
+  # Explicitly kill bhyve process associated with this VMNAME
+  local VM_PIDS_TO_KILL=$(ps -ax | grep "[b]hyve .* $VM_NAME_CLEANUP$" | awk '{print $1}')
+  if [ -n "$VM_PIDS_TO_KILL" ]; then
+      local PIDS_STRING=$(echo "$VM_PIDS_TO_KILL" | tr '\n' ' ')
+      log "Sending TERM signal to bhyve PID(s): $PIDS_STRING"
+      kill $VM_PIDS_TO_KILL
+      sleep 1 # Give it a moment to terminate
+
+      for pid_to_check in $VM_PIDS_TO_KILL; do
+          if ps -p "$pid_to_check" > /dev/null 2>&1; then
+              log "PID $pid_to_check still running, forcing KILL..."
+              kill -9 "$pid_to_check"
+              sleep 1
+          fi
+      done
+      log "bhyve process(es) stopped."
+  else
+      log "No bhyve process found for '$VM_NAME_CLEANUP' to kill."
+  fi
+
+  # Now, destroy from kernel memory
+  if $BHYVECTL --vm="$VM_NAME_CLEANUP" --destroy > /dev/null 2>&1; then
+      log "VM '$VM_NAME_CLEANUP' successfully destroyed from kernel memory."
+  else
+      log "VM '$VM_NAME_CLEANUP' was not found in kernel memory (already destroyed or never started)."
+  fi
+
+  # Kill any lingering cu or tail -f processes
+  log "Attempting to stop associated cu process for /dev/${CONSOLE_DEVICE_CLEANUP}B..."
+  pkill -f "cu -l /dev/${CONSOLE_DEVICE_CLEANUP}B" > /dev/null 2>&1
+  if [ $? -eq 0 ]; then
+      log "cu process for /dev/${CONSOLE_DEVICE_CLEANUP}B stopped."
+  else
+      log "No cu process found or failed to stop for /dev/${CONSOLE_DEVICE_CLEANUP}B."
+  fi
+
+  log "Attempting to stop associated cu process for /dev/${CONSOLE_DEVICE_CLEANUP}A..."
+  pkill -f "cu -l /dev/${CONSOLE_DEVICE_CLEANUP}A" > /dev/null 2>&1
+  if [ $? -eq 0 ]; then
+      log "cu process for /dev/${CONSOLE_DEVICE_CLEANUP}A stopped."
+  else
+      log "No cu process found or failed to stop for /dev/${CONSOLE_DEVICE_CLEANUP}A."
+  fi
+
+  log "Attempting to stop associated tail -f process for $LOG_FILE_CLEANUP..."
+  pkill -f "tail -f $LOG_FILE_CLEANUP" > /dev/null 2>&1
+  if [ $? -eq 0 ]; then
+      log "tail -f process for $LOG_FILE_CLEANUP stopped."
+  else
+      log "No tail -f process found or failed to stop for $LOG_FILE_CLEANUP."
+  fi
+  log "Exiting cleanup_vm_processes for VM: $VM_NAME_CLEANUP"
+}
+
 
 
 # === Function to load main configuration ===
@@ -1126,17 +1188,7 @@ cmd_delete() {
 
   log "Deleting VM '$VMNAME'..."
 
-  # === Stop bhyve if still running ===
-  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
-    log "VM is still running. Stopping bhyve process..."
-    pkill -f "bhyve.*$VMNAME"
-    sleep 1
-  fi
-
-  # === Destroy from kernel memory ===
-  if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
-    log "VM destroyed from kernel memory."
-  fi
+  cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
 
   cleanup_vm_network_interfaces "$VMNAME"
 
@@ -1302,58 +1354,7 @@ cmd_install() {
 
     log "cu session ended. Initiating cleanup..."
 
-    # Explicitly kill bhyve process associated with this VMNAME
-    local VM_PIDS_TO_KILL=$(ps -ax | grep "[b]hyve .* $VMNAME$" | awk '{print $1}')
-    if [ -n "$VM_PIDS_TO_KILL" ]; then
-        local PIDS_STRING=$(echo "$VM_PIDS_TO_KILL" | tr '
-' ' ')
-        log "Sending TERM signal to bhyve PID(s): $PIDS_STRING"
-        kill $VM_PIDS_TO_KILL
-        sleep 1 # Give it a moment to terminate
-
-        for pid_to_check in $VM_PIDS_TO_KILL; do
-            if ps -p "$pid_to_check" > /dev/null 2>&1; then
-                log "PID $pid_to_check still running, forcing KILL..."
-                kill -9 "$pid_to_check"
-                sleep 1
-            fi
-        done
-        log "bhyve process(es) stopped."
-    else
-        log "No bhyve process found for '$VMNAME' to kill."
-    fi
-
-    # Now, destroy from kernel memory (important for bhyveload)
-    if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
-        log "VM '$VMNAME' successfully destroyed from kernel memory."
-    else
-        log "VM '$VMNAME' was not found in kernel memory (already destroyed or never started)."
-    fi
-
-    # Kill any lingering cu or tail -f processes
-    log "Attempting to stop associated cu process for /dev/${CONSOLE}B..."
-    pkill -f "cu -l /dev/${CONSOLE}B" > /dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        log "cu process for /dev/${CONSOLE}B stopped."
-    else
-        log "No cu process found or failed to stop for /dev/${CONSOLE}B."
-    fi
-
-    log "Attempting to stop associated cu process for /dev/${CONSOLE}A..."
-    pkill -f "cu -l /dev/${CONSOLE}A" > /dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        log "cu process for /dev/${CONSOLE}A stopped."
-    else
-        log "No cu process found or failed to stop for /dev/${CONSOLE}A."
-    fi
-
-    log "Attempting to stop associated tail -f process for $LOG_FILE..."
-    pkill -f "tail -f $LOG_FILE" > /dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        log "tail -f process for $LOG_FILE stopped."
-    else
-        log "No tail -f process found or failed to stop for $LOG_FILE."
-    fi
+    cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
 
     # Check the exit status of the bhyve process
     wait "$VM_PID"
