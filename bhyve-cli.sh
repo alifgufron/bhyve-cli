@@ -721,7 +721,7 @@ cmd_switch_add() {
   log_to_global_file "INFO" "Checking bridge '$BRIDGE_NAME'..."
   if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
     log_to_global_file "INFO" "Bridge interface '$BRIDGE_NAME' does not exist. Creating..."
-    ifconfig bridge create name "$BRIDGE_NAME"
+    ifconfig "$BRIDGE_NAME" create
     if [ $? -ne 0 ]; then
       display_and_log "ERROR" "Failed to create bridge '$BRIDGE_NAME'."
       exit 1
