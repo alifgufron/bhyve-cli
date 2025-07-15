@@ -240,12 +240,17 @@ cleanup_vm_processes() {
       log "No cu process found or failed to stop for /dev/${CONSOLE_DEVICE_CLEANUP}A."
   fi
 
-  log "Attempting to stop associated tail -f process for $LOG_FILE_CLEANUP..."
-  pkill -f "tail -f $LOG_FILE_CLEANUP" > /dev/null 2>&1
-  if pgrep -f "tail -f $LOG_FILE_CLEANUP" > /dev/null; then
-      log "tail -f process for $LOG_FILE_CLEANUP stopped."
+  # Only kill tail -f process if it's not the global log file and is not empty
+  if [ -n "$LOG_FILE_CLEANUP" ] && [ "$LOG_FILE_CLEANUP" != "$GLOBAL_LOG_FILE" ]; then
+    log "Attempting to stop associated tail -f process for $LOG_FILE_CLEANUP..."
+    pkill -f "tail -f $LOG_FILE_CLEANUP" > /dev/null 2>&1
+    if pgrep -f "tail -f $LOG_FILE_CLEANUP" > /dev/null; then
+        log "tail -f process for $LOG_FILE_CLEANUP stopped."
+    else
+        log "No tail -f process found or failed to stop for $LOG_FILE_CLEANUP."
+    fi
   else
-      log "No tail -f process found or failed to stop for $LOG_FILE_CLEANUP."
+    log "Skipping termination of tail -f for global log file or empty log path: $LOG_FILE_CLEANUP."
   fi
   log "Exiting cleanup_vm_processes for VM: $VM_NAME_CLEANUP"
 }
@@ -1252,15 +1257,20 @@ cmd_delete() {
     display_and_log "INFO" "Console device /dev/${CONSOLE}B not found. Skipping removal."
   fi
 
-  # === Delete VM directory ===
-  display_and_log "INFO" "Deleting VM directory: $VM_DIR..."
-  rm -rf "$VM_DIR"
-  if [ $? -eq 0 ]; then
-    display_and_log "INFO" "VM directory '$VM_DIR' removed successfully."
+  # Remove vm.pid file if it exists
+  if [ -f "$VM_DIR/vm.pid" ]; then
+    display_and_log "INFO" "Removing vm.pid file..."
+    rm "$VM_DIR/vm.pid"
+    if [ $? -eq 0 ]; then
+      display_and_log "INFO" "vm.pid file removed successfully."
+    else
+      display_and_log "WARNING" "Failed to remove vm.pid file."
+    fi
   else
-    display_and_log "ERROR" "Failed to remove VM directory '$VM_DIR'. Please check permissions."
+    display_and_log "INFO" "vm.pid file not found. Skipping removal."
   fi
-  unset LOG_FILE # Unset LOG_FILE after directory is removed
+
+  unset LOG_FILE # Unset LOG_FILE here, after all operations that might use it for the VM.
 
   # Remove vm.pid file if it exists
   if [ -f "$VM_DIR/vm.pid" ]; then
@@ -1273,6 +1283,17 @@ cmd_delete() {
     fi
   else
     display_and_log "INFO" "vm.pid file not found. Skipping removal."
+  fi
+
+  unset LOG_FILE # Unset LOG_FILE after vm.pid is handled and before VM directory is removed
+
+  # === Delete VM directory ===
+  display_and_log "INFO" "Deleting VM directory: $VM_DIR..."
+  rm -rf "$VM_DIR"
+  if [ $? -eq 0 ]; then
+    display_and_log "INFO" "VM directory '$VM_DIR' removed successfully."
+  else
+    display_and_log "ERROR" "Failed to remove VM directory '$VM_DIR'. Please check permissions."
   fi
 
   display_and_log "INFO" "VM '$VMNAME' successfully deleted."
@@ -1696,7 +1717,7 @@ cmd_start() {
 
     local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,\"$VM_DIR/$DISK\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
-    display_and_log "INFO" "Starting bhyve VM with command: $BHYVE_CMD"
+    log_to_global_file "INFO" "Starting bhyve VM with command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
   else
     # --- uefi/GRUB START ---
@@ -1892,15 +1913,21 @@ cmd_stop() {
     display_and_log "INFO" "No console (cu) process found or failed to stop."
   fi
 
-  log "Attempting to stop associated tail -f process for $LOG_FILE..."
-  display_and_log "INFO" "Attempting to stop associated log tail process..."
-  pkill -f "tail -f $LOG_FILE"
-  if pgrep -f "tail -f $LOG_FILE" > /dev/null; then
-    log "tail -f process for $LOG_FILE stopped."
-    display_and_log "INFO" "Log tail process stopped."
+  # Only kill tail -f process if it's not the global log file and is not empty
+  if [ -n "$LOG_FILE" ] && [ "$LOG_FILE" != "$GLOBAL_LOG_FILE" ]; then
+    log "Attempting to stop associated tail -f process for $LOG_FILE..."
+    display_and_log "INFO" "Attempting to stop associated log tail process..."
+    pkill -f "tail -f $LOG_FILE"
+    if pgrep -f "tail -f $LOG_FILE" > /dev/null; then
+      log "tail -f process for $LOG_FILE stopped."
+      display_and_log "INFO" "Log tail process stopped."
+    else
+      log "No tail -f process found or failed to stop for $LOG_FILE."
+      display_and_log "INFO" "No log tail process found or failed to stop."
+    fi
   else
-    log "No tail -f process found or failed to stop for $LOG_FILE."
-    display_and_log "INFO" "No log tail process found or failed to stop."
+    log "Skipping termination of tail -f for global log file or empty log path: $LOG_FILE."
+    display_and_log "INFO" "Skipping termination of tail -f for global log file."
   fi
 
   # === Always attempt to destroy the VM from the kernel ===
