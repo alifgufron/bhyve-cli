@@ -112,6 +112,43 @@ ensure_nmdm_device_nodes() {
   fi
 }
 
+# === Helper function to find the next available TAP number ===
+get_next_available_tap_num() {
+  local USED_TAPS=()
+
+  # Get currently active TAP interfaces
+  local ACTIVE_TAPS
+  ACTIVE_TAPS=$(ifconfig -l | tr ' ' '\n' | grep '^tap' | sed 's/tap//' | sort -n)
+  for tap_num in $ACTIVE_TAPS; do
+    USED_TAPS+=("$tap_num")
+  done
+
+  # Get TAP interfaces configured in all vm.conf files
+  for VMCONF_FILE in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
+    if [ -f "$VMCONF_FILE" ]; then
+      local CONFIGURED_TAPS
+      CONFIGURED_TAPS=$(grep '^TAP_[0-9]*=' "$VMCONF_FILE" | cut -d'=' -f2 | sed 's/tap//' | sort -n)
+      for tap_num in $CONFIGURED_TAPS; do
+        USED_TAPS+=("$tap_num")
+      done
+    fi
+  done
+
+  # Sort and get unique numbers
+  local UNIQUE_USED_TAPS
+  UNIQUE_USED_TAPS=$(printf "%s\n" "${USED_TAPS[@]}" | sort -n -u)
+
+  local NEXT_TAP_NUM=0
+  for num in $UNIQUE_USED_TAPS; do
+    if [ "$num" -eq "$NEXT_TAP_NUM" ]; then
+      NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
+    else
+      break # Found a gap
+    fi
+  done
+  echo "$NEXT_TAP_NUM"
+}
+
 # === Helper function to create and configure a TAP interface ===
 create_and_configure_tap_interface() {
   local TAP_NAME="$1"
@@ -1196,10 +1233,7 @@ cmd_create() {
   log "NIC0 MAC Address: $MAC_0"
 
   # === Safely detect next available TAP & create TAP ===
-  NEXT_TAP_NUM=0
-  while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
-    NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
-  done
+  local NEXT_TAP_NUM=$(get_next_available_tap_num)
   TAP_0="tap${NEXT_TAP_NUM}"
   display_and_log "INFO" "Assigning next available TAP interface: $TAP_0"
   log "Assigned TAP interface: $TAP_0"
@@ -2482,10 +2516,7 @@ EOF
     done
 
     # Safely detect next available TAP on the system
-    local SYSTEM_NEXT_TAP_NUM=0
-    while ifconfig | grep -q "^tap${SYSTEM_NEXT_TAP_NUM}:"; do
-      SYSTEM_NEXT_TAP_NUM=$((SYSTEM_NEXT_TAP_NUM + 1))
-    done
+    local SYSTEM_NEXT_TAP_NUM=$(get_next_available_tap_num)
     local NEW_TAP_NAME="tap${SYSTEM_NEXT_TAP_NUM}"
     local NEW_MAC_ADDR="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
 
@@ -2686,10 +2717,7 @@ cmd_clone() {
     log "Updating NIC_${NIC_IDX} for clone..."
 
     # Generate new TAP
-    local NEXT_TAP_NUM=0
-    while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
-      NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
-    done
+    local NEXT_TAP_NUM=$(get_next_available_tap_num)
     local NEW_TAP="tap${NEXT_TAP_NUM}"
     log "Generated new TAP for NIC_${NIC_IDX}: $NEW_TAP"
 
@@ -2981,10 +3009,7 @@ cmd_import() {
       break # No more NICs
     fi
 
-    local NEXT_TAP_NUM=0
-    while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
-      NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
-    done
+    local NEXT_TAP_NUM=$(get_next_available_tap_num)
     local NEW_TAP="tap${NEXT_TAP_NUM}"
     local NEW_MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
 
