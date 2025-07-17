@@ -2042,7 +2042,8 @@ cmd_logs() {
 
 # === Subcommand: status ===
 cmd_status() {
-  local header_format="%-20s %-10s %-12s %-12s %-12s %-12s %-10s\n"
+  local header_format="%-20s %-10s %-12s %-12s %-12s %-12s %-10s %-15s %-15s %-15s %-12s
+"
   local header_line
   printf "$header_format" \
     "VM NAME" \
@@ -2051,17 +2052,14 @@ cmd_status() {
     "RAM (Set)" \
     "CPU Usage" \
     "RAM Usage" \
-    "PID"
+    "PID" \
+    "UPTIME" \
+    "RES MEM" \
+    "VM EXITS" \
+    "BOOTLOADER"
   
   # === Generate dynamic separator line ===
-  header_line=$(printf "$header_format" \
-    "--------------------" \
-    "----------" \
-    "------------" \
-    "------------" \
-    "------------" \
-    "------------" \
-    "----------")
+  header_line="-------------------- ---------- ------------ ------------ ------------ ------------ ---------- --------------- --------------- --------------- ------------"
   echo_message "${header_line// /}" # Remove spaces to make it a continuous line
 
   for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
@@ -2095,14 +2093,22 @@ cmd_status() {
       fi
     fi
 
-    local BHYVECTL_STATUS
-    BHYVECTL_STATUS=$($BHYVECTL --vm="$VMNAME" --get-all 2>/dev/null)
+    local BHYVECTL_GET_ALL
+    BHYVECTL_GET_ALL=$($BHYVECTL --vm="$VMNAME" --get-all 2>/dev/null)
+    log "bhyvectl --get-all output for $VMNAME: $BHYVECTL_GET_ALL"
+    local BHYVECTL_GET_STATS
+    BHYVECTL_GET_STATS=$($BHYVECTL --vm="$VMNAME" --get-stats 2>/dev/null)
+    log "bhyvectl --get-stats output for $VMNAME: $BHYVECTL_GET_STATS"
+
     local STATUS="STOPPED"
     local CPU_USAGE="N/A"
     local RAM_USAGE="N/A"
+    local UPTIME="N/A"
+    local RES_MEM="N/A"
+    local VM_EXITS="N/A"
 
     # Determine overall status
-    if [ -n "$PID" ] || [ -n "$BHYVECTL_STATUS" ]; then
+    if [ -n "$PID" ] || [ -n "$BHYVECTL_GET_ALL" ]; then
         STATUS="RUNNING"
     fi
 
@@ -2123,7 +2129,59 @@ cmd_status() {
       fi
     fi
 
-    printf "$header_format" "$VMNAME" "$STATUS" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$PID"
+    # Extract additional metrics from bhyvectl
+    if [ "$STATUS" = "RUNNING" ]; then
+      # Uptime from vcpu total runtime (nanoseconds)
+      if [ -n "$BHYVECTL_GET_STATS" ]; then
+        local VCPU_TOTAL_RUNTIME=$(echo "$BHYVECTL_GET_STATS" | grep "vcpu total runtime" | awk '{print $NF}')
+        log "Extracted VCPU_TOTAL_RUNTIME for $VMNAME: $VCPU_TOTAL_RUNTIME"
+        if [ -n "$VCPU_TOTAL_RUNTIME" ]; then
+          local SECONDS
+          if command -v bc >/dev/null 2>&1; then
+            SECONDS=$(echo "scale=0; $VCPU_TOTAL_RUNTIME / 1000000000" | bc)
+          else
+            SECONDS=$((VCPU_TOTAL_RUNTIME / 1000000000))
+          fi
+          log "Calculated SECONDS for $VMNAME: $SECONDS"
+
+          local DAYS=$((SECONDS / 86400))
+          SECONDS=$((SECONDS % 86400))
+          local HOURS=$((SECONDS / 3600))
+          SECONDS=$((SECONDS % 3600))
+          local MINUTES=$((SECONDS / 60))
+          local REM_SECONDS=$((SECONDS % 60))
+          log "DAYS: $DAYS, HOURS: $HOURS, MINUTES: $MINUTES, REM_SECONDS: $REM_SECONDS"
+
+          UPTIME=""
+          if [ $DAYS -gt 0 ]; then UPTIME+="${DAYS}d "; fi
+          if [ $HOURS -gt 0 ]; then UPTIME+="${HOURS}h "; fi
+          if [ $MINUTES -gt 0 ]; then UPTIME+="${MINUTES}m "; fi
+          UPTIME+="${REM_SECONDS}s"
+          log "Final UPTIME string for $VMNAME: $UPTIME"
+        fi
+
+        # Resident Memory
+        local RESIDENT_MEMORY_BYTES=$(echo "$BHYVECTL_GET_STATS" | grep "Resident memory" | awk '{print $NF}')
+        log "Extracted RESIDENT_MEMORY_BYTES for $VMNAME: $RESIDENT_MEMORY_BYTES"
+        if [ -n "$RESIDENT_MEMORY_BYTES" ]; then
+          if command -v bc >/dev/null 2>&1; then
+            RES_MEM="$(echo "scale=1; $RESIDENT_MEMORY_BYTES / (1024 * 1024)" | bc)MB"
+          else
+            RES_MEM="$((RESIDENT_MEMORY_BYTES / (1024 * 1024)))MB"
+          fi
+        fi
+
+        # VM Exits
+        local TOTAL_VM_EXITS=$(echo "$BHYVECTL_GET_STATS" | grep "total number of vm exits" | awk '{print $NF}')
+        log "Extracted TOTAL_VM_EXITS for $VMNAME: $TOTAL_VM_EXITS"
+        if [ -n "$TOTAL_VM_EXITS" ]; then
+          VM_EXITS="$TOTAL_VM_EXITS"
+        fi
+      fi
+    fi
+
+    log "Before printf for $VMNAME: UPTIME='$UPTIME', PID='$PID', RES_MEM='$RES_MEM', VM_EXITS='$VM_EXITS'"
+    printf "$header_format" "$VMNAME" "$STATUS" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$PID" "$UPTIME" "$RES_MEM" "$VM_EXITS" "${BOOTLOADER_TYPE:-N/A}"
   done
 }
 
@@ -2507,13 +2565,19 @@ cmd_info() {
     fi
   fi
 
-  local BHYVECTL_STATUS
-  BHYVECTL_STATUS=$($BHYVECTL --vm="$VMNAME" --get-all 2>/dev/null)
+  local BHYVECTL_GET_ALL
+  BHYVECTL_GET_ALL=$($BHYVECTL --vm="$VMNAME" --get-all 2>/dev/null)
+  local BHYVECTL_GET_STATS
+  BHYVECTL_GET_STATS=$($BHYVECTL --vm="$VMNAME" --get-stats 2>/dev/null)
+
   local STATUS_DISPLAY="STOPPED"
   local CPU_USAGE="N/A"
   local RAM_USAGE="N/A"
+  local UPTIME="N/A"
+  local RES_MEM="N/A"
+  local VM_EXITS="N/A"
 
-  if [ -n "$PID" ] || [ -n "$BHYVECTL_STATUS" ]; then
+  if [ -n "$PID" ] || [ -n "$BHYVECTL_GET_ALL" ]; then
       STATUS_DISPLAY="RUNNING"
       if [ -n "$PID" ]; then
         STATUS_DISPLAY="RUNNING \(PID: $PID\)"
@@ -2536,11 +2600,65 @@ cmd_info() {
     fi
   fi
 
+  # Extract additional metrics from bhyvectl
+  if [ "$STATUS_DISPLAY" != "STOPPED" ]; then
+    # Uptime from vcpu total runtime (nanoseconds)
+    if [ -n "$BHYVECTL_GET_STATS" ]; then
+      local VCPU_TOTAL_RUNTIME=$(echo "$BHYVECTL_GET_STATS" | grep "vcpu total runtime" | awk '{print $NF}')
+      if [ -n "$VCPU_TOTAL_RUNTIME" ]; then
+        local SECONDS
+        if command -v bc >/dev/null 2>&1; then
+          SECONDS=$(echo "scale=0; $VCPU_TOTAL_RUNTIME / 1000000000" | bc)
+        else
+          SECONDS=$((VCPU_TOTAL_RUNTIME / 1000000000))
+        fi
+
+        local DAYS=$((SECONDS / 86400))
+        SECONDS=$((SECONDS % 86400))
+        local HOURS=$((SECONDS / 3600))
+        SECONDS=$((SECONDS % 3600))
+        local MINUTES=$((SECONDS / 60))
+        local REM_SECONDS=$((SECONDS % 60))
+
+        UPTIME=""
+        if [ $DAYS -gt 0 ]; then UPTIME+="${DAYS}d "; fi
+        if [ $HOURS -gt 0 ]; then UPTIME+="${HOURS}h "; fi
+        if [ $MINUTES -gt 0 ]; then UPTIME+="${MINUTES}m "; fi
+        UPTIME+="${REM_SECONDS}s"
+      fi
+
+      # Resident Memory
+      local RESIDENT_MEMORY_BYTES=$(echo "$BHYVECTL_GET_STATS" | grep "Resident memory" | awk '{print $NF}')
+      if [ -n "$RESIDENT_MEMORY_BYTES" ]; then
+        if command -v bc >/dev/null 2>&1; then
+          RES_MEM="$(echo "scale=1; $RESIDENT_MEMORY_BYTES / (1024 * 1024)" | bc)MB"
+        else
+          RES_MEM="$((RESIDENT_MEMORY_BYTES / (1024 * 1024)))MB"
+        fi
+      fi
+
+      # VM Exits
+      local TOTAL_VM_EXITS=$(echo "$BHYVECTL_GET_STATS" | grep "total number of vm exits" | awk '{print $NF}')
+      if [ -n "$TOTAL_VM_EXITS" ]; then
+        VM_EXITS="$TOTAL_VM_EXITS"
+      fi
+    fi
+  fi # Closes the if statement on line 2604
+
   printf "$info_format" "Name" "$VMNAME"
-  printf "$info_format" "Status" "$STATUS_DISPLAY" # Moved up
+  printf "$info_format" "Status" "$STATUS_DISPLAY"
   printf "$info_format" "CPUs" "$CPUS"
   printf "$info_format" "Memory" "$MEMORY"
-  printf "$info_format" "Bootloader" "$BOOTLOADER_TYPE" # Added
+  printf "$info_format" "Bootloader" "$BOOTLOADER_TYPE"
+
+  if [ "$STATUS_DISPLAY" != "STOPPED" ]; then # Only show dynamic metrics if running
+    printf "$info_format" "CPU Usage" "$CPU_USAGE"
+    printf "$info_format" "RAM Usage" "$RAM_USAGE"
+    printf "$info_format" "Uptime" "$UPTIME"
+    printf "$info_format" "Res Mem" "$RES_MEM"
+    printf "$info_format" "VM Exits" "$VM_EXITS"
+  fi # End of if [ "$STATUS_DISPLAY" != "STOPPED" ] block
+
   echo_message "  ----------------------------------------"
   echo_message "  Disk Information:"
 
