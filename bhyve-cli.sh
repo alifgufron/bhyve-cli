@@ -2178,30 +2178,10 @@ cmd_status() {
 
     # Extract additional metrics from bhyvectl
     if [ "$STATUS" = "RUNNING" ]; then
-      # Uptime from vcpu total runtime (nanoseconds)
-      if [ -n "$BHYVECTL_GET_STATS" ]; then
-        local VCPU_TOTAL_RUNTIME=$(echo "$BHYVECTL_GET_STATS" | grep "vcpu total runtime" | awk '{print $NF}')
-        if [ -n "$VCPU_TOTAL_RUNTIME" ]; then
-          local SECONDS
-          if command -v bc >/dev/null 2>&1; then
-            SECONDS=$(echo "scale=0; $VCPU_TOTAL_RUNTIME / 1000000000" | bc)
-          else
-            SECONDS=$((VCPU_TOTAL_RUNTIME / 1000000000))
-          fi
-
-          local DAYS=$((SECONDS / 86400))
-          SECONDS=$((SECONDS % 86400))
-          local HOURS=$((SECONDS / 3600))
-          SECONDS=$((SECONDS % 3600))
-          local MINUTES=$((SECONDS / 60))
-          local REM_SECONDS=$((SECONDS % 60))
-
-          UPTIME=""
-          if [ $DAYS -gt 0 ]; then UPTIME+="${DAYS}d "; fi
-          if [ $HOURS -gt 0 ]; then UPTIME+="${HOURS}h "; fi
-          if [ $MINUTES -gt 0 ]; then UPTIME+="${MINUTES}m "; fi
-          UPTIME+="${REM_SECONDS}s"
-        fi
+      # Uptime from process elapsed time (consistent with cmd_info)
+      if [ -n "$PID" ]; then
+        UPTIME=$(ps -o etime -p "$PID" | tail -n 1 | awk '{print $1}')
+      fi
 
         # Resident Memory
         local RESIDENT_MEMORY_BYTES=$(echo "$BHYVECTL_GET_STATS" | grep "Resident memory" | awk '{print $NF}')
@@ -2220,7 +2200,6 @@ cmd_status() {
         if [ -n "$TOTAL_VM_EXITS" ]; then
           VM_EXITS="$TOTAL_VM_EXITS"
         fi
-      fi
     fi
 
     printf "$header_format" "$VMNAME" "$STATUS" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$PID" "$UPTIME" "$RES_MEM" "$VM_EXITS" "${BOOTLOADER_TYPE:-N/A}" "${AUTOSTART:-N/A}"
