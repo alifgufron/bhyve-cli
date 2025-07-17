@@ -121,20 +121,20 @@ create_and_configure_tap_interface() {
   local NIC_IDX="$5"
 
   display_and_log "INFO" "Attempting to create TAP interface '$TAP_NAME'..."
-  local CREATE_TAP_CMD="ifconfig "$TAP_NAME" create"
+  local CREATE_TAP_CMD="ifconfig \"$TAP_NAME\" create"
   log "Executing: $CREATE_TAP_CMD"
   ifconfig "$TAP_NAME" create || { display_and_log "ERROR" "Failed to create TAP interface '$TAP_NAME'. Command: '$CREATE_TAP_CMD'"; return 1; }
   display_and_log "INFO" "TAP interface '$TAP_NAME' successfully created."
 
   display_and_log "INFO" "Setting TAP description for '$TAP_NAME'..."
   local TAP_DESC="vmnet/${VM_NAME}/${NIC_IDX}/${BRIDGE_NAME}"
-  local DESC_TAP_CMD="ifconfig "$TAP_NAME" description "$TAP_DESC""
+  local DESC_TAP_CMD="ifconfig \"$TAP_NAME\" description \"$TAP_DESC\""
   log "Executing: $DESC_TAP_CMD"
   ifconfig "$TAP_NAME" description "$TAP_DESC" || { display_and_log "WARNING" "Failed to set description for TAP interface '$TAP_NAME'. Command: '$DESC_TAP_CMD'"; }
   display_and_log "INFO" "TAP description for '$TAP_NAME' set to: '$TAP_DESC'."
 
   display_and_log "INFO" "Activating TAP interface '$TAP_NAME'..."
-  local ACTIVATE_TAP_CMD="ifconfig "$TAP_NAME" up"
+  local ACTIVATE_TAP_CMD="ifconfig \"$TAP_NAME\" up"
   log "Executing: $ACTIVATE_TAP_CMD"
   ifconfig "$TAP_NAME" up || { display_and_log "ERROR" "Failed to activate TAP interface '$TAP_NAME'. Command: '$ACTIVATE_TAP_CMD'"; return 1; }
   display_and_log "INFO" "TAP '$TAP_NAME' activated successfully."
@@ -142,7 +142,7 @@ create_and_configure_tap_interface() {
   # === Check and create bridge interface if it doesn't exist ===
   if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
     display_and_log "INFO" "Bridge interface '$BRIDGE_NAME' does not exist. Attempting to create..."
-    local CREATE_BRIDGE_CMD="ifconfig bridge create name "$BRIDGE_NAME""
+    local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$BRIDGE_NAME\""
     log "Executing: $CREATE_BRIDGE_CMD"
     ifconfig bridge create name "$BRIDGE_NAME" || { display_and_log "ERROR" "Failed to create bridge '$BRIDGE_NAME'. Command: '$CREATE_BRIDGE_CMD'"; return 1; }
     display_and_log "INFO" "Bridge interface '$BRIDGE_NAME' successfully created."
@@ -151,11 +151,104 @@ create_and_configure_tap_interface() {
   fi
 
   display_and_log "INFO" "Adding TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'..."
-  local ADD_TAP_TO_BRIDGE_CMD="ifconfig "$BRIDGE_NAME" addm "$TAP_NAME""
+  local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$BRIDGE_NAME\" addm \"$TAP_NAME\""
   log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
   ifconfig "$BRIDGE_NAME" addm "$TAP_NAME" || { display_and_log "ERROR" "Failed to add TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
   display_and_log "INFO" "TAP '$TAP_NAME' successfully added to bridge '$BRIDGE_NAME'."
 
+  return 0
+}
+
+# === Helper function to build disk arguments ===
+build_disk_args() {
+  local VM_DIR="$1"
+  local DISK_ARGS=""
+  local DISK_DEV_NUM=3 # Starting device number for virtio-blk
+
+  local CURRENT_DISK_IDX=0
+  while true; do
+    local CURRENT_DISK_VAR="DISK"
+    if [ "$CURRENT_DISK_IDX" -gt 0 ]; then
+      CURRENT_DISK_VAR="DISK_${CURRENT_DISK_IDX}"
+    fi
+    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+
+    if [ -z "$CURRENT_DISK_FILENAME" ]; then
+      break # No more disks configured
+    fi
+
+    local CURRENT_DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
+    if [ ! -f "$CURRENT_DISK_PATH" ]; then
+      display_and_log "ERROR" "Disk image '$CURRENT_DISK_PATH' not found!"
+      return 1
+    fi
+    DISK_ARGS+=" -s ${DISK_DEV_NUM}:0,virtio-blk,\"$CURRENT_DISK_PATH\""
+    DISK_DEV_NUM=$((DISK_DEV_NUM + 1))
+    CURRENT_DISK_IDX=$((CURRENT_DISK_IDX + 1))
+  done
+  echo "$DISK_ARGS"
+  return 0
+}
+
+# === Helper function to build network arguments ===
+build_network_args() {
+  local VMNAME="$1"
+  local VM_DIR="$2" # Not directly used here, but might be useful for future expansion
+  local NETWORK_ARGS=""
+  local NIC_DEV_NUM=5 # Starting device number for virtio-net
+
+  local NIC_IDX=0
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+
+    if [ -z "$CURRENT_TAP" ]; then
+      break # No more network interfaces configured
+    fi
+
+    display_and_log "INFO" "Checking network interface NIC_${NIC_IDX} (TAP: $CURRENT_TAP, MAC: $CURRENT_MAC, Bridge: $CURRENT_BRIDGE)"
+
+    # === Create and configure TAP interface if it doesn't exist or activate if it does ===
+    if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
+      if ! create_and_configure_tap_interface "$CURRENT_TAP" "$CURRENT_MAC" "$CURRENT_BRIDGE" "$VMNAME" "$NIC_IDX"; then
+        return 1
+      fi
+    else
+      display_and_log "INFO" "TAP '$CURRENT_TAP' already exists. Attempting to activate and ensure bridge connection..."
+      local ACTIVATE_TAP_CMD="ifconfig "$CURRENT_TAP" up"
+      log "Executing: $ACTIVATE_TAP_CMD"
+      ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate existing TAP interface '$CURRENT_TAP'. Command: '$ACTIVATE_TAP_CMD'"; return 1; }
+      display_and_log "INFO" "TAP '$CURRENT_TAP' activated."
+
+      # Ensure bridge exists and TAP is a member
+      if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
+        display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' does not exist. Attempting to create..."
+        local CREATE_BRIDGE_CMD="ifconfig bridge create name "$CURRENT_BRIDGE""
+        log "Executing: $CREATE_BRIDGE_CMD"
+        ifconfig bridge create name "$CURRENT_BRIDGE" || { display_and_log "ERROR" "Failed to create bridge '$CURRENT_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; return 1; }
+        display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' successfully created."
+      fi
+
+      if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
+        display_and_log "INFO" "Adding TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'...";
+        local ADD_TAP_TO_BRIDGE_CMD="ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP""
+        log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
+        ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP" || { display_and_log "ERROR" "Failed to add TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
+      else
+        display_and_log "INFO" "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'."
+      fi
+    fi
+
+    NETWORK_ARGS+=" -s ${NIC_DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\",mac=\"$CURRENT_MAC\""
+    NIC_DEV_NUM=$((NIC_DEV_NUM + 1))
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+  echo "$NETWORK_ARGS"
   return 0
 }
 
@@ -185,24 +278,6 @@ cleanup_vm_network_interfaces() {
     log "VM config file not found for $VMNAME_CLEANUP. Skipping network cleanup."
     return
   fi
-
-  # Temporarily load VM config to get network details
-  local ORIGINAL_VMNAME="$VMNAME"
-  local ORIGINAL_CPUS="$CPUS"
-  local ORIGINAL_MEMORY="$MEMORY"
-  local ORIGINAL_TAP_0="$TAP_0"
-  local ORIGINAL_MAC_0="$MAC_0"
-  local ORIGINAL_BRIDGE_0="$BRIDGE_0"
-  local ORIGINAL_DISK="$DISK"
-  local ORIGINAL_DISKSIZE="$DISKSIZE"
-  local ORIGINAL_CONSOLE="$CONSOLE"
-  local ORIGINAL_LOG="$LOG_FILE"
-  local ORIGINAL_AUTOSTART="$AUTOSTART"
-  local ORIGINAL_BOOTLOADER_TYPE="$BOOTLOADER_TYPE"
-
-    # shellcheck disable=SC1090
-  . "$CONF_FILE_CLEANUP"
-  local LOG_FILE_CLEANUP="$VM_DIR_CLEANUP/vm.log" # Set LOG_FILE for this function's scope
 
   log "Cleaning up network interfaces for VM '$VMNAME_CLEANUP'..."
 
@@ -236,26 +311,6 @@ cleanup_vm_network_interfaces() {
   log "Network interface cleanup for '$VMNAME_CLEANUP' complete."
   log "Exiting cleanup_vm_network_interfaces function for VM: $VMNAME_CLEANUP"
 
-  # Restore original VM config variables
-  VMNAME="$ORIGINAL_VMNAME"
-  CPUS="$ORIGINAL_CPUS"
-  MEMORY="$ORIGINAL_MEMORY"
-  TAP_0="$ORIGINAL_TAP_0"
-  MAC_0="$ORIGINAL_MAC_0"
-  BRIDGE_0="$ORIGINAL_BRIDGE_0"
-  DISK="$ORIGINAL_DISK"
-  DISKSIZE="$ORIGINAL_DISKSIZE"
-  CONSOLE="$ORIGINAL_CONSOLE"
-  LOG_FILE="$ORIGINAL_LOG"
-  AUTOSTART="$ORIGINAL_AUTOSTART"
-  BOOTLOADER_TYPE="$ORIGINAL_BOOTLOADER_TYPE"
-}
-
-# === Function to stop bhyve processes and clean up kernel memory ===
-cleanup_vm_processes() {
-  local VM_NAME_CLEANUP="$1"
-  local CONSOLE_DEVICE_CLEANUP="$2"
-  local LOG_FILE_CLEANUP="$3"
 
   log "Entering cleanup_vm_processes for VM: $VM_NAME_CLEANUP"
 
@@ -266,7 +321,7 @@ cleanup_vm_processes() {
       local PIDS_STRING
   PIDS_STRING=$(echo "$VM_PIDS_TO_KILL" | tr '\n' ' ')
       log "Sending TERM signal to bhyve PID(s): $PIDS_STRING"
-      kill "$VM_PIDS_TO_KILL"
+      kill $VM_PIDS_TO_KILL
       sleep 1 # Give it a moment to terminate
 
       for pid_to_check in $VM_PIDS_TO_KILL; do
@@ -289,31 +344,14 @@ cleanup_vm_processes() {
   fi
 
   # Kill any lingering cu or tail -f processes
-  log "Attempting to stop associated cu process for /dev/${CONSOLE_DEVICE_CLEANUP}B..."
+  log "Attempting to stop associated cu processes for /dev/${CONSOLE_DEVICE_CLEANUP}B and /dev/${CONSOLE_DEVICE_CLEANUP}A..."
   pkill -f "cu -l /dev/${CONSOLE_DEVICE_CLEANUP}B" > /dev/null 2>&1
-  if pgrep -f "cu -l /dev/${CONSOLE_DEVICE_CLEANUP}B" > /dev/null; then
-      log "cu process for /dev/${CONSOLE_DEVICE_CLEANUP}B stopped."
-  else
-      log "No cu process found or failed to stop for /dev/${CONSOLE_DEVICE_CLEANUP}B."
-  fi
-
-  log "Attempting to stop associated cu process for /dev/${CONSOLE_DEVICE_CLEANUP}A..."
   pkill -f "cu -l /dev/${CONSOLE_DEVICE_CLEANUP}A" > /dev/null 2>&1
-  if pgrep -f "cu -l /dev/${CONSOLE_DEVICE_CLEANUP}A" > /dev/null; then
-      log "cu process for /dev/${CONSOLE_DEVICE_CLEANUP}A stopped."
-  else
-      log "No cu process found or failed to stop for /dev/${CONSOLE_DEVICE_CLEANUP}A."
-  fi
 
   # Only kill tail -f process if it's not the global log file and is not empty
   if [ -n "$LOG_FILE_CLEANUP" ] && [ "$LOG_FILE_CLEANUP" != "$GLOBAL_LOG_FILE" ]; then
     log "Attempting to stop associated tail -f process for $LOG_FILE_CLEANUP..."
     pkill -f "tail -f $LOG_FILE_CLEANUP" > /dev/null 2>&1
-    if pgrep -f "tail -f $LOG_FILE_CLEANUP" > /dev/null; then
-        log "tail -f process for $LOG_FILE_CLEANUP stopped."
-    else
-        log "No tail -f process found or failed to stop for $LOG_FILE_CLEANUP."
-    fi
   else
     log "Skipping termination of tail -f for global log file or empty log path: $LOG_FILE_CLEANUP."
   fi
@@ -588,14 +626,7 @@ cmd_restart_usage() {
   echo_message "  <vmname>    - The name of the virtual machine to restart."
 }
 
-# === Usage function for network ===
-cmd_network_usage() {
-  echo_message "Usage: $0 network [subcommand] [arguments]"
-  echo_message "\nSubcommands:"
-  echo_message "  add    - Add a network interface to a VM."
-  echo_message "  remove - Remove a network interface from a VM."
-  echo_message "\nFor detailed usage of each subcommand, use: $0 network <subcommand> --help"
-}
+
 
 # === Usage function for ISO ===
 cmd_iso_usage() {
@@ -662,30 +693,7 @@ cmd_iso() {
   esac
 }
 
-# === Usage function for network add ===
-cmd_network_add_usage() {
-  echo_message "Usage: $0 network add --vm <vmname> --switch <bridge_name> [--mac <mac_address>]"
-  echo_message "\nOptions:"
-  echo_message "  --vm <vmname>                - Name of the virtual machine to add the network interface to."
-  echo_message "  --switch <bridge_name>       - Name of the network bridge to connect the new interface to."
-  echo_message "  --mac <mac_address>          - Optional. Specific MAC address for the new interface. If omitted, a random one is generated."
-  echo_message "\nExample:"
-  echo_message "  $0 network add --vm myvm --switch bridge1"
-  echo_message "  $0 network add --vm myvm --switch bridge2 --mac 58:9c:fc:00:00:01"
-}
 
-# === Usage function for network remove ===
-cmd_network_remove_usage() {
-  echo_message "Usage: $0 network remove <vmname> <tap_name>"
-  echo_message "\nArguments:"
-  echo_message "  <vmname>    - The name of the virtual machine to remove the network interface from."
-  echo_message "  <tap_name>  - The name of the TAP interface to remove (e.g., tap0, tap1)."
-  echo_message "\nExample:"
-  echo_message "  $0 network remove myvm tap0"
-}
-
-
-# === Subcommand: switch ===
 cmd_switch() {
   if [ -z "$1" ]; then
     cmd_switch_usage
@@ -1494,38 +1502,18 @@ cmd_install() {
     exit 1
   fi
 
-  local DISK_ARGS=""
-  local DISK_DEV_NUM=3 # Starting device number for virtio-blk
-
-  # === Build DISK_ARGS ===
-  local CURRENT_DISK_IDX=0
-  while true; do
-    local CURRENT_DISK_VAR="DISK"
-    if [ "$CURRENT_DISK_IDX" -gt 0 ]; then
-      CURRENT_DISK_VAR="DISK_${CURRENT_DISK_IDX}"
-    fi
-    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
-
-    if [ -z "$CURRENT_DISK_FILENAME" ]; then
-      break # No more disks configured
-    fi
-
-    local CURRENT_DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
-    if [ ! -f "$CURRENT_DISK_PATH" ]; then
-      display_and_log "ERROR" "Disk image '$CURRENT_DISK_PATH' not found!"
-      exit 1
-    fi
-    DISK_ARGS+=" -s ${DISK_DEV_NUM}:0,virtio-blk,\"$CURRENT_DISK_PATH\""
-    DISK_DEV_NUM=$((DISK_DEV_NUM + 1))
-    CURRENT_DISK_IDX=$((CURRENT_DISK_IDX + 1))
-  done
+  local DISK_ARGS=$(build_disk_args "$VM_DIR")
+  if [ $? -ne 0 ]; then
+    display_and_log "ERROR" "Failed to build disk arguments."
+    exit 1
+  fi
 
   # === Installation Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
     run_bhyveload "$ISO_PATH" || exit 1
 
     display_and_log "INFO" "Starting VM with nmdm console for installation..."
-    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s 4:0,ahci-cd,\"$ISO_PATH\" -s 5:0,virtio-net,\"$TAP_0\",mac=\"$MAC_0\" -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
+    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s 4:0,ahci-cd,\"$ISO_PATH\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
@@ -1644,85 +1632,17 @@ cmd_start() {
   log "VM Name: $VMNAME"
   log "CPUs: $CPUS"
   log "Memory: $MEMORY"
-  local NETWORK_ARGS=""
-  local DISK_ARGS=""
-  local NIC_DEV_NUM=5 # Starting device number for virtio-net
-  local DISK_DEV_NUM=3 # Starting device number for virtio-blk
+  local DISK_ARGS=$(build_disk_args "$VM_DIR")
+  if [ $? -ne 0 ]; then
+    display_and_log "ERROR" "Failed to build disk arguments."
+    exit 1
+  fi
 
-  # === Build DISK_ARGS ===
-  local CURRENT_DISK_IDX=0
-  while true; do
-    local CURRENT_DISK_VAR="DISK"
-    if [ "$CURRENT_DISK_IDX" -gt 0 ]; then
-      CURRENT_DISK_VAR="DISK_${CURRENT_DISK_IDX}"
-    fi
-    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
-
-    if [ -z "$CURRENT_DISK_FILENAME" ]; then
-      break # No more disks configured
-    fi
-
-    local CURRENT_DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
-    if [ ! -f "$CURRENT_DISK_PATH" ]; then
-      display_and_log "ERROR" "Disk image '$CURRENT_DISK_PATH' not found!"
-      exit 1
-    fi
-    DISK_ARGS+=" -s ${DISK_DEV_NUM}:0,virtio-blk,\"$CURRENT_DISK_PATH\""
-    DISK_DEV_NUM=$((DISK_DEV_NUM + 1))
-    CURRENT_DISK_IDX=$((CURRENT_DISK_IDX + 1))
-  done
-
-  local NIC_IDX=0
-  while true; do
-    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
-    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
-    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
-
-    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
-    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
-    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
-
-    if [ -z "$CURRENT_TAP" ]; then
-      break # No more network interfaces configured
-    fi
-
-    display_and_log "INFO" "Checking network interface NIC_${NIC_IDX} (TAP: $CURRENT_TAP, MAC: $CURRENT_MAC, Bridge: $CURRENT_BRIDGE)"
-
-    # === Create and configure TAP interface if it doesn't exist or activate if it does ===
-    if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
-      if ! create_and_configure_tap_interface "$CURRENT_TAP" "$CURRENT_MAC" "$CURRENT_BRIDGE" "$VMNAME" "$NIC_IDX"; then
-        exit 1
-      fi
-    else
-      display_and_log "INFO" "TAP '$CURRENT_TAP' already exists. Attempting to activate and ensure bridge connection..."
-      local ACTIVATE_TAP_CMD="ifconfig \"$CURRENT_TAP\" up"
-      log "Executing: $ACTIVATE_TAP_CMD"
-      ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate existing TAP interface '$CURRENT_TAP'. Command: '$ACTIVATE_TAP_CMD'"; exit 1; }
-      display_and_log "INFO" "TAP '$CURRENT_TAP' activated."
-
-      # Ensure bridge exists and TAP is a member
-      if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
-        display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' does not exist. Attempting to create..."
-        local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$CURRENT_BRIDGE\""
-        log "Executing: $CREATE_BRIDGE_CMD"
-        ifconfig bridge create name "$CURRENT_BRIDGE" || { display_and_log "ERROR" "Failed to create bridge '$CURRENT_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; exit 1; }
-        display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' successfully created."
-      fi
-
-      if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
-        display_and_log "INFO" "Adding TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'...";
-        local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$CURRENT_BRIDGE\" addm \"$CURRENT_TAP\""
-        log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
-        ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP" || { display_and_log "ERROR" "Failed to add TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; exit 1; }
-      else
-        display_and_log "INFO" "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'."
-      fi
-    fi
-
-    NETWORK_ARGS+=" -s ${NIC_DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\",mac=\"$CURRENT_MAC\""
-    NIC_DEV_NUM=$((NIC_DEV_NUM + 1))
-    NIC_IDX=$((NIC_IDX + 1))
-  done
+  local NETWORK_ARGS=$(build_network_args "$VMNAME" "$VM_DIR")
+  if [ $? -ne 0 ]; then
+    display_and_log "ERROR" "Failed to build network arguments."
+    exit 1
+  fi
 
 
   # === Start Logic ===
@@ -1748,10 +1668,28 @@ cmd_start() {
 
     run_bhyveload "$VM_DIR/$DISK" || exit 1
 
-    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
+    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME""
     log "Executing bhyve command: $BHYVE_CMD"
     log_to_global_file "INFO" "Starting bhyve VM with command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    BHYVE_PID=$!
+    echo "$BHYVE_PID" > "$VM_DIR/vm.pid"
+
+    # Wait briefly for bhyve to start or fail
+    sleep 1
+
+    # Check if the bhyve process is still running
+    if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
+      log "Bhyve process $BHYVE_PID is running."
+      display_and_log "INFO" "VM '$VMNAME' started. Please connect to the console using: $0 console $VMNAME"
+    else
+      display_and_log "ERROR" "Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
+      # Clean up the vm.pid file if the VM failed to start
+      rm -f "$VM_DIR/vm.pid"
+      # Also destroy from kernel memory if it somehow registered and then failed
+      $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
+      exit 1 # Exit the script as VM failed to start
+    fi
   else
     # --- uefi/GRUB START ---
     display_and_log "INFO" "Preparing for non-bhyveload start..."
@@ -1791,23 +1729,25 @@ cmd_start() {
     esac
 
     log "Starting VM '$VMNAME'..."
-    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,$VM_DIR/$DISK $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
+    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME""
     log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
-  fi
+    BHYVE_PID=$!
+    echo "$BHYVE_PID" > "$VM_DIR/vm.pid"
 
-  BHYVE_PID=$!
-  echo "$BHYVE_PID" > "$VM_DIR/vm.pid"
+    # Wait briefly for bhyve to start or fail
+    sleep 1
 
-  # Wait a moment
-  sleep 1
-
-  display_and_log "INFO" "VM '$VMNAME' started. Please connect to the console using: $0 console $VMNAME"
-
-  if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
-    log "VM '$VMNAME' is running with PID $BHYVE_PID"
-  else
-    display_and_log "ERROR" "Failed to start VM '$VMNAME' - PID not found"
+    # Check if the bhyve process is still running
+    if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
+      log "Bhyve process $BHYVE_PID is running."
+      display_and_log "INFO" "VM '$VMNAME' started. Please connect to the console using: $0 console $VMNAME"
+    else
+      display_and_log "ERROR" "Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
+      rm -f "$VM_DIR/vm.pid"
+      $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
+      exit 1
+    fi
   fi
   log "Exiting cmd_start function for VM: $VMNAME"
 }
