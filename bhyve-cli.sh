@@ -1,6 +1,6 @@
 #!/usr/local/bin/bash
 
-# === Ensure script is run with Bash ===
+# === Ensure Script is Run with Bash ===
 if [ -z "$BASH_VERSION" ]; then
   echo_message "[ERROR] This script requires Bash to run. Please execute with 'bash <script_name>' or ensure your shell is Bash."
   exit 1
@@ -46,7 +46,7 @@ display_and_log() {
   local MESSAGE="$2"
   local TIMESTAMP_MESSAGE
   TIMESTAMP_MESSAGE="[$(date '+%Y-%m-%d %H:%M:%S')] [$LEVEL] $MESSAGE"
-  echo "$MESSAGE" >&2 # Display to console without timestamp or INFO prefix
+  echo "$MESSAGE" >&2 # === Display to console without timestamp or INFO prefix ===
   # Write to VM-specific log file if LOG_FILE is set
   if [ -n "$LOG_FILE" ]; then
     echo "$TIMESTAMP_MESSAGE" >> "$LOG_FILE"
@@ -1382,6 +1382,21 @@ cmd_delete() {
   VMNAME="$1"
   load_vm_config "$VMNAME"
 
+  # Check if VM is running
+  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    display_and_log "ERROR" "VM '$VMNAME' is still running."
+    read -rp "Do you want to stop and delete the VM '$VMNAME'? [y/n]: " CONFIRM_STOP_DELETE
+    if ! [[ "$CONFIRM_STOP_DELETE" =~ ^[Yy]$ ]]; then
+      display_and_log "INFO" "VM deletion cancelled."
+      log "VM deletion cancelled by user."
+      exit 0 # Exit without deleting
+    fi
+    display_and_log "INFO" "Stopping VM '$VMNAME' before deletion..."
+    cmd_stop "$VMNAME" --force # Force stop the VM
+    # Give it a moment to ensure it's stopped
+    sleep 2
+  fi
+
   log "Deleting VM '$VMNAME'..."
   display_and_log "INFO" "Initiating deletion process for VM '$VMNAME'..."
 
@@ -1748,6 +1763,13 @@ cmd_start() {
 
   VMNAME="$1"
   load_vm_config "$VMNAME"
+
+  # Check if VM is already running
+  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    display_and_log "INFO" "VM '$VMNAME' is already running."
+    log "VM '$VMNAME' is already running. Exiting start command."
+    exit 0
+  fi
 
   display_and_log "INFO" "Loading VM configuration for '$VMNAME'..."
   log "VM Name: $VMNAME"
