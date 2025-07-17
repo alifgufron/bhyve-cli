@@ -2106,7 +2106,7 @@ cmd_status() {
     local VM_EXITS="N/A"
 
     # Determine overall status
-    if [ -n "$PID" ] || [ -n "$BHYVECTL_GET_ALL" ]; then
+    if [ -n "$PID" ]; then
         STATUS="RUNNING"
     fi
 
