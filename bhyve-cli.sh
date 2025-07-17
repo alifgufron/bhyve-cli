@@ -2095,10 +2095,8 @@ cmd_status() {
 
     local BHYVECTL_GET_ALL
     BHYVECTL_GET_ALL=$($BHYVECTL --vm="$VMNAME" --get-all 2>/dev/null)
-    log "bhyvectl --get-all output for $VMNAME: $BHYVECTL_GET_ALL"
     local BHYVECTL_GET_STATS
     BHYVECTL_GET_STATS=$($BHYVECTL --vm="$VMNAME" --get-stats 2>/dev/null)
-    log "bhyvectl --get-stats output for $VMNAME: $BHYVECTL_GET_STATS"
 
     local STATUS="STOPPED"
     local CPU_USAGE="N/A"
@@ -2134,7 +2132,6 @@ cmd_status() {
       # Uptime from vcpu total runtime (nanoseconds)
       if [ -n "$BHYVECTL_GET_STATS" ]; then
         local VCPU_TOTAL_RUNTIME=$(echo "$BHYVECTL_GET_STATS" | grep "vcpu total runtime" | awk '{print $NF}')
-        log "Extracted VCPU_TOTAL_RUNTIME for $VMNAME: $VCPU_TOTAL_RUNTIME"
         if [ -n "$VCPU_TOTAL_RUNTIME" ]; then
           local SECONDS
           if command -v bc >/dev/null 2>&1; then
@@ -2142,7 +2139,6 @@ cmd_status() {
           else
             SECONDS=$((VCPU_TOTAL_RUNTIME / 1000000000))
           fi
-          log "Calculated SECONDS for $VMNAME: $SECONDS"
 
           local DAYS=$((SECONDS / 86400))
           SECONDS=$((SECONDS % 86400))
@@ -2150,14 +2146,12 @@ cmd_status() {
           SECONDS=$((SECONDS % 3600))
           local MINUTES=$((SECONDS / 60))
           local REM_SECONDS=$((SECONDS % 60))
-          log "DAYS: $DAYS, HOURS: $HOURS, MINUTES: $MINUTES, REM_SECONDS: $REM_SECONDS"
 
           UPTIME=""
           if [ $DAYS -gt 0 ]; then UPTIME+="${DAYS}d "; fi
           if [ $HOURS -gt 0 ]; then UPTIME+="${HOURS}h "; fi
           if [ $MINUTES -gt 0 ]; then UPTIME+="${MINUTES}m "; fi
           UPTIME+="${REM_SECONDS}s"
-          log "Final UPTIME string for $VMNAME: $UPTIME"
         fi
 
         # Resident Memory
@@ -2180,7 +2174,6 @@ cmd_status() {
       fi
     fi
 
-    log "Before printf for $VMNAME: UPTIME='$UPTIME', PID='$PID', RES_MEM='$RES_MEM', VM_EXITS='$VM_EXITS'"
     printf "$header_format" "$VMNAME" "$STATUS" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$PID" "$UPTIME" "$RES_MEM" "$VM_EXITS" "${BOOTLOADER_TYPE:-N/A}"
   done
 }
