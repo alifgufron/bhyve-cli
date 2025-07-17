@@ -94,6 +94,53 @@ ensure_nmdm_device_nodes() {
   fi
 }
 
+# === Helper function to create and configure a TAP interface ===
+create_and_configure_tap_interface() {
+  local TAP_NAME="$1"
+  local MAC_ADDRESS="$2"
+  local BRIDGE_NAME="$3"
+  local VM_NAME="$4"
+  local NIC_IDX="$5"
+
+  display_and_log "INFO" "Attempting to create TAP interface '$TAP_NAME'..."
+  local CREATE_TAP_CMD="ifconfig "$TAP_NAME" create"
+  log "Executing: $CREATE_TAP_CMD"
+  ifconfig "$TAP_NAME" create || { display_and_log "ERROR" "Failed to create TAP interface '$TAP_NAME'. Command: '$CREATE_TAP_CMD'"; return 1; }
+  display_and_log "INFO" "TAP interface '$TAP_NAME' successfully created."
+
+  display_and_log "INFO" "Setting TAP description for '$TAP_NAME'..."
+  local TAP_DESC="vmnet/${VM_NAME}/${NIC_IDX}/${BRIDGE_NAME}"
+  local DESC_TAP_CMD="ifconfig "$TAP_NAME" description "$TAP_DESC""
+  log "Executing: $DESC_TAP_CMD"
+  ifconfig "$TAP_NAME" description "$TAP_DESC" || { display_and_log "WARNING" "Failed to set description for TAP interface '$TAP_NAME'. Command: '$DESC_TAP_CMD'"; }
+  display_and_log "INFO" "TAP description for '$TAP_NAME' set to: '$TAP_DESC'."
+
+  display_and_log "INFO" "Activating TAP interface '$TAP_NAME'..."
+  local ACTIVATE_TAP_CMD="ifconfig "$TAP_NAME" up"
+  log "Executing: $ACTIVATE_TAP_CMD"
+  ifconfig "$TAP_NAME" up || { display_and_log "ERROR" "Failed to activate TAP interface '$TAP_NAME'. Command: '$ACTIVATE_TAP_CMD'"; return 1; }
+  display_and_log "INFO" "TAP '$TAP_NAME' activated successfully."
+
+  # === Check and create bridge interface if it doesn't exist ===
+  if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
+    display_and_log "INFO" "Bridge interface '$BRIDGE_NAME' does not exist. Attempting to create..."
+    local CREATE_BRIDGE_CMD="ifconfig bridge create name "$BRIDGE_NAME""
+    log "Executing: $CREATE_BRIDGE_CMD"
+    ifconfig bridge create name "$BRIDGE_NAME" || { display_and_log "ERROR" "Failed to create bridge '$BRIDGE_NAME'. Command: '$CREATE_BRIDGE_CMD'"; return 1; }
+    display_and_log "INFO" "Bridge interface '$BRIDGE_NAME' successfully created."
+  else
+    display_and_log "INFO" "Bridge interface '$BRIDGE_NAME' already exists. Skipping creation."
+  fi
+
+  display_and_log "INFO" "Adding TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'..."
+  local ADD_TAP_TO_BRIDGE_CMD="ifconfig "$BRIDGE_NAME" addm "$TAP_NAME""
+  log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
+  ifconfig "$BRIDGE_NAME" addm "$TAP_NAME" || { display_and_log "ERROR" "Failed to add TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
+  display_and_log "INFO" "TAP '$TAP_NAME' successfully added to bridge '$BRIDGE_NAME'."
+
+  return 0
+}
+
 run_bhyveload() {
   local DATA_PATH="$1"
 
@@ -412,11 +459,11 @@ cmd_start_usage() {
 
 # === Usage function for stop ===
 cmd_stop_usage() {
-  echo_message "Usage: $0 stop <vmname> [--graceful]"
+  echo_message "Usage: $0 stop <vmname> [--force]"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to stop."
   echo_message "\nOptions:"
-  echo_message "  --graceful  - Attempt a graceful shutdown (ACPI poweroff) before forceful termination."
+  echo_message "  --force     - Forcefully stop the VM without attempting a graceful shutdown."
 }
 
 # === Usage function for console ===
@@ -451,7 +498,7 @@ cmd_info_usage() {
 
 # === Usage function for modify ===
 cmd_modify_usage() {
-  echo_message "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--nic <index> --tap <tap_name> --mac <mac_address> --bridge <bridge_name>] [--add-disk <size_in_GB>]"
+  echo_message "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--nic <index> --tap <tap_name> --mac <mac_address> --bridge <bridge_name>] [--add-nic <bridge_name>] [--add-disk <size_in_GB>]"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to modify."
   echo_message "\nOptions:"
@@ -461,10 +508,12 @@ cmd_modify_usage() {
   echo_message "  --tap <tap_name>             - Assign a new TAP device name to the specified NIC."
   echo_message "  --mac <mac_address>          - Assign a new MAC address to the specified NIC."
   echo_message "  --bridge <bridge_name>       - Connect the specified NIC to a different bridge."
+  echo_message "  --add-nic <bridge_name>      - Automatically add a new network interface to the VM, connected to the specified bridge."
   echo_message "  --add-disk <size_in_GB>      - Add a new virtual disk to the VM with the specified size in GB."
   echo_message "\nExample:"
   echo_message "  $0 modify myvm --cpu 4 --ram 4096M"
   echo_message "  $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
+  echo_message "  $0 modify myvm --add-nic bridge2"
   echo_message "  $0 modify myvm --add-disk 20"
 }
 
@@ -1107,8 +1156,7 @@ cmd_create() {
   log "VM UUID: $UUID"
 
   # === Generate unique MAC address (static prefix, random suffix) ===
-  local NEW_MAC
-  NEW_MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+  MAC_0="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
   display_and_log "INFO" "Generated MAC address for NIC0: $MAC_0"
   log "NIC0 MAC Address: $MAC_0"
 
@@ -1121,34 +1169,10 @@ cmd_create() {
   display_and_log "INFO" "Assigning next available TAP interface: $TAP_0"
   log "Assigned TAP interface: $TAP_0"
 
-  # === Create TAP interface
-  display_and_log "INFO" "Attempting to create TAP interface '$TAP_0'..."
-  local CREATE_TAP_CMD="ifconfig \"$TAP_0\" create"
-  log "Executing: $CREATE_TAP_CMD"
-  ifconfig "$TAP_0" create || { display_and_log "ERROR" "Failed to create TAP interface '$TAP_0'. Command: '$CREATE_TAP_CMD'"; exit 1; }
-  display_and_log "INFO" "TAP interface '$TAP_0' successfully created."
-
-  # === Add TAP description according to VM name
-  display_and_log "INFO" "Setting TAP description for '$TAP_0'..."
-  local TAP_DESC="vmnet/${VMNAME}/0/${VM_BRIDGE}"
-  local DESC_TAP_CMD="ifconfig \"$TAP_0\" description \"$TAP_DESC\""
-  log "Executing: $DESC_TAP_CMD"
-  ifconfig "$TAP_0" description "$TAP_DESC" || { display_and_log "WARNING" "Failed to set description for TAP interface '$TAP_0'. Command: '$DESC_TAP_CMD'"; }
-  display_and_log "INFO" "TAP description for '$TAP_0' set to: '$TAP_DESC'."
-
-  # === Activate TAP
-  display_and_log "INFO" "Activating TAP interface '$TAP_0'..."
-  local ACTIVATE_TAP_CMD="ifconfig \"$TAP_0\" up"
-  log "Executing: $ACTIVATE_TAP_CMD"
-  ifconfig "$TAP_0" up || { display_and_log "ERROR" "Failed to activate TAP interface '$TAP_0'. Command: '$ACTIVATE_TAP_CMD'"; exit 1; }
-  display_and_log "INFO" "TAP '$TAP_0' activated successfully."
-
-  # === Add TAP to bridge
-  display_and_log "INFO" "Adding TAP '$TAP_0' to bridge '$VM_BRIDGE'..."
-  local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$VM_BRIDGE\" addm \"$TAP_0\""
-  log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
-  ifconfig "$VM_BRIDGE" addm "$TAP_0" || { display_and_log "ERROR" "Failed to add TAP '$TAP_0' to bridge '$VM_BRIDGE'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; exit 1; }
-  display_and_log "INFO" "TAP '$TAP_0' successfully added to bridge '$VM_BRIDGE'."
+  # === Create and configure TAP interface ===
+  if ! create_and_configure_tap_interface "$TAP_0" "$MAC_0" "$VM_BRIDGE" "$VMNAME" 0; then
+    exit 1
+  fi
 
   # === Generate unique console name ===
   CONSOLE="nmdm-${VMNAME}.1"
@@ -1334,7 +1358,7 @@ cmd_restart() {
   local VMNAME="$1"
 
   display_and_log "INFO" "Restarting VM '$VMNAME'..."
-  cmd_stop "$VMNAME" --graceful
+  cmd_stop "$VMNAME"
   # Give it a moment to fully stop and clean up
   sleep 2
   cmd_start "$VMNAME"
@@ -1662,51 +1686,35 @@ cmd_start() {
 
     display_and_log "INFO" "Checking network interface NIC_${NIC_IDX} (TAP: $CURRENT_TAP, MAC: $CURRENT_MAC, Bridge: $CURRENT_BRIDGE)"
 
-    # === Create TAP interface if it doesn't exist ===
+    # === Create and configure TAP interface if it doesn't exist or activate if it does ===
     if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
-      display_and_log "INFO" "TAP '$CURRENT_TAP' does not exist. Attempting to create..."
-      local CREATE_TAP_CMD="ifconfig \"$CURRENT_TAP\" create"
-      log "Executing: $CREATE_TAP_CMD"
-      ifconfig "$CURRENT_TAP" create || { display_and_log "ERROR" "Failed to create TAP interface '$CURRENT_TAP'. Command: '$CREATE_TAP_CMD'"; exit 1; }
-      display_and_log "INFO" "TAP '$CURRENT_TAP' created successfully."
-      
-      local TAP_DESC="vmnet/${VMNAME}/${NIC_IDX}/${CURRENT_BRIDGE}"
-      local DESC_TAP_CMD="ifconfig \"$CURRENT_TAP\" description \"$TAP_DESC\""
-      log "Executing: $DESC_TAP_CMD"
-      ifconfig "$CURRENT_TAP" description "$TAP_DESC" || { display_and_log "WARNING" "Failed to set description for TAP interface '$CURRENT_TAP'. Command: '$DESC_TAP_CMD'"; }
-      display_and_log "INFO" "TAP description for '$CURRENT_TAP' set to: '$TAP_DESC'."
-
-      local ACTIVATE_TAP_CMD="ifconfig \"$CURRENT_TAP\" up"
-      log "Executing: $ACTIVATE_TAP_CMD"
-      ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate TAP interface '$CURRENT_TAP'. Command: '$ACTIVATE_TAP_CMD'"; exit 1; }
-      display_and_log "INFO" "TAP '$CURRENT_TAP' activated."
+      if ! create_and_configure_tap_interface "$CURRENT_TAP" "$CURRENT_MAC" "$CURRENT_BRIDGE" "$VMNAME" "$NIC_IDX"; then
+        exit 1
+      fi
     else
-      display_and_log "INFO" "TAP '$CURRENT_TAP' already exists. Attempting to activate..."
+      display_and_log "INFO" "TAP '$CURRENT_TAP' already exists. Attempting to activate and ensure bridge connection..."
       local ACTIVATE_TAP_CMD="ifconfig \"$CURRENT_TAP\" up"
       log "Executing: $ACTIVATE_TAP_CMD"
       ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate existing TAP interface '$CURRENT_TAP'. Command: '$ACTIVATE_TAP_CMD'"; exit 1; }
       display_and_log "INFO" "TAP '$CURRENT_TAP' activated."
-    fi
 
-    # === Add to bridge if not already a member ===
-    if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
-      display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' does not exist. Attempting to create..."
-      local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$CURRENT_BRIDGE\""
-      log "Executing: $CREATE_BRIDGE_CMD"
-      ifconfig bridge create name "$CURRENT_BRIDGE" || { display_and_log "ERROR" "Failed to create bridge '$CURRENT_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; exit 1; }
-      display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' successfully created."
-    else
-      display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' already exists. Skipping creation."
-    fi
+      # Ensure bridge exists and TAP is a member
+      if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
+        display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' does not exist. Attempting to create..."
+        local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$CURRENT_BRIDGE\""
+        log "Executing: $CREATE_BRIDGE_CMD"
+        ifconfig bridge create name "$CURRENT_BRIDGE" || { display_and_log "ERROR" "Failed to create bridge '$CURRENT_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; exit 1; }
+        display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' successfully created."
+      fi
 
-    if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
-      display_and_log "INFO" "Adding TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'...";
-      local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$CURRENT_BRIDGE\" addm \"$CURRENT_TAP\""
-      log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
-      ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP" || { display_and_log "ERROR" "Failed to add TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; exit 1; }
-      display_and_log "INFO" "TAP '$CURRENT_TAP' added to bridge '$CURRENT_BRIDGE'."
-    else
-      display_and_log "INFO" "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'."
+      if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
+        display_and_log "INFO" "Adding TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'...";
+        local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$CURRENT_BRIDGE\" addm \"$CURRENT_TAP\""
+        log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
+        ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP" || { display_and_log "ERROR" "Failed to add TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; exit 1; }
+      else
+        display_and_log "INFO" "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'."
+      fi
     fi
 
     NETWORK_ARGS+=" -s ${DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\""
@@ -1811,19 +1819,19 @@ cmd_stop() {
   fi
 
   local VMNAME="$1"
-  local GRACEFUL_SHUTDOWN=false
+  local FORCEFUL_SHUTDOWN=false
 
-  # Parse arguments for graceful shutdown
+  # Parse arguments for forceful shutdown
   local ARGS=()
   for arg in "$@"; do
-    if [[ "$arg" == "--graceful" ]]; then
-      GRACEFUL_SHUTDOWN=true
+    if [[ "$arg" == "--force" ]]; then
+      FORCEFUL_SHUTDOWN=true
     else
       ARGS+=("$arg")
     fi
   done
 
-  # Ensure VMNAME is set from ARGS if it was shifted out by graceful option
+  # Ensure VMNAME is set from ARGS
   if [ -z "$VMNAME" ] && [ ${#ARGS[@]} -gt 0 ]; then
     VMNAME="${ARGS[0]}"
   fi
@@ -1848,25 +1856,23 @@ cmd_stop() {
     display_and_log "INFO" "VM '$VMNAME' is not detected as running."
   fi
 
-  if [ "$GRACEFUL_SHUTDOWN" = true ] && [ "$VM_RUNNING" = true ]; then
+  local VM_STOPPED=false
+  if [ "$FORCEFUL_SHUTDOWN" = false ] && [ "$VM_RUNNING" = true ]; then
     log "Attempting graceful shutdown for VM '$VMNAME'..."
     display_and_log "INFO" "Attempting graceful shutdown for VM '$VMNAME' using ACPI poweroff..."
-    local BHYVECTL_POWEROFF_CMD="$BHYVECTL --vm=\"$VMNAME\" --poweroff"
+    local BHYVECTL_POWEROFF_CMD="$BHYVECTL --vm=\"$VMNAME\" --force-poweroff"
     log "Executing: $BHYVECTL_POWEROFF_CMD"
-    $BHYVECTL --vm="$VMNAME" --poweroff
+    $BHYVECTL --vm="$VMNAME" --force-poweroff
     if [ $? -ne 0 ]; then
       log "WARNING: bhyvectl --poweroff failed for '$VMNAME'. Proceeding with forceful shutdown."
       display_and_log "WARNING" "Graceful shutdown failed for '$VMNAME'. Proceeding with forceful shutdown."
     else
-      log "ACPI poweroff signal sent to VM '$VMNAME'. Waiting for VM to shut down..."
       display_and_log "INFO" "ACPI poweroff signal sent. Waiting for VM to shut down..."
       local TIMEOUT=30 # seconds
       local ELAPSED_TIME=0
-      local VM_STOPPED=false
 
       while [ "$ELAPSED_TIME" -lt "$TIMEOUT" ]; do
         if ! pgrep -f "bhyve.*$VMNAME" > /dev/null; then
-          log "VM '$VMNAME' has gracefully shut down."
           display_and_log "INFO" "VM '$VMNAME' has gracefully shut down."
           VM_STOPPED=true
           break
@@ -1876,13 +1882,12 @@ cmd_stop() {
       done
 
       if [ "$VM_STOPPED" = false ]; then
-        log "WARNING: VM '$VMNAME' did not shut down gracefully within $TIMEOUT seconds. Proceeding with forceful termination."
         display_and_log "WARNING" "VM '$VMNAME' did not shut down gracefully within $TIMEOUT seconds. Forcing termination."
       fi
     fi
   fi
 
-  # Forceful termination (if not gracefully stopped or if --graceful not used)
+  # Forceful termination (if not gracefully stopped or if --force is used)
   if [ "$VM_RUNNING" = true ] && [ "$VM_STOPPED" = false ]; then
     log "Initiating forceful termination for VM '$VMNAME'..."
     display_and_log "INFO" "Initiating forceful termination for VM '$VMNAME'..."
@@ -1971,13 +1976,10 @@ cmd_stop() {
 
   # Remove vm.pid file
   if [ -f "$VM_DIR/vm.pid" ]; then
-    display_and_log "INFO" "Removing vm.pid file..."
     rm "$VM_DIR/vm.pid"
     if [ $? -eq 0 ]; then
-      log "Removed vm.pid file."
       display_and_log "INFO" "vm.pid file removed."
     else
-      log "WARNING: Failed to remove vm.pid file."
       display_and_log "WARNING" "Failed to remove vm.pid file."
     fi
   else
@@ -2176,6 +2178,7 @@ cmd_modify() {
   local NEW_MAC=""
   local NEW_BRIDGE=""
   local ADD_DISK_SIZE=""
+  local ADD_NIC_BRIDGE="" # New variable for --add-nic
 
   # === Check if VM is running ===
   if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
@@ -2183,7 +2186,7 @@ cmd_modify() {
     exit 1
   fi
 
-  while (( "$#" )); do
+  while (("$#")); do
     case "$1" in
       --cpu)
         shift
@@ -2209,13 +2212,17 @@ cmd_modify() {
         shift
         NEW_BRIDGE="$1"
         ;;
+      --add-nic) # New option
+        shift
+        ADD_NIC_BRIDGE="$1"
+        ;;
       --add-disk)
         shift
         ADD_DISK_SIZE="$1"
         ;;
       *)
         display_and_log "ERROR" "Invalid option: $1"
-        echo_message "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--nic <index> --tap <tap_name> --mac <mac_address> --bridge <bridge_name>] [--add-disk <size_gb>]"
+        cmd_modify_usage # Use the updated usage function
         exit 1
         ;;
     esac
@@ -2317,6 +2324,37 @@ EOF
     display_and_log "INFO" "New disk '$NEW_DISK_FILENAME' added to VM '$VMNAME' configuration."
   fi
 
+  # --- Add new Network Interface (NIC) ---
+  if [ -n "$ADD_NIC_BRIDGE" ]; then
+    display_and_log "INFO" "Adding new network interface to VM '$VMNAME' connected to bridge '$ADD_NIC_BRIDGE'..."
+
+    # Find the next available NIC index
+    local NEXT_NIC_IDX=0
+    while grep -q "^TAP_${NEXT_NIC_IDX}=" "$CONF_FILE"; do
+      NEXT_NIC_IDX=$((NEXT_NIC_IDX + 1))
+    done
+
+    local NEW_TAP_NAME="tap${NEXT_NIC_IDX}"
+    local NEW_MAC_ADDR="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+
+    display_and_log "INFO" "Generated new TAP: $NEW_TAP_NAME, MAC: $NEW_MAC_ADDR for NIC_${NEXT_NIC_IDX}."
+
+    # Create and configure the TAP interface
+    if ! create_and_configure_tap_interface "$NEW_TAP_NAME" "$NEW_MAC_ADDR" "$ADD_NIC_BRIDGE" "$VMNAME" "$NEXT_NIC_IDX"; then
+      display_and_log "ERROR" "Failed to create and configure new TAP interface."
+      exit 1
+    fi
+
+    # Append new NIC entry to vm.conf
+    cat <<EOF >> "$CONF_FILE"
+TAP_${NEXT_NIC_IDX}=$NEW_TAP_NAME
+MAC_${NEXT_NIC_IDX}=$NEW_MAC_ADDR
+BRIDGE_${NEXT_NIC_IDX}=$ADD_NIC_BRIDGE
+EOF
+    MODIFIED=true
+    display_and_log "INFO" "New network interface NIC_${NEXT_NIC_IDX} added to VM '$VMNAME' configuration."
+  fi
+
   if [ "$MODIFIED" = true ]; then
     display_and_log "INFO" "VM '$VMNAME' configuration updated successfully."
   else
@@ -2330,7 +2368,7 @@ cmd_clone() {
   if [ -z "$1" ] || [ -z "$2" ]; then
     cmd_clone_usage
     exit 1
-  fi
+  }
 
   local SOURCE_VMNAME="$1"
   local NEW_VMNAME="$2"
