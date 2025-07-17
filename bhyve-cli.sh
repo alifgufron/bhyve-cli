@@ -621,9 +621,13 @@ cmd_import_usage() {
 
 # === Usage function for restart ===
 cmd_restart_usage() {
-  echo_message "Usage: $0 restart <vmname>"
-  echo_message "\nArguments:"
+  echo_message "Usage: $0 restart <vmname> [--force]"
+  echo_message "
+Arguments:"
   echo_message "  <vmname>    - The name of the virtual machine to restart."
+  echo_message "
+Options:"
+  echo_message "  --force     - Perform a fast but unsafe restart (hard reset). Skips graceful shutdown."
 }
 
 
@@ -1387,13 +1391,50 @@ cmd_restart() {
   fi
 
   local VMNAME="$1"
+  local FORCE_RESTART=false
+
+  # Check for --force flag
+  if [ "$2" = "--force" ]; then
+    FORCE_RESTART=true
+  fi
+
+  load_vm_config "$VMNAME"
 
   display_and_log "INFO" "Restarting VM '$VMNAME'..."
-  cmd_stop "$VMNAME"
-  # Give it a moment to fully stop and clean up
-  sleep 2
-  cmd_start "$VMNAME"
-  display_and_log "INFO" "VM '$VMNAME' restart initiated."
+
+  # Check if the VM is running
+  if ! pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    display_and_log "INFO" "VM '$VMNAME' is not running. Starting it..."
+    cmd_start "$VMNAME"
+    log "Exiting cmd_restart function for VM: $VMNAME"
+    exit 0
+  fi
+
+  if [ "$FORCE_RESTART" = true ]; then
+    # --- Fast but unsafe restart ---
+    display_and_log "INFO" "VM is running. Performing a fast (forced) restart..."
+    local BHYVECTL_RESET_CMD="$BHYVECTL --vm=\"$VMNAME\" --force-reset"
+    log "Executing: $BHYVECTL_RESET_CMD"
+
+    if $BHYVECTL --vm="$VMNAME" --force-reset; then
+      log "VM '$VMNAME' successfully reset via bhyvectl. Waiting a moment before starting again..."
+      sleep 2 # Give a moment for the process to fully terminate
+      cmd_start "$VMNAME"
+      display_and_log "INFO" "VM '$VMNAME' successfully restarted."
+    else
+      display_and_log "WARNING" "Fast reset failed. The VM might be in an inconsistent state."
+      log "bhyvectl --force-reset failed for '$VMNAME'."
+      exit 1 # Exit with an error to indicate the forced restart failed
+    fi
+  else
+    # --- Safe default restart ---
+    display_and_log "INFO" "Performing a safe restart (stop and start)..."
+    cmd_stop "$VMNAME"
+    sleep 2 # Give it a moment to fully stop and clean up
+    cmd_start "$VMNAME"
+    display_and_log "INFO" "VM '$VMNAME' restart initiated."
+  fi
+
   log "Exiting cmd_restart function for VM: $VMNAME"
 }
 
@@ -1508,6 +1549,12 @@ cmd_install() {
     exit 1
   fi
 
+  local NETWORK_ARGS=$(build_network_args "$VMNAME" "$VM_DIR")
+  if [ $? -ne 0 ]; then
+    display_and_log "ERROR" "Failed to build network arguments."
+    exit 1
+  fi
+
   # === Installation Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
     run_bhyveload "$ISO_PATH" || exit 1
@@ -1582,9 +1629,7 @@ cmd_install() {
 
     clear # Clear screen before console
 
-    log "Running bhyve installer in background..."
-    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s 4:0,ahci-cd,\"$ISO_PATH\" -s 5:0,virtio-net,\"$TAP_0\",mac=\"$MAC_0\" -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
-    log "Executing bhyve command: $BHYVE_CMD"
+    log "Running bhyve installer in background..."    local BHYVE_CMD="$BHYVE -c "$CPUS" -m "$MEMORY" -AHP -s 0,hostbridge $DISK_ARGS -s 4:0,ahci-cd,"$ISO_PATH" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME""    log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
     echo "$VM_PID" > "$VM_DIR/vm.pid"
