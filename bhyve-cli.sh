@@ -498,22 +498,25 @@ cmd_info_usage() {
 
 # === Usage function for modify ===
 cmd_modify_usage() {
-  echo_message "Usage: $0 modify <vmname> [--cpu <num>] [--ram <size>] [--nic <index> --tap <tap_name> --mac <mac_address> --bridge <bridge_name>] [--add-nic <bridge_name>] [--add-disk <size_in_GB>]"
+  echo_message "Usage: $0 modify <vmname> [options]"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to modify."
   echo_message "\nOptions:"
   echo_message "  --cpu <num>                  - Set the number of virtual CPUs for the VM."
   echo_message "  --ram <size>                 - Set the amount of RAM for the VM (e.g., 2G, 4096M)."
-  echo_message "  --nic <index>                - Specify the index of the network interface to modify (e.g., 0 for TAP_0). Required when using --tap, --mac, or --bridge."
-  echo_message "  --tap <tap_name>             - Assign a new TAP device name to the specified NIC."
-  echo_message "  --mac <mac_address>          - Assign a new MAC address to the specified NIC."
-  echo_message "  --bridge <bridge_name>       - Connect the specified NIC to a different bridge."
-  echo_message "  --add-nic <bridge_name>      - Automatically add a new network interface to the VM, connected to the specified bridge."
+  echo_message "  --nic <index>                - Specify the index of an existing network interface to modify (e.g., 0 for TAP_0, 1 for TAP_1). This option MUST be used with --tap, --mac, or --bridge."
+  echo_message "  --tap <tap_name>             - Assign a new TAP device name to the specified NIC (requires --nic).
+                                   Example: --nic 0 --tap newtap0"
+  echo_message "  --mac <mac_address>          - Assign a new MAC address to the specified NIC (requires --nic).
+                                   Example: --nic 0 --mac 58:9c:fc:00:00:01"
+  echo_message "  --bridge <bridge_name>       - Connect the specified NIC to a different bridge (requires --nic).
+                                   Example: --nic 0 --bridge newbridge"
+  echo_message "  --add-nic <bridge_name>      - Automatically add a NEW network interface to the VM, connected to the specified bridge."
   echo_message "  --add-disk <size_in_GB>      - Add a new virtual disk to the VM with the specified size in GB."
-  echo_message "\nExample:"
+  echo_message "\nExamples:"
   echo_message "  $0 modify myvm --cpu 4 --ram 4096M"
-  echo_message "  $0 modify myvm --nic 0 --tap tap1 --bridge bridge1"
-  echo_message "  $0 modify myvm --add-nic bridge2"
+  echo_message "  $0 modify myvm --nic 0 --tap tap1 --bridge bridge1 # Modify existing NIC 0"
+  echo_message "  $0 modify myvm --add-nic bridge2                 # Add a new NIC connected to bridge2"
   echo_message "  $0 modify myvm --add-disk 20"
 }
 
@@ -1470,12 +1473,38 @@ cmd_install() {
     exit 1
   fi
 
+  local DISK_ARGS=""
+  local DISK_DEV_NUM=3 # Starting device number for virtio-blk
+
+  # === Build DISK_ARGS ===
+  local CURRENT_DISK_IDX=0
+  while true; do
+    local CURRENT_DISK_VAR="DISK"
+    if [ "$CURRENT_DISK_IDX" -gt 0 ]; then
+      CURRENT_DISK_VAR="DISK_${CURRENT_DISK_IDX}"
+    fi
+    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+
+    if [ -z "$CURRENT_DISK_FILENAME" ]; then
+      break # No more disks configured
+    fi
+
+    local CURRENT_DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
+    if [ ! -f "$CURRENT_DISK_PATH" ]; then
+      display_and_log "ERROR" "Disk image '$CURRENT_DISK_PATH' not found!"
+      exit 1
+    fi
+    DISK_ARGS+=" -s ${DISK_DEV_NUM}:0,virtio-blk,\"$CURRENT_DISK_PATH\""
+    DISK_DEV_NUM=$((DISK_DEV_NUM + 1))
+    CURRENT_DISK_IDX=$((CURRENT_DISK_IDX + 1))
+  done
+
   # === Installation Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
     run_bhyveload "$ISO_PATH" || exit 1
 
     display_and_log "INFO" "Starting VM with nmdm console for installation..."
-    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge -s 3:0,virtio-blk,\"$VM_DIR/$DISK\" -s 4:0,ahci-cd,\"$ISO_PATH\" -s 5:0,virtio-net,\"$TAP_0\" -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
+    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s 4:0,ahci-cd,\"$ISO_PATH\" -s 5:0,virtio-net,\"$TAP_0\",mac=\"$MAC_0\" -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
@@ -1486,7 +1515,7 @@ cmd_install() {
     echo_message ""
     echo_message ">>> Entering VM '$VMNAME' installation console (exit with ~.)"
     echo_message ">>> IMPORTANT: After shutting down the VM from within, you MUST type '~.' (tilde then dot) to exit this console and allow the script to continue cleanup."
-    cu -l /dev/"${CONSOLE}B"
+    cu -l /dev/"${CONSOLE}B}"
 
     log "cu session ended. Initiating cleanup..."
 
@@ -1545,7 +1574,7 @@ cmd_install() {
     clear # Clear screen before console
 
     log "Running bhyve installer in background..."
-    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge -s 3:0,virtio-blk,\"$VM_DIR/$DISK\" -s 4:0,ahci-cd,\"$ISO_PATH\" -s 5:0,virtio-net,\"$TAP_0\" -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
+    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s 4:0,ahci-cd,\"$ISO_PATH\" -s 5:0,virtio-net,\"$TAP_0\",mac=\"$MAC_0\" -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
@@ -1647,30 +1676,35 @@ cmd_start() {
   log "VM Name: $VMNAME"
   log "CPUs: $CPUS"
   log "Memory: $MEMORY"
-  log "Disk Image: $VM_DIR/$DISK"
-  if [ -f "$VM_DIR/$DISK" ]; then
-    log "Disk image '$VM_DIR/$DISK' found."
-  else
-    display_and_log "ERROR" "Disk image '$VM_DIR/$DISK' not found!"
-    exit 1
-  fi
-
-  # === Check if bhyve is still running ===
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
-    display_and_log "INFO" "VM '$VMNAME' is still running. Attempting to stop..."
-    pkill -f "bhyve.*$VMNAME"
-    sleep 1
-  fi
-
-  # === Destroy VM if still remaining in kernel ===
-  if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
-    display_and_log "INFO" "VM '$VMNAME' was still in kernel memory. Destroyed."
-  fi
-
   local NETWORK_ARGS=""
-  local NIC_IDX=0
-  local DEV_NUM=5 # Starting device number for virtio-net
+  local DISK_ARGS=""
+  local NIC_DEV_NUM=5 # Starting device number for virtio-net
+  local DISK_DEV_NUM=3 # Starting device number for virtio-blk
 
+  # === Build DISK_ARGS ===
+  local CURRENT_DISK_IDX=0
+  while true; do
+    local CURRENT_DISK_VAR="DISK"
+    if [ "$CURRENT_DISK_IDX" -gt 0 ]; then
+      CURRENT_DISK_VAR="DISK_${CURRENT_DISK_IDX}"
+    fi
+    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+
+    if [ -z "$CURRENT_DISK_FILENAME" ]; then
+      break # No more disks configured
+    fi
+
+    local CURRENT_DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
+    if [ ! -f "$CURRENT_DISK_PATH" ]; then
+      display_and_log "ERROR" "Disk image '$CURRENT_DISK_PATH' not found!"
+      exit 1
+    fi
+    DISK_ARGS+=" -s ${DISK_DEV_NUM}:0,virtio-blk,\"$CURRENT_DISK_PATH\""
+    DISK_DEV_NUM=$((DISK_DEV_NUM + 1))
+    CURRENT_DISK_IDX=$((CURRENT_DISK_IDX + 1))
+  done
+
+  local NIC_IDX=0
   while true; do
     local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
     local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
@@ -1717,8 +1751,8 @@ cmd_start() {
       fi
     fi
 
-    NETWORK_ARGS+=" -s ${DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\""
-    DEV_NUM=$((DEV_NUM + 1))
+    NETWORK_ARGS+=" -s ${NIC_DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\",mac=\"$CURRENT_MAC\""
+    NIC_DEV_NUM=$((NIC_DEV_NUM + 1))
     NIC_IDX=$((NIC_IDX + 1))
   done
 
@@ -1746,7 +1780,7 @@ cmd_start() {
 
     run_bhyveload "$VM_DIR/$DISK" || exit 1
 
-    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge -s 3:0,virtio-blk,\"$VM_DIR/$DISK\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
+    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     log_to_global_file "INFO" "Starting bhyve VM with command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
@@ -2334,7 +2368,12 @@ EOF
       NEXT_NIC_IDX=$((NEXT_NIC_IDX + 1))
     done
 
-    local NEW_TAP_NAME="tap${NEXT_NIC_IDX}"
+    # Safely detect next available TAP on the system
+    local SYSTEM_NEXT_TAP_NUM=0
+    while ifconfig | grep -q "^tap${SYSTEM_NEXT_TAP_NUM}:"; do
+      SYSTEM_NEXT_TAP_NUM=$((SYSTEM_NEXT_TAP_NUM + 1))
+    done
+    local NEW_TAP_NAME="tap${SYSTEM_NEXT_TAP_NUM}"
     local NEW_MAC_ADDR="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
 
     display_and_log "INFO" "Generated new TAP: $NEW_TAP_NAME, MAC: $NEW_MAC_ADDR for NIC_${NEXT_NIC_IDX}."
@@ -2368,7 +2407,7 @@ cmd_clone() {
   if [ -z "$1" ] || [ -z "$2" ]; then
     cmd_clone_usage
     exit 1
-  }
+  fi
 
   local SOURCE_VMNAME="$1"
   local NEW_VMNAME="$2"
@@ -2536,25 +2575,41 @@ cmd_info() {
   printf "$info_format" "CPUs" "$CPUS"
   printf "$info_format" "Memory" "$MEMORY"
   printf "$info_format" "Bootloader" "$BOOTLOADER_TYPE" # Added
-  printf "$info_format" "Disk Path" "$VM_DIR/$DISK"
-  local DISK_USAGE="N/A"
-  if [ -f "$VM_DIR/$DISK" ]; then
-    DISK_USAGE=$(du -h "$VM_DIR/$DISK" | awk '{print $1}')
-  fi
-  printf "$info_format" "Disk Used" "$DISK_USAGE"
-  local DISK_SET_DISPLAY="${DISKSIZE}G"
-  if [ -z "$DISKSIZE" ]; then
-    DISK_SET_DISPLAY="N/A"
-  fi
-  printf "$info_format" "Disk Set" "$DISK_SET_DISPLAY"
-  printf "$info_format" "Console" "$CONSOLE"
-  printf "$info_format" "Log File" "$LOG_FILE"
-  printf "$info_format" "Autostart" "$AUTOSTART"
+  echo_message "  ----------------------------------------"
+  echo_message "  Disk Information:"
 
-  if [ "$STATUS_DISPLAY" != "STOPPED" ]; then # Only show CPU/RAM usage if running
-    printf "$info_format" "CPU Usage" "$CPU_USAGE"
-    printf "$info_format" "RAM Usage" "$RAM_USAGE"
-  fi
+  local DISK_IDX=0
+  while true; do
+    local CURRENT_DISK_VAR="DISK"
+    local CURRENT_DISKSIZE_VAR="DISKSIZE"
+    if [ "$DISK_IDX" -gt 0 ]; then
+      CURRENT_DISK_VAR="DISK_${DISK_IDX}"
+      CURRENT_DISKSIZE_VAR="DISKSIZE_${DISK_IDX}"
+    fi
+
+    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+    local CURRENT_DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
+    local CURRENT_DISK_SIZE_SET="${!CURRENT_DISKSIZE_VAR}"
+
+    if [ -z "$CURRENT_DISK_FILENAME" ]; then
+      break # No more disks configured
+    fi
+
+    echo_message "  Disk ${DISK_IDX}:"
+    printf "$info_format" "    Path" "$CURRENT_DISK_PATH"
+    local DISK_USAGE="N/A"
+    if [ -f "$CURRENT_DISK_PATH" ]; then
+      DISK_USAGE=$(du -h "$CURRENT_DISK_PATH" | awk '{print $1}')
+    fi
+    printf "$info_format" "    Used" "$DISK_USAGE"
+    local DISK_SET_DISPLAY="${CURRENT_DISK_SIZE_SET}G"
+    if [ -z "$CURRENT_DISK_SIZE_SET" ]; then
+      DISK_SET_DISPLAY="N/A"
+    fi
+    printf "$info_format" "    Set" "$DISK_SET_DISPLAY"
+
+    DISK_IDX=$((DISK_IDX + 1))
+  done
 
   echo_message "  ----------------------------------------"
   echo_message "  Network Interfaces:"
