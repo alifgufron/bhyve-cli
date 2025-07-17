@@ -2029,8 +2029,7 @@ cmd_logs() {
 
 # === Subcommand: status ===
 cmd_status() {
-  local header_format="%-20s %-10s %-12s %-12s %-12s %-12s %-10s %-15s %-15s %-15s %-12s
-"
+  local header_format="%-20s %-10s %-12s %-12s %-12s %-12s %-10s %-15s %-15s %-15s %-12s %-10s\n"
   local header_line
   printf "$header_format" \
     "VM NAME" \
@@ -2043,10 +2042,11 @@ cmd_status() {
     "UPTIME" \
     "RES MEM" \
     "VM EXITS" \
-    "BOOTLOADER"
+    "BOOTLOADER" \
+    "AUTOSTART"
   
   # === Generate dynamic separator line ===
-  header_line="-------------------- ---------- ------------ ------------ ------------ ------------ ---------- --------------- --------------- --------------- ------------"
+  header_line="-------------------- ---------- ------------ ------------ ------------ ------------ ---------- --------------- --------------- --------------- ------------ ----------"
   echo_message "${header_line// /}" # Remove spaces to make it a continuous line
 
   for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
@@ -2161,7 +2161,7 @@ cmd_status() {
       fi
     fi
 
-    printf "$header_format" "$VMNAME" "$STATUS" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$PID" "$UPTIME" "$RES_MEM" "$VM_EXITS" "${BOOTLOADER_TYPE:-N/A}"
+    printf "$header_format" "$VMNAME" "$STATUS" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$PID" "$UPTIME" "$RES_MEM" "$VM_EXITS" "${BOOTLOADER_TYPE:-N/A}" "${AUTOSTART:-N/A}"
   done
 }
 
@@ -2718,13 +2718,14 @@ cmd_info() {
   VMNAME="$1"
   load_vm_config "$VMNAME"
 
-  echo_message "----------------------------------------"
-  echo_message "VM Information for '$VMNAME':"
-  echo_message "----------------------------------------"
-  local info_format="  %-15s: %s\n"
-
-  # === Check runtime status first ===
-  local PID="" # Initialize to empty string
+  # Get running status and stats
+  local STATUS="STOPPED"
+  local PID="N/A"
+  local CPU_USAGE="N/A"
+  local RAM_USAGE="N/A"
+  local UPTIME="N/A"
+  local RES_MEM="N/A"
+  local VM_EXITS="N/A"
 
   # Try to get PID from vm.pid file first
   if [ -f "$VM_DIR/vm.pid" ]; then
@@ -2736,165 +2737,103 @@ cmd_info() {
   fi
 
   # If PID is still empty, try to find it with grep
-  if [ -z "$PID" ]; then
-    local GREPPED_PID
-    GREPPED_PID=$(pgrep -f "bhyve .* $VMNAME")
-    if [ -n "$GREPPED_PID" ] && ps -p "$GREPPED_PID" > /dev/null 2>&1; then
-      PID="$GREPPED_PID"
+  if [ -z "$PID" ] || [ "$PID" = "N/A" ]; then
+    local GREPPED_PIDS
+    GREPPED_PIDS=$(pgrep -f "bhyve .* $VMNAME")
+    if [ -n "$GREPPED_PIDS" ]; then
+      PID="$GREPPED_PIDS"
     fi
   fi
 
-  local BHYVECTL_GET_ALL
-  BHYVECTL_GET_ALL=$($BHYVECTL --vm="$VMNAME" --get-all 2>/dev/null)
-  local BHYVECTL_GET_STATS
-  BHYVECTL_GET_STATS=$($BHYVECTL --vm="$VMNAME" --get-stats 2>/dev/null)
+  if [ -n "$PID" ] && [ "$PID" != "N/A" ]; then
+    local PID_COUNT
+    PID_COUNT=$(echo "$PID" | wc -l | awk '{print $1}')
+    if [ "$PID_COUNT" -gt 1 ]; then
+        STATUS="RUNNING (PIDs: $PID_COUNT)"
+    else
+        STATUS="RUNNING (PID: $PID)"
+    fi
 
-  local STATUS_DISPLAY="STOPPED"
-  local CPU_USAGE="N/A"
-  local RAM_USAGE="N/A"
-  local UPTIME="N/A"
-  local RES_MEM="N/A"
-  local VM_EXITS="N/A"
+    # Use ps to get stats - this will sum up for multiple processes if they exist
+    local PS_STATS
+    PS_STATS=$(ps -o %cpu,rss,etime -p "$PID" | tail -n +2 | awk '{cpu+=$1; rss+=$2} END {print cpu, rss}')
+    CPU_USAGE="$(echo "$PS_STATS" | awk '{print $1}')%"
+    RAM_USAGE="$(echo "$PS_STATS" | awk '{print $2/1024}')MB"
 
-  if [ -n "$PID" ] || [ -n "$BHYVECTL_GET_ALL" ]; then
-      STATUS_DISPLAY="RUNNING"
-      if [ -n "$PID" ]; then
-        STATUS_DISPLAY="RUNNING \(PID: $PID\)"
-      fi
-  fi
+    # For uptime, we'll take the etime from the first PID
+    UPTIME=$(ps -o etime -p "$(echo "$PID" | head -n1)" | tail -n 1 | awk '{print $1}')
 
-  if [ -n "$PID" ]; then
-    local PS_INFO
-    PS_INFO=$(ps -p "$PID" -o %cpu,rss= | tail -n 1)
-    if [ -n "$PS_INFO" ]; then
-      CPU_USAGE=$(echo "$PS_INFO" | awk '{print $1 "%"}')
-      local RAM_RSS_KB
-      RAM_RSS_KB=$(echo "$PS_INFO" | awk '{print $2}')
-      if command -v bc >/dev/null 2>&1; then
-        RAM_USAGE=$(echo "scale=0; $RAM_RSS_KB / 1024" | bc) # Convert KB to MB
-        RAM_USAGE="${RAM_USAGE}MB"
-      else
-        RAM_USAGE="${RAM_RSS_KB}KB (bc not found)"
+    # Use bhyvectl for more detailed stats
+    if command -v bhyvectl >/dev/null 2>&1; then
+      local BHYVECTL_STATS
+      BHYVECTL_STATS=$($BHYVECTL --vm="$VMNAME" --get-stats 2>/dev/null)
+      if [ -n "$BHYVECTL_STATS" ]; then
+        RES_MEM=$(echo "$BHYVECTL_STATS" | grep "Resident memory" | awk '{print $(NF)}')
+        VM_EXITS=$(echo "$BHYVECTL_STATS" | grep "total number of vm exits" | awk '{print $(NF)}')
       fi
     fi
   fi
 
-  # Extract additional metrics from bhyvectl
-  if [ "$STATUS_DISPLAY" != "STOPPED" ]; then
-    # Uptime from vcpu total runtime (nanoseconds)
-    if [ -n "$BHYVECTL_GET_STATS" ]; then
-      local VCPU_TOTAL_RUNTIME=$(echo "$BHYVECTL_GET_STATS" | grep "vcpu total runtime" | awk '{print $NF}')
-      if [ -n "$VCPU_TOTAL_RUNTIME" ]; then
-        local SECONDS
-        if command -v bc >/dev/null 2>&1; then
-          SECONDS=$(echo "scale=0; $VCPU_TOTAL_RUNTIME / 1000000000" | bc)
-        else
-          SECONDS=$((VCPU_TOTAL_RUNTIME / 1000000000))
-        fi
+  echo_message "----------------------------------------"
+  echo_message "VM Information for '$VMNAME':"
+  echo_message "----------------------------------------"
+  echo_message "  Name           : $VMNAME"
+  echo_message "  Status         : $STATUS"
+  echo_message "  CPUs           : $CPUS"
+  echo_message "  Memory         : $MEMORY"
+  echo_message "  Bootloader     : $BOOTLOADER_TYPE"
+  echo_message "  Autostart      : $AUTOSTART"
+  echo_message "  CPU Usage      : $CPU_USAGE"
+  echo_message "  RAM Usage      : $RAM_USAGE"
+  echo_message "  Uptime         : $UPTIME"
+  echo_message "  Res Mem        : ${RES_MEM:-N/A}"
+  echo_message "  VM Exits       : ${VM_EXITS:-N/A}"
 
-        local DAYS=$((SECONDS / 86400))
-        SECONDS=$((SECONDS % 86400))
-        local HOURS=$((SECONDS / 3600))
-        SECONDS=$((SECONDS % 3600))
-        local MINUTES=$((SECONDS / 60))
-        local REM_SECONDS=$((SECONDS % 60))
-
-        UPTIME=""
-        if [ $DAYS -gt 0 ]; then UPTIME+="${DAYS}d "; fi
-        if [ $HOURS -gt 0 ]; then UPTIME+="${HOURS}h "; fi
-        if [ $MINUTES -gt 0 ]; then UPTIME+="${MINUTES}m "; fi
-        UPTIME+="${REM_SECONDS}s"
-      fi
-
-      # Resident Memory
-      local RESIDENT_MEMORY_BYTES=$(echo "$BHYVECTL_GET_STATS" | grep "Resident memory" | awk '{print $NF}')
-      if [ -n "$RESIDENT_MEMORY_BYTES" ]; then
-        if command -v bc >/dev/null 2>&1; then
-          RES_MEM="$(echo "scale=1; $RESIDENT_MEMORY_BYTES / (1024 * 1024)" | bc)MB"
-        else
-          RES_MEM="$((RESIDENT_MEMORY_BYTES / (1024 * 1024)))MB"
-        fi
-      fi
-
-      # VM Exits
-      local TOTAL_VM_EXITS=$(echo "$BHYVECTL_GET_STATS" | grep "total number of vm exits" | awk '{print $NF}')
-      if [ -n "$TOTAL_VM_EXITS" ]; then
-        VM_EXITS="$TOTAL_VM_EXITS"
-      fi
-    fi
-  fi # Closes the if statement on line 2604
-
-  printf "$info_format" "Name" "$VMNAME"
-  printf "$info_format" "Status" "$STATUS_DISPLAY"
-  printf "$info_format" "CPUs" "$CPUS"
-  printf "$info_format" "Memory" "$MEMORY"
-  printf "$info_format" "Bootloader" "$BOOTLOADER_TYPE"
-
-  if [ "$STATUS_DISPLAY" != "STOPPED" ]; then # Only show dynamic metrics if running
-    printf "$info_format" "CPU Usage" "$CPU_USAGE"
-    printf "$info_format" "RAM Usage" "$RAM_USAGE"
-    printf "$info_format" "Uptime" "$UPTIME"
-    printf "$info_format" "Res Mem" "$RES_MEM"
-    printf "$info_format" "VM Exits" "$VM_EXITS"
-  fi # End of if [ "$STATUS_DISPLAY" != "STOPPED" ] block
-
+  # Disk Info
   echo_message "  ----------------------------------------"
   echo_message "  Disk Information:"
-
   local DISK_IDX=0
   while true; do
     local CURRENT_DISK_VAR="DISK"
-    local CURRENT_DISKSIZE_VAR="DISKSIZE"
     if [ "$DISK_IDX" -gt 0 ]; then
       CURRENT_DISK_VAR="DISK_${DISK_IDX}"
-      CURRENT_DISKSIZE_VAR="DISKSIZE_${DISK_IDX}"
     fi
-
     local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
-    local CURRENT_DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
-    local CURRENT_DISK_SIZE_SET="${!CURRENT_DISKSIZE_VAR}"
-
     if [ -z "$CURRENT_DISK_FILENAME" ]; then
-      break # No more disks configured
+      break
     fi
-
-    echo_message "  Disk ${DISK_IDX}:"
-    printf "$info_format" "    Path" "$CURRENT_DISK_PATH"
-    local DISK_USAGE="N/A"
+    local CURRENT_DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
+    local DISK_USED="N/A"
+    local DISK_SET="N/A"
     if [ -f "$CURRENT_DISK_PATH" ]; then
-      DISK_USAGE=$(du -h "$CURRENT_DISK_PATH" | awk '{print $1}')
+      DISK_USED=$(du -h "$CURRENT_DISK_PATH" | awk '{print $1}')
+      DISK_SET=$(ls -lh "$CURRENT_DISK_PATH" | awk '{print $5}')
     fi
-    printf "$info_format" "    Used" "$DISK_USAGE"
-    local DISK_SET_DISPLAY="${CURRENT_DISK_SIZE_SET}G"
-    if [ -z "$CURRENT_DISK_SIZE_SET" ]; then
-      DISK_SET_DISPLAY="N/A"
-    fi
-    printf "$info_format" "    Set" "$DISK_SET_DISPLAY"
-
+    echo_message "  Disk $DISK_IDX:"
+    echo_message "      Path       : $CURRENT_DISK_PATH"
+    echo_message "      Used       : $DISK_USED"
+    echo_message "      Set        : $DISK_SET"
     DISK_IDX=$((DISK_IDX + 1))
   done
 
+  # Network Info
   echo_message "  ----------------------------------------"
   echo_message "  Network Interfaces:"
-
   local NIC_IDX=0
   while true; do
     local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
     local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
     local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
-
     local CURRENT_TAP="${!CURRENT_TAP_VAR}"
     local CURRENT_MAC="${!CURRENT_MAC_VAR}"
     local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
-
     if [ -z "$CURRENT_TAP" ]; then
-      break # No more network interfaces configured
+      break
     fi
-
-    echo_message "  Interface ${NIC_IDX}:"
-    printf "$info_format" "    TAP_${NIC_IDX}" "$CURRENT_TAP"
-    printf "$info_format" "    MAC_${NIC_IDX}" "$CURRENT_MAC"
-    printf "$info_format" "    BRIDGE_${NIC_IDX}" "$CURRENT_BRIDGE"
+    echo_message "  Interface $NIC_IDX:"
+    echo_message "      ${CURRENT_TAP_VAR}      : $CURRENT_TAP"
+    echo_message "      ${CURRENT_MAC_VAR}      : $CURRENT_MAC"
+    echo_message "      ${CURRENT_BRIDGE_VAR}   : $CURRENT_BRIDGE"
     NIC_IDX=$((NIC_IDX + 1))
   done
   echo_message "----------------------------------------"
