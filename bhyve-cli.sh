@@ -64,6 +64,34 @@ log_to_global_file() {
   fi
 }
 
+# === Spinner Functions ===
+_spinner_chars='|/-\'
+_spinner_pid=
+
+start_spinner() {
+  local message="$1"
+  echo -n "$message"
+  (
+    while :; do
+      for (( i=0; i<${#_spinner_chars}; i++ )); do
+        echo -ne "${_spinner_chars:$i:1}"
+        echo -ne "\b"
+        sleep 0.1
+      done
+    done
+  ) &
+  _spinner_pid=$!
+  trap stop_spinner EXIT
+}
+
+stop_spinner() {
+  if [[ -n "$_spinner_pid" ]]; then
+    kill "$_spinner_pid" >/dev/null 2>&1
+    wait "$_spinner_pid" 2>/dev/null
+    echo -ne "\n"
+  fi
+}
+
 # === Prerequisite Checks ===
 check_root() {
   if [ "$(id -u)" -ne 0 ]; then
@@ -232,7 +260,7 @@ build_network_args() {
   local VMNAME="$1"
   local VM_DIR="$2" # Not directly used here, but might be useful for future expansion
   local NETWORK_ARGS=""
-  local NIC_DEV_NUM=5 # Starting device number for virtio-net
+  local NIC_DEV_NUM=10 # Starting device number for virtio-net
 
   local NIC_IDX=0
   while true; do
@@ -2638,10 +2666,12 @@ EOF
 
 # === Subcommand: clone ===
 cmd_clone() {
+  log "Entering cmd_clone function for VM: $1 to $2"
   if [ -z "$1" ] || [ -z "$2" ]; then
     cmd_clone_usage
     exit 1
   fi
+
 
   local SOURCE_VMNAME="$1"
   local NEW_VMNAME="$2"
@@ -2653,13 +2683,13 @@ cmd_clone() {
 
   # === Check if source VM exists ===
   if [ ! -d "$SOURCE_VM_DIR" ]; then
-    display_and_log "ERROR" "Source VM '$SOURCE_VMNAME' not found: $SOURCE_VM_DIR"
+    display_and_log "ERROR" "Source VM '$SOURCE_VMNAME' not found."
     exit 1
   fi
 
   # === Check if new VM already exists ===
   if [ -d "$NEW_VM_DIR" ]; then
-    display_and_log "ERROR" "Destination VM '$NEW_VMNAME' already exists: $NEW_VM_DIR"
+    display_and_log "ERROR" "Destination VM '$NEW_VMNAME' already exists."
     exit 1
   fi
 
@@ -2672,7 +2702,8 @@ cmd_clone() {
     exit 1
   fi
 
-  display_and_log "INFO" "Cloning VM '$SOURCE_VMNAME' to '$NEW_VMNAME'..."
+  start_spinner "Cloning VM '$SOURCE_VMNAME' to '$NEW_VMNAME'..."
+  log "INFO" "Cloning VM '$SOURCE_VMNAME' to '$NEW_VMNAME'..."
 
   # === Create new VM directory ===
   mkdir -p "$NEW_VM_DIR"
@@ -2681,7 +2712,7 @@ cmd_clone() {
   # === Copy disk image ===
   local SOURCE_DISK_PATH="$SOURCE_VM_DIR/$DISK"
   local NEW_DISK_PATH="$NEW_VM_DIR/$DISK"
-  display_and_log "INFO" "Copying disk image from $SOURCE_DISK_PATH to $NEW_DISK_PATH..."
+  log "INFO" "Copying disk image from $SOURCE_DISK_PATH to $NEW_DISK_PATH..."
   if ! cp "$SOURCE_DISK_PATH" "$NEW_DISK_PATH"; then
     display_and_log "ERROR" "Failed to copy disk image."
     rm -rf "$NEW_VM_DIR"
@@ -2732,8 +2763,11 @@ cmd_clone() {
     NIC_IDX=$((NIC_IDX + 1))
   done
 
+  echo " "
   display_and_log "INFO" "VM '$NEW_VMNAME' cloned successfully."
   display_and_log "INFO" "You can now start it with: $0 start $NEW_VMNAME"
+ 
+  stop_spinner
 }
 
 # === Subcommand: info ===
@@ -2943,11 +2977,18 @@ cmd_export() {
   fi
 
   log "Exporting VM '$VMNAME' to '$DEST_PATH'..."
-  if ! tar -czf "$DEST_PATH" -C "$VM_CONFIG_BASE_DIR" "$VMNAME"; then
-    display_and_log "ERROR" "Failed to export VM '$VMNAME'."
+  display_and_log "INFO" "Exporting VM '$VMNAME' to '$DEST_PATH'..."
+
+  start_spinner "Creating archive..."
+  # Create a tar archive of the VM directory
+  if ! tar -czf "$DEST_PATH" -C "$(dirname "$VM_DIR")" "$(basename "$VM_DIR")"; then
+    stop_spinner
+    display_and_log "ERROR" "Failed to create archive for VM '$VMNAME'."
     exit 1
   fi
-  log "VM '$VMNAME' exported successfully to '$DEST_PATH'."
+  stop_spinner
+
+  display_and_log "INFO" "VM '$VMNAME' successfully exported to '$DEST_PATH'."
 }
 
 # === Subcommand: import ===
@@ -2963,6 +3004,7 @@ cmd_import() {
     display_and_log "ERROR" "Archive file not found: '$ARCHIVE_PATH'"
     exit 1
   fi
+
 
   # === Extract VM name from archive path to avoid collisions ===
   local EXTRACTED_DIR_NAME
@@ -2988,6 +3030,7 @@ cmd_import() {
     exit 1
   fi
 
+  start_spinner "Importing vm..."
   local IMPORTED_VMNAME="$EXTRACTED_DIR_NAME"
   load_vm_config "$IMPORTED_VMNAME"
 
@@ -3019,8 +3062,10 @@ cmd_import() {
     NIC_IDX=$((NIC_IDX + 1))
   done
 
+  echo " "
   display_and_log "INFO" "VM '$IMPORTED_VMNAME' successfully imported."
   display_and_log "INFO" "You may need to review the configuration with '$0 modify $IMPORTED_VMNAME' if the host environment has changed."
+  stop_spinner
 }
 
 
