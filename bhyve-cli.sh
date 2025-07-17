@@ -487,6 +487,8 @@ main_usage() {
   echo_message "  import        - Import a VM from an archive file."
   echo_message "  iso           - Manage ISO images (list and download)."
   echo_message "  switch        - Manage network bridges and physical interfaces."
+  echo_message "  stopall       - Stop all running virtual machines."
+  echo_message "  startall      - Start all configured virtual machines."
   echo_message " "
   echo_message "For detailed usage of each command, use: $0 <command> --help"
 }
@@ -695,7 +697,18 @@ Options:"
   echo_message "  --force     - Perform a fast but unsafe restart (hard reset). Skips graceful shutdown."
 }
 
+# === Usage function for stopall ===
+cmd_stopall_usage() {
+  echo_message "Usage: $0 stopall [--force]"
+  echo_message "
+Options:"
+  echo_message "  --force     - Forcefully stop all VMs without attempting graceful shutdown."
+}
 
+# === Usage function for startall ===
+cmd_startall_usage() {
+  echo_message "Usage: $0 startall"
+}
 
 # === Usage function for ISO ===
 cmd_iso_usage() {
@@ -707,6 +720,7 @@ cmd_iso_usage() {
   echo_message "  $0 iso list"
   echo_message "  $0 iso https://example.com/freebsd.iso"
 }
+
 
 # === Subcommand: iso ===
 cmd_iso() {
@@ -1859,6 +1873,25 @@ cmd_start() {
   log "Exiting cmd_start function for VM: $VMNAME"
 }
 
+# === Subcommand: startall ===
+cmd_startall() {
+  log "Entering cmd_startall function."
+  display_and_log "INFO" "Attempting to start all configured VMs..."
+
+  for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
+    [ -f "$VMCONF" ] || continue
+    local VMNAME=$(basename "$(dirname "$VMCONF")")
+    if ! pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+      display_and_log "INFO" "Starting VM '$VMNAME'..."
+      "$0" start "$VMNAME" > /dev/null 2>&1
+    else
+      display_and_log "INFO" "VM '$VMNAME' is already running. Skipping."
+    fi
+  done
+  display_and_log "INFO" "Attempt to start all VMs complete."
+  log "Exiting cmd_startall function."
+}
+
 # === Subcommand: stop ===
 cmd_stop() {
   log "Entering cmd_stop function for VM: $1"
@@ -2035,6 +2068,35 @@ cmd_stop() {
     display_and_log "INFO" "vm.pid file not found. Skipping removal."
   fi
   log "Exiting cmd_stop function for VM: $VMNAME"
+}
+
+# === Subcommand: stopall ===
+cmd_stopall() {
+  log "Entering cmd_stopall function."
+  local FORCEFUL_SHUTDOWN=false
+
+  if [ "$1" = "--force" ]; then
+    FORCEFUL_SHUTDOWN=true
+  fi
+
+  display_and_log "INFO" "Attempting to stop all running VMs..."
+
+  for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
+    [ -f "$VMCONF" ] || continue
+    local VMNAME=$(basename "$(dirname "$VMCONF")")
+    if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+      display_and_log "INFO" "Stopping VM '$VMNAME'..."
+      if [ "$FORCEFUL_SHUTDOWN" = true ]; then
+        "$0" stop "$VMNAME" --force > /dev/null 2>&1
+      else
+        "$0" stop "$VMNAME" > /dev/null 2>&1
+      fi
+    else
+      display_and_log "INFO" "VM '$VMNAME' is not running. Skipping."
+    fi
+  done
+  display_and_log "INFO" "Attempt to stop all VMs complete."
+  log "Exiting cmd_stopall function."
 }
 
 
@@ -3330,72 +3392,15 @@ case "$1" in
     shift
     cmd_import "$@"
     ;;
-  iso)
+  stopall)
     shift
-    cmd_iso "$@"
+    cmd_stopall "$@"
     ;;
-  restart)
+  startall)
     shift
-    cmd_restart "$@"
-    ;;
-  network)
-    shift
-    case "$1" in
-      add)
-        shift
-        cmd_network_add "$@"
-        ;;
-      remove)
-        shift
-        cmd_network_remove "$@"
-        ;;
-      *)
-        if [ -n "$1" ]; then
-        display_and_log "ERROR" "Invalid subcommand for 'network': $1"
-    fi
-        cmd_network_usage
-        exit 1
-        ;;
-    esac
-    ;;
-  switch)
-    shift
-    case "$1" in
-      add)
-        shift
-        cmd_switch_add "$@"
-        ;;
-      list)
-        shift
-        cmd_switch_list "$@"
-        ;;
-      destroy)
-        shift
-        cmd_switch_destroy "$@"
-        ;;
-      delete)
-        shift
-        cmd_switch_delete "$@"
-        ;;
-      --help)
-        cmd_switch_usage
-        exit 0
-        ;;
-      *)
-        if [ -n "$1" ]; then
-            display_and_log "ERROR" "Invalid subcommand for 'switch': $1"
-        fi
-        cmd_switch_usage
-        exit 1
-        ;;
-    esac
+    cmd_startall "$@"
     ;;
   *)
-    if [ -n "$1" ]; then
-      echo_message " "
-      echo_message "Error: Invalid command: $1"
-      echo_message " "
-    fi
     main_usage
     exit 1
     ;;
