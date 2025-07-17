@@ -84,13 +84,31 @@ ensure_nmdm_device_nodes() {
   local CONSOLE_DEVICE="$1"
   if [ ! -e "/dev/${CONSOLE_DEVICE}A" ]; then
     log "Creating nmdm device node /dev/${CONSOLE_DEVICE}A"
-    mknod "/dev/${CONSOLE_DEVICE}A" c 106 0 || { display_and_log "ERROR" "Failed to create /dev/${CONSOLE_DEVICE}A"; exit 1; }
+    mknod "/dev/${CONSOLE_DEVICE}A" c 106 0
+    local MKNOD_A_EXIT_CODE=$?
+    if [ $MKNOD_A_EXIT_CODE -ne 0 ]; then
+      display_and_log "ERROR" "Failed to create /dev/${CONSOLE_DEVICE}A (mknod exit code: $MKNOD_A_EXIT_CODE)"; exit 1;
+    fi
     chmod 660 "/dev/${CONSOLE_DEVICE}A"
+    local CHMOD_A_EXIT_CODE=$?
+    if [ $CHMOD_A_EXIT_CODE -ne 0 ]; then
+      display_and_log "ERROR" "Failed to set permissions for /dev/${CONSOLE_DEVICE}A (chmod exit code: $CHMOD_A_EXIT_CODE)"; exit 1;
+    fi
+    log "Created /dev/${CONSOLE_DEVICE}A. Permissions: $(stat -f "%Sp" "/dev/${CONSOLE_DEVICE}A")"
   fi
   if [ ! -e "/dev/${CONSOLE_DEVICE}B" ]; then
     log "Creating nmdm device node /dev/${CONSOLE_DEVICE}B"
-    mknod "/dev/${CONSOLE_DEVICE}B" c 106 1 || { display_and_log "ERROR" "Failed to create /dev/${CONSOLE_DEVICE}B"; exit 1; }
+    mknod "/dev/${CONSOLE_DEVICE}B" c 106 1
+    local MKNOD_B_EXIT_CODE=$?
+    if [ $MKNOD_B_EXIT_CODE -ne 0 ]; then
+      display_and_log "ERROR" "Failed to create /dev/${CONSOLE_DEVICE}B (mknod exit code: $MKNOD_B_EXIT_CODE)"; exit 1;
+    fi
     chmod 660 "/dev/${CONSOLE_DEVICE}B"
+    local CHMOD_B_EXIT_CODE=$?
+    if [ $CHMOD_B_EXIT_CODE -ne 0 ]; then
+      display_and_log "ERROR" "Failed to set permissions for /dev/${CONSOLE_DEVICE}B (chmod exit code: $CHMOD_B_EXIT_CODE)"; exit 1;
+    fi
+    log "Created /dev/${CONSOLE_DEVICE}B. Permissions: $(stat -f "%Sp" "/dev/${CONSOLE_DEVICE}B")"
   fi
 }
 
@@ -1408,6 +1426,7 @@ cmd_install() {
   fi
 
   ensure_nmdm_device_nodes "$CONSOLE"
+  sleep 1 # Give nmdm devices a moment to be ready
 
   log "Starting VM '$VMNAME' installation..."
 
@@ -1515,7 +1534,7 @@ cmd_install() {
     echo_message ""
     echo_message ">>> Entering VM '$VMNAME' installation console (exit with ~.)"
     echo_message ">>> IMPORTANT: After shutting down the VM from within, you MUST type '~.' (tilde then dot) to exit this console and allow the script to continue cleanup."
-    cu -l /dev/"${CONSOLE}B}"
+    cu -l /dev/"${CONSOLE}B"
 
     log "cu session ended. Initiating cleanup..."
 
@@ -1587,60 +1606,7 @@ cmd_install() {
 
     log "cu session ended. Initiating cleanup..."
 
-    # Explicitly kill bhyve process associated with this VMNAME
-    local VM_PIDS_TO_KILL
-    VM_PIDS_TO_KILL=$(pgrep -f "bhyve .* $VMNAME$")
-    if [ -n "$VM_PIDS_TO_KILL" ]; then
-        local PIDS_STRING
-        PIDS_STRING=$(echo "$VM_PIDS_TO_KILL" | tr '
-' ' ')
-        log "Sending TERM signal to bhyve PID(s): $PIDS_STRING"
-        kill "$VM_PIDS_TO_KILL"
-        sleep 1 # Give it a moment to terminate
-
-        for pid_to_check in $VM_PIDS_TO_KILL; do
-            if ps -p "$pid_to_check" > /dev/null 2>&1; then
-                log "PID $pid_to_check still running, forcing KILL..."
-                kill -9 "$pid_to_check"
-                sleep 1
-            fi
-        done
-        log "bhyve process(es) stopped."
-    else
-        log "No bhyve process found for '$VMNAME' to kill."
-    fi
-
-    # Now, destroy from kernel memory (important for bhyveload)
-    if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
-        log "VM '$VMNAME' successfully destroyed from kernel memory."
-    else
-        log "VM '$VMNAME' was not found in kernel memory (already destroyed or never started)."
-    fi
-
-    # Kill any lingering cu or tail -f processes
-    log "Attempting to stop associated cu process for /dev/${CONSOLE}B..."
-    pkill -f "cu -l /dev/${CONSOLE}B" > /dev/null 2>&1
-    if pgrep -f "cu -l /dev/${CONSOLE}B" > /dev/null; then
-        log "cu process for /dev/${CONSOLE}B stopped."
-    else
-        log "No cu process found or failed to stop for /dev/${CONSOLE}B."
-    fi
-
-    log "Attempting to stop associated cu process for /dev/${CONSOLE}A..."
-    pkill -f "cu -l /dev/${CONSOLE}A" > /dev/null 2>&1
-    if pgrep -f "cu -l /dev/${CONSOLE}A" > /dev/null; then
-        log "cu process for /dev/${CONSOLE}A stopped."
-    else
-        log "No cu process found or failed to stop for /dev/${CONSOLE}A."
-    fi
-
-    log "Attempting to stop associated tail -f process for $LOG_FILE..."
-    pkill -f "tail -f $LOG_FILE" > /dev/null 2>&1
-    if pgrep -f "tail -f $LOG_FILE" > /dev/null; then
-        log "tail -f process for $LOG_FILE stopped."
-    else
-        log "No tail -f process found or failed to stop for $LOG_FILE."
-    fi
+    cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
 
     # Wait for the bhyve process to exit.
     # Capture its exit status.
