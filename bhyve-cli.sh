@@ -530,7 +530,9 @@ cmd_modify_usage() {
   echo_message "  --bridge <bridge_name>       - Connect the specified NIC to a different bridge (requires --nic).
                                    Example: --nic 0 --bridge newbridge"
   echo_message "  --add-nic <bridge_name>      - Automatically add a NEW network interface to the VM, connected to the specified bridge."
+  echo_message "  --remove-nic <index>         - Remove a network interface by its index (e.g., 0 for TAP_0)."
   echo_message "  --add-disk <size_in_GB>      - Add a new virtual disk to the VM with the specified size in GB."
+  echo_message "  --remove-disk <index>        - Remove a virtual disk by its index (e.g., 0 for the primary disk, 1 for DISK_1)."
   echo_message "\nExamples:"
   echo_message "  $0 modify myvm --cpu 4 --ram 4096M"
   echo_message "  $0 modify myvm --nic 0 --tap tap1 --bridge bridge1 # Modify existing NIC 0"
@@ -2230,6 +2232,8 @@ cmd_modify() {
   local NEW_BRIDGE=""
   local ADD_DISK_SIZE=""
   local ADD_NIC_BRIDGE="" # New variable for --add-nic
+  local REMOVE_NIC_INDEX=""
+  local REMOVE_DISK_INDEX=""
 
   # === Check if VM is running ===
   if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
@@ -2270,6 +2274,14 @@ cmd_modify() {
       --add-disk)
         shift
         ADD_DISK_SIZE="$1"
+        ;;
+      --remove-nic)
+        shift
+        REMOVE_NIC_INDEX="$1"
+        ;;
+      --remove-disk)
+        shift
+        REMOVE_DISK_INDEX="$1"
         ;;
       *)
         display_and_log "ERROR" "Invalid option: $1"
@@ -2375,6 +2387,105 @@ EOF
     display_and_log "INFO" "New disk '$NEW_DISK_FILENAME' added to VM '$VMNAME' configuration."
   fi
 
+  # --- Remove Disk ---
+  if [ -n "$REMOVE_DISK_INDEX" ]; then
+    display_and_log "INFO" "Attempting to remove disk with index ${REMOVE_DISK_INDEX} from VM '$VMNAME'..."
+
+    # Validate REMOVE_DISK_INDEX
+    if ! [[ "$REMOVE_DISK_INDEX" =~ ^[0-9]+$ ]]; then
+      display_and_log "ERROR" "Invalid disk index '$REMOVE_DISK_INDEX'. Please provide a non-negative integer."
+      exit 1
+    fi
+
+    local DISK_VAR_PREFIX="DISK"
+    local DISKSIZE_VAR_PREFIX="DISKSIZE"
+
+    local DISK_TO_REMOVE_VAR_NAME="${DISK_VAR_PREFIX}"
+    local DISKSIZE_TO_REMOVE_VAR_NAME="${DISKSIZE_VAR_PREFIX}"
+
+    if [ "$REMOVE_DISK_INDEX" -gt 0 ]; then
+      DISK_TO_REMOVE_VAR_NAME="${DISK_VAR_PREFIX}_${REMOVE_DISK_INDEX}"
+      DISKSIZE_TO_REMOVE_VAR_NAME="${DISKSIZE_VAR_PREFIX}_${REMOVE_DISK_INDEX}"
+    fi
+
+    local DISK_TO_REMOVE_FILENAME=$(grep "^${DISK_TO_REMOVE_VAR_NAME}=" "$CONF_FILE" | cut -d'=' -f2)
+
+    if [ -z "$DISK_TO_REMOVE_FILENAME" ]; then
+      display_and_log "ERROR" "Disk with index $REMOVE_DISK_INDEX does not exist for VM '$VMNAME'."
+      exit 1
+    fi
+
+    local DISK_TO_REMOVE_PATH="$VM_DIR/$DISK_TO_REMOVE_FILENAME"
+
+    display_and_log "INFO" "Found disk to remove: '$DISK_TO_REMOVE_PATH' (Index: $REMOVE_DISK_INDEX)"
+
+    # --- Collect all existing disk configurations ---
+    declare -a DISK_FILENAMES
+    declare -a DISK_SIZES
+    local current_disk_idx=0
+    while true; do
+      local disk_var_name="DISK"
+      local disksize_var_name="DISKSIZE"
+      if [ "$current_disk_idx" -gt 0 ]; then
+        disk_var_name="DISK_${current_disk_idx}"
+        disksize_var_name="DISKSIZE_${current_disk_idx}"
+      fi
+
+      local disk_val=$(grep "^${disk_var_name}=" "$CONF_FILE" | cut -d'=' -f2)
+      if [ -z "$disk_val" ]; then
+        break
+      fi
+      DISK_FILENAMES+=("$disk_val")
+      DISK_SIZES+=($(grep "^${disksize_var_name}=" "$CONF_FILE" | cut -d'=' -f2))
+      current_disk_idx=$((current_disk_idx + 1))
+    done
+
+    # --- Remove the specified disk from arrays ---
+    if [ "$REMOVE_DISK_INDEX" -ge "${#DISK_FILENAMES[@]}" ]; then
+      display_and_log "ERROR" "Disk index $REMOVE_DISK_INDEX is out of bounds. Max index is $(( ${#DISK_FILENAMES[@]} - 1 ))."
+      exit 1
+    fi
+
+    unset 'DISK_FILENAMES[REMOVE_DISK_INDEX]'
+    unset 'DISK_SIZES[REMOVE_DISK_INDEX]'
+
+    # Re-index arrays
+    DISK_FILENAMES=("${DISK_FILENAMES[@]}")
+    DISK_SIZES=("${DISK_SIZES[@]}")
+
+    # --- Remove old disk entries from vm.conf ---
+    local TEMP_CONF_FILE="${CONF_FILE}.tmp"
+    grep -v "^DISK=" "$CONF_FILE" | grep -v "^DISK_[0-9]=" | grep -v "^DISKSIZE=" | grep -v "^DISKSIZE_[0-9]=" > "$TEMP_CONF_FILE"
+    mv "$TEMP_CONF_FILE" "$CONF_FILE"
+
+    # --- Write re-indexed disk configurations back to vm.conf ---
+    for (( i=0; i<${#DISK_FILENAMES[@]}; i++ )); do
+      local current_disk_var_name="DISK"
+      local current_disksize_var_name="DISKSIZE"
+      if [ "$i" -gt 0 ]; then
+        current_disk_var_name="DISK_${i}"
+        current_disksize_var_name="DISKSIZE_${i}"
+      fi
+      cat <<EOF >> "$CONF_FILE"
+${current_disk_var_name}=${DISK_FILENAMES[i]}
+${current_disksize_var_name}=${DISK_SIZES[i]}
+EOF
+    done
+
+    # --- Delete the actual disk image file ---
+    if [ -f "$DISK_TO_REMOVE_PATH" ]; then
+      display_and_log "INFO" "Deleting disk image file: '$DISK_TO_REMOVE_PATH'..."
+      if ! rm "$DISK_TO_REMOVE_PATH"; then
+        display_and_log "WARNING" "Failed to delete disk image file '$DISK_TO_REMOVE_PATH'. Manual deletion may be required."
+      fi
+    else
+      display_and_log "INFO" "Disk image file '$DISK_TO_REMOVE_PATH' not found. Skipping deletion."
+    fi
+
+    MODIFIED=true
+    display_and_log "INFO" "Disk with index ${REMOVE_DISK_INDEX} successfully removed from VM '$VMNAME'."
+  fi
+
   # --- Add new Network Interface (NIC) ---
   if [ -n "$ADD_NIC_BRIDGE" ]; then
     display_and_log "INFO" "Adding new network interface to VM '$VMNAME' connected to bridge '$ADD_NIC_BRIDGE'..."
@@ -2409,6 +2520,96 @@ BRIDGE_${NEXT_NIC_IDX}=$ADD_NIC_BRIDGE
 EOF
     MODIFIED=true
     display_and_log "INFO" "New network interface NIC_${NEXT_NIC_IDX} added to VM '$VMNAME' configuration."
+  fi
+
+  # --- Remove Network Interface (NIC) ---
+  if [ -n "$REMOVE_NIC_INDEX" ]; then
+    display_and_log "INFO" "Attempting to remove network interface NIC_${REMOVE_NIC_INDEX} from VM '$VMNAME'..."
+
+    # Validate REMOVE_NIC_INDEX
+    if ! [[ "$REMOVE_NIC_INDEX" =~ ^[0-9]+$ ]]; then
+      display_and_log "ERROR" "Invalid NIC index '$REMOVE_NIC_INDEX'. Please provide a non-negative integer."
+      exit 1
+    fi
+
+    local NIC_TO_REMOVE_TAP_VAR="TAP_${REMOVE_NIC_INDEX}"
+    local NIC_TO_REMOVE_MAC_VAR="MAC_${REMOVE_NIC_INDEX}"
+    local NIC_TO_REMOVE_BRIDGE_VAR="BRIDGE_${REMOVE_NIC_INDEX}"
+
+    local NIC_TO_REMOVE_TAP=""
+    local NIC_TO_REMOVE_MAC=""
+    local NIC_TO_REMOVE_BRIDGE=""
+
+    # Read the current NIC configuration to be removed
+    NIC_TO_REMOVE_TAP=$(grep "^${NIC_TO_REMOVE_TAP_VAR}=" "$CONF_FILE" | cut -d'=' -f2)
+    NIC_TO_REMOVE_MAC=$(grep "^${NIC_TO_REMOVE_MAC_VAR}=" "$CONF_FILE" | cut -d'=' -f2)
+    NIC_TO_REMOVE_BRIDGE=$(grep "^${NIC_TO_REMOVE_BRIDGE_VAR}=" "$CONF_FILE" | cut -d'=' -f2)
+
+    if [ -z "$NIC_TO_REMOVE_TAP" ]; then
+      display_and_log "ERROR" "Network interface with index $REMOVE_NIC_INDEX does not exist for VM '$VMNAME'."
+      exit 1
+    fi
+
+    display_and_log "INFO" "Found NIC to remove: TAP=$NIC_TO_REMOVE_TAP, MAC=$NIC_TO_REMOVE_MAC, BRIDGE=$NIC_TO_REMOVE_BRIDGE"
+
+    # --- Collect all existing NIC configurations ---
+    declare -a TAPS
+    declare -a MACS
+    declare -a BRIDGES
+    local current_nic_idx=0
+    while true; do
+      local tap_val=$(grep "^TAP_${current_nic_idx}=" "$CONF_FILE" | cut -d'=' -f2)
+      if [ -z "$tap_val" ]; then
+        break
+      fi
+      TAPS+=("$tap_val")
+      MACS+=($(grep "^MAC_${current_nic_idx}=" "$CONF_FILE" | cut -d'=' -f2))
+      BRIDGES+=($(grep "^BRIDGE_${current_nic_idx}=" "$CONF_FILE" | cut -d'=' -f2))
+      current_nic_idx=$((current_nic_idx + 1))
+    done
+
+    # --- Remove the specified NIC from arrays ---
+    if [ "$REMOVE_NIC_INDEX" -ge "${#TAPS[@]}" ]; then
+      display_and_log "ERROR" "NIC index $REMOVE_NIC_INDEX is out of bounds. Max index is $(( ${#TAPS[@]} - 1 ))."
+      exit 1
+    fi
+
+    unset 'TAPS[REMOVE_NIC_INDEX]'
+    unset 'MACS[REMOVE_NIC_INDEX]'
+    unset 'BRIDGES[REMOVE_NIC_INDEX]'
+
+    # Re-index arrays (important for bash arrays after unset)
+    TAPS=("${TAPS[@]}")
+    MACS=("${MACS[@]}")
+    BRIDGES=("${BRIDGES[@]}")
+
+    # --- Remove old NIC entries from vm.conf ---
+    # Use a temporary file to avoid issues with sed -i on some systems
+    local TEMP_CONF_FILE="${CONF_FILE}.tmp"
+    grep -v "^TAP_[0-9]=" "$CONF_FILE" | grep -v "^MAC_[0-9]=" | grep -v "^BRIDGE_[0-9]=" > "$TEMP_CONF_FILE"
+    mv "$TEMP_CONF_FILE" "$CONF_FILE"
+
+    # --- Write re-indexed NIC configurations back to vm.conf ---
+    for (( i=0; i<${#TAPS[@]}; i++ )); do
+      cat <<EOF >> "$CONF_FILE"
+TAP_${i}=${TAPS[i]}
+MAC_${i}=${MACS[i]}
+BRIDGE_${i}=${BRIDGES[i]}
+EOF
+    done
+
+    # --- Clean up the associated TAP interface ---
+    if ifconfig "$NIC_TO_REMOVE_TAP" > /dev/null 2>&1; then
+      display_and_log "INFO" "Destroying TAP interface '$NIC_TO_REMOVE_TAP'..."
+      if ! ifconfig "$NIC_TO_REMOVE_TAP" destroy; then
+        display_and_log "WARNING" "Failed to destroy TAP interface '$NIC_TO_REMOVE_TAP'. Manual cleanup may be required."
+      fi
+    else
+      display_and_log "INFO" "TAP interface '$NIC_TO_REMOVE_TAP' not found or already destroyed."
+    fi
+
+    MODIFIED=true
+    display_and_log "INFO" "Network interface NIC_${REMOVE_NIC_INDEX} successfully removed from VM '$VMNAME'."
   fi
 
   if [ "$MODIFIED" = true ]; then
