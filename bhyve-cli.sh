@@ -234,6 +234,12 @@ create_and_configure_tap_interface() {
   ifconfig "$TAP_NAME" create || { display_and_log "ERROR" "Failed to create TAP interface '$TAP_NAME'. Command: '$CREATE_TAP_CMD'"; return 1; }
   log "TAP interface '$TAP_NAME' successfully created."
 
+  log "Setting MAC address for TAP interface '$TAP_NAME' to '$MAC_ADDRESS'..."
+  local SET_MAC_CMD="ifconfig "$TAP_NAME" link "$MAC_ADDRESS""
+  log "Executing: $SET_MAC_CMD"
+  ifconfig "$TAP_NAME" link "$MAC_ADDRESS" || { display_and_log "ERROR" "Failed to set MAC address for TAP interface '$TAP_NAME'. Command: '$SET_MAC_CMD'"; return 1; }
+  log "MAC address for TAP '$TAP_NAME' set to: '$MAC_ADDRESS'."
+
   log "Setting TAP description for '$TAP_NAME'..."
   local TAP_DESC="vmnet/${VM_NAME}/${NIC_IDX}/${BRIDGE_NAME}"
   local DESC_TAP_CMD="ifconfig \"$TAP_NAME\" description \"$TAP_DESC\""
@@ -335,6 +341,12 @@ build_network_args() {
       log "Executing: $ACTIVATE_TAP_CMD"
       ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate existing TAP interface '$CURRENT_TAP'. Command: '$ACTIVATE_TAP_CMD'"; return 1; }
       log "TAP '$CURRENT_TAP' activated."
+
+      log "Setting MAC address for existing TAP interface '$CURRENT_TAP' to '$CURRENT_MAC'..."
+      local SET_MAC_CMD="ifconfig "$CURRENT_TAP" link "$CURRENT_MAC""
+      log "Executing: $SET_MAC_CMD"
+      ifconfig "$CURRENT_TAP" link "$CURRENT_MAC" || { display_and_log "ERROR" "Failed to set MAC address for existing TAP interface '$CURRENT_TAP'. Command: '$SET_MAC_CMD'"; return 1; }
+      log "MAC address for TAP '$CURRENT_TAP' set to: '$CURRENT_MAC'."
 
       # Ensure bridge exists and TAP is a member
       if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
