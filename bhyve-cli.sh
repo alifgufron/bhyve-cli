@@ -1910,6 +1910,16 @@ cmd_start() {
       $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
       exit 1
     fi
+
+    stop_spinner
+    echo_message "VM '$VMNAME' started successfully."
+    if [ "$CONNECT_TO_CONSOLE" = true ]; then
+      echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+      cu -l /dev/"${CONSOLE}B"
+      log "cu session ended."
+    else
+      echo_message "Please connect to the console using: $0 console $VMNAME"
+    fi
   else
     log "Preparing for non-bhyveload start..."
     local BHYVE_LOADER_CLI_ARG=""
@@ -3102,10 +3112,12 @@ cmd_import() {
 
 
   # === Extract VM name from archive path to avoid collisions ===
+  start_spinner "Importing VM from '$ARCHIVE_PATH'..."
   local EXTRACTED_DIR_NAME
   EXTRACTED_DIR_NAME=$(tar -tf "$ARCHIVE_PATH" | head -n 1 | cut -d'/' -f1)
   if [ -z "$EXTRACTED_DIR_NAME" ]; then
       display_and_log "ERROR" "Could not determine VM name from archive."
+      stop_spinner
       exit 1
   fi
 
@@ -3113,19 +3125,20 @@ cmd_import() {
 
   if [ -d "$NEW_VM_DIR" ]; then
     display_and_log "ERROR" "A VM named '$EXTRACTED_DIR_NAME' already exists. Please remove it or rename the directory in the archive."
+    stop_spinner
     exit 1
   fi
 
-  display_and_log "INFO" "Importing VM from '$ARCHIVE_PATH'..."
+  log "INFO" "Importing VM from '$ARCHIVE_PATH'..."
 
   # === Extract the archive ===
   if ! tar -xzf "$ARCHIVE_PATH" -C "$VM_CONFIG_BASE_DIR"; then
     display_and_log "ERROR" "Failed to extract VM archive."
     rm -rf "$NEW_VM_DIR" # Clean up partial extraction
+    stop_spinner
     exit 1
   fi
 
-  start_spinner "Importing vm..."
   local IMPORTED_VMNAME="$EXTRACTED_DIR_NAME"
   load_vm_config "$IMPORTED_VMNAME"
 
