@@ -376,7 +376,7 @@ run_bhyveload() {
   fi
   local exit_code=$?
   if [ $exit_code -ne 0 ]; then
-    display_and_log "ERROR" "bhyveload failed with exit code $exit_code. Cannot proceed."
+    echo_message "[ERROR] bhyveload failed with exit code $exit_code. Cannot proceed."
     $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
     return 1
   fi
