@@ -110,7 +110,8 @@ check_kld() {
 # === Helper function to check if a VM is running ===
 is_vm_running() {
   local VMNAME_CHECK="$1"
-  pgrep -f "bhyve.*$VMNAME_CHECK" > /dev/null
+  get_vm_pid "$VMNAME_CHECK" > /dev/null
+  return $?
 }
 
 # === Helper functions for VM PID file management ===
@@ -287,13 +288,16 @@ build_disk_args() {
     local CURRENT_DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
     if [ ! -f "$CURRENT_DISK_PATH" ]; then
       display_and_log "ERROR" "Disk image '$CURRENT_DISK_PATH' not found!"
+      echo "" # Return empty string for DISK_ARGS
+      echo "1" # Indicate error for next_dev_num (arbitrary non-zero to signal error)
       return 1
     fi
-    DISK_ARGS+=" -s ${DISK_DEV_NUM}:0,virtio-blk,\"$CURRENT_DISK_PATH\""
+    DISK_ARGS+=" -s ${DISK_DEV_NUM}:0,virtio-blk,"$CURRENT_DISK_PATH""
     DISK_DEV_NUM=$((DISK_DEV_NUM + 1))
     CURRENT_DISK_IDX=$((CURRENT_DISK_IDX + 1))
   done
   echo "$DISK_ARGS"
+  echo "$DISK_DEV_NUM" # Echo the next available device number
   return 0
 }
 
@@ -361,9 +365,15 @@ build_network_args() {
 
 run_bhyveload() {
   local DATA_PATH="$1"
+  local QUIET_LOAD="${2:-false}" # New optional parameter
 
-  display_and_log "INFO" "Loading kernel via bhyveload..."
-  $BHYVELOAD -m "$MEMORY" -d "$DATA_PATH" -c stdio "$VMNAME"
+  if [ "$QUIET_LOAD" = true ]; then
+    log "Loading kernel via bhyveload (quiet mode)..."
+    $BHYVELOAD -m "$MEMORY" -d "$DATA_PATH" -c stdio "$VMNAME" > /dev/null 2>&1
+  else
+    display_and_log "INFO" "Loading kernel via bhyveload..."
+    $BHYVELOAD -m "$MEMORY" -d "$DATA_PATH" -c stdio "$VMNAME"
+  fi
   local exit_code=$?
   if [ $exit_code -ne 0 ]; then
     display_and_log "ERROR" "bhyveload failed with exit code $exit_code. Cannot proceed."
@@ -617,9 +627,11 @@ cmd_install_usage() {
 
 # === Usage function for start ===
 cmd_start_usage() {
-  echo_message "Usage: $0 start <vmname>"
+  echo_message "Usage: $0 start <vmname> [--console]"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to start."
+  echo_message "\nOptions:"
+  echo_message "  --console   - Automatically connect to the VM's console after starting."
 }
 
 # === Usage function for stop ===
@@ -1658,7 +1670,10 @@ cmd_install() {
     exit 1
   fi
 
-  local DISK_ARGS=$(build_disk_args "$VM_DIR")
+  local DISK_ARGS_AND_NEXT_DEV
+  DISK_ARGS_AND_NEXT_DEV=$(build_disk_args "$VM_DIR")
+  local DISK_ARGS=$(echo "$DISK_ARGS_AND_NEXT_DEV" | head -n 1)
+  local NEXT_DISK_DEV_NUM=$(echo "$DISK_ARGS_AND_NEXT_DEV" | tail -n 1)
   if [ $? -ne 0 ]; then
     display_and_log "ERROR" "Failed to build disk arguments."
     exit 1
@@ -1785,21 +1800,52 @@ cmd_start() {
     exit 1
   fi
 
-  VMNAME="$1"
+  local VMNAME="$1"
+  local CONNECT_TO_CONSOLE=false
+  local QUIET_BOOTLOADER=false
+
+  # Parse arguments
+  local ARGS=()
+  for arg in "$@"; do
+    if [[ "$arg" == "--console" ]]; then
+      CONNECT_TO_CONSOLE=true
+    elif [[ "$arg" == "--quiet-bootloader" ]]; then # Hidden option for internal use (e.g., startall)
+      QUIET_BOOTLOADER=true
+    else
+      ARGS+=("$arg")
+    fi
+  done
+
+  # Ensure VMNAME is set from ARGS
+  if [ -z "$VMNAME" ] && [ ${#ARGS[@]} -gt 0 ]; then
+    VMNAME="${ARGS[0]}"
+  fi
+
+  if [ -z "$VMNAME" ]; then
+    cmd_start_usage
+    exit 1
+  fi
+
   load_vm_config "$VMNAME"
 
   # Check if VM is already running
   if is_vm_running "$VMNAME"; then
     display_and_log "INFO" "VM '$VMNAME' is already running."
     log "VM '$VMNAME' is already running. Exiting start command."
+    if [ "$CONNECT_TO_CONSOLE" = true ]; then
+      cmd_console "$VMNAME"
+    fi
     exit 0
   fi
 
-  display_and_log "INFO" "Loading VM configuration for '$VMNAME'..."
+  display_and_log "INFO" "Loading VM configuration for '$VMNAME'...";
   log "VM Name: $VMNAME"
   log "CPUs: $CPUS"
   log "Memory: $MEMORY"
-  local DISK_ARGS=$(build_disk_args "$VM_DIR")
+  local DISK_ARGS_AND_NEXT_DEV
+  DISK_ARGS_AND_NEXT_DEV=$(build_disk_args "$VM_DIR")
+  local DISK_ARGS=$(echo "$DISK_ARGS_AND_NEXT_DEV" | head -n 1)
+  local NEXT_DISK_DEV_NUM=$(echo "$DISK_ARGS_AND_NEXT_DEV" | tail -n 1)
   if [ $? -ne 0 ]; then
     display_and_log "ERROR" "Failed to build disk arguments."
     exit 1
@@ -1833,9 +1879,9 @@ cmd_start() {
       exit 1
     fi
 
-    run_bhyveload "$VM_DIR/$DISK" || exit 1
+    run_bhyveload "$VM_DIR/$DISK" "$QUIET_BOOTLOADER" || exit 1
 
-    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME""
+    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     log_to_global_file "INFO" "Starting bhyve VM with command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
@@ -1848,7 +1894,14 @@ cmd_start() {
     # Check if the bhyve process is still running
     if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
       log "Bhyve process $BHYVE_PID is running."
-      display_and_log "INFO" "VM '$VMNAME' started. Please connect to the console using: $0 console $VMNAME"
+      display_and_log "INFO" "VM '$VMNAME' started."
+      if [ "$CONNECT_TO_CONSOLE" = true ]; then
+        display_and_log "INFO" ">>> Entering VM '$VMNAME' console (exit with ~.)"
+        cu -l /dev/"${CONSOLE}B"
+        log "cu session ended."
+      else
+        display_and_log "INFO" "Please connect to the console using: $0 console $VMNAME"
+      fi
     else
       display_and_log "ERROR" "Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
       # Clean up the vm.pid file if the VM failed to start
@@ -1896,7 +1949,7 @@ cmd_start() {
     esac
 
     log "Starting VM '$VMNAME'..."
-    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME""
+    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     BHYVE_PID=$!
@@ -1908,7 +1961,14 @@ cmd_start() {
     # Check if the bhyve process is still running
     if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
       log "Bhyve process $BHYVE_PID is running."
-      display_and_log "INFO" "VM '$VMNAME' started. Please connect to the console using: $0 console $VMNAME"
+      display_and_log "INFO" "VM '$VMNAME' started."
+      if [ "$CONNECT_TO_CONSOLE" = true ]; then
+        display_and_log "INFO" ">>> Entering VM '$VMNAME' console (exit with ~.)"
+        cu -l /dev/"${CONSOLE}B"
+        log "cu session ended."
+      else
+        display_and_log "INFO" "Please connect to the console using: $0 console $VMNAME"
+      fi
     else
       display_and_log "ERROR" "Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
       delete_vm_pid "$VMNAME"
@@ -1929,7 +1989,7 @@ cmd_startall() {
     local VMNAME=$(basename "$(dirname "$VMCONF")")
     if ! is_vm_running "$VMNAME"; then
       display_and_log "INFO" "Starting VM '$VMNAME'..."
-      "$0" start "$VMNAME" > /dev/null 2>&1
+      "$0" start "$VMNAME" --quiet-bootloader > /dev/null 2>&1
     else
       display_and_log "INFO" "VM '$VMNAME' is already running. Skipping."
     fi
@@ -3397,6 +3457,10 @@ case "$1" in
   import)
     shift
     cmd_import "$@"
+    ;;
+  restart)
+    shift
+    cmd_restart "$@"
     ;;
   stopall)
     shift
