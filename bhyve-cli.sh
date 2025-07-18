@@ -107,6 +107,48 @@ check_kld() {
   fi
 }
 
+# === Helper function to check if a VM is running ===
+is_vm_running() {
+  local VMNAME_CHECK="$1"
+  pgrep -f "bhyve.*$VMNAME_CHECK" > /dev/null
+}
+
+# === Helper functions for VM PID file management ===
+get_vm_pid() {
+  local VMNAME_GET_PID="$1"
+  local VM_DIR_GET_PID="$VM_CONFIG_BASE_DIR/$VMNAME_GET_PID"
+  local PID=""
+  if [ -f "$VM_DIR_GET_PID/vm.pid" ]; then
+    PID=$(cat "$VM_DIR_GET_PID/vm.pid")
+    if [ -n "$PID" ] && ps -p "$PID" > /dev/null 2>&1; then
+      echo "$PID"
+      return 0
+    fi
+  fi
+  # Fallback to pgrep if vm.pid is not found or invalid
+  PID=$(pgrep -f "bhyve .* $VMNAME_GET_PID$")
+  if [ -n "$PID" ] && ps -p "$PID" > /dev/null 2>&1; then
+    echo "$PID"
+    return 0
+  fi
+  return 1 # PID not found
+}
+
+save_vm_pid() {
+  local VMNAME_SAVE_PID="$1"
+  local PID_TO_SAVE="$2"
+  local VM_DIR_SAVE_PID="$VM_CONFIG_BASE_DIR/$VMNAME_SAVE_PID"
+  echo "$PID_TO_SAVE" > "$VM_DIR_SAVE_PID/vm.pid"
+}
+
+delete_vm_pid() {
+  local VMNAME_DELETE_PID="$1"
+  local VM_DIR_DELETE_PID="$VM_CONFIG_BASE_DIR/$VMNAME_DELETE_PID"
+  if [ -f "$VM_DIR_DELETE_PID/vm.pid" ]; then
+    rm "$VM_DIR_DELETE_PID/vm.pid"
+  fi
+}
+
 # === Helper Functions ===
 ensure_nmdm_device_nodes() {
   local CONSOLE_DEVICE="$1"
@@ -1383,7 +1425,7 @@ cmd_delete() {
   load_vm_config "$VMNAME"
 
   # Check if VM is running
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if is_vm_running "$VMNAME"; then
     display_and_log "ERROR" "VM '$VMNAME' is still running."
     read -rp "Do you want to stop and delete the VM '$VMNAME'? [y/n]: " CONFIRM_STOP_DELETE
     if ! [[ "$CONFIRM_STOP_DELETE" =~ ^[Yy]$ ]]; then
@@ -1431,32 +1473,14 @@ cmd_delete() {
   fi
 
   # Remove vm.pid file if it exists
-  if [ -f "$VM_DIR/vm.pid" ]; then
-    display_and_log "INFO" "Removing vm.pid file..."
-    rm "$VM_DIR/vm.pid"
-    if [ $? -eq 0 ]; then
-      display_and_log "INFO" "vm.pid file removed successfully."
-    else
-      display_and_log "WARNING" "Failed to remove vm.pid file."
-    fi
-  else
-    display_and_log "INFO" "vm.pid file not found. Skipping removal."
-  fi
+  delete_vm_pid "$VMNAME"
+  display_and_log "INFO" "vm.pid file removal attempted."
 
   unset LOG_FILE # Unset LOG_FILE here, after all operations that might use it for the VM.
 
   # Remove vm.pid file if it exists
-  if [ -f "$VM_DIR/vm.pid" ]; then
-    display_and_log "INFO" "Removing vm.pid file..."
-    rm "$VM_DIR/vm.pid"
-    if [ $? -eq 0 ]; then
-      display_and_log "INFO" "vm.pid file removed successfully."
-    else
-      display_and_log "WARNING" "Failed to remove vm.pid file."
-    fi
-  else
-    display_and_log "INFO" "vm.pid file not found. Skipping removal."
-  fi
+  delete_vm_pid "$VMNAME"
+  display_and_log "INFO" "vm.pid file removal attempted."
 
   unset LOG_FILE # Unset LOG_FILE after vm.pid is handled and before VM directory is removed
 
@@ -1494,7 +1518,7 @@ cmd_restart() {
   display_and_log "INFO" "Restarting VM '$VMNAME'..."
 
   # Check if the VM is running
-  if ! pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if ! is_vm_running "$VMNAME"; then
     display_and_log "INFO" "VM '$VMNAME' is not running. Starting it..."
     cmd_start "$VMNAME"
     log "Exiting cmd_restart function for VM: $VMNAME"
@@ -1573,7 +1597,7 @@ cmd_install() {
   log "Starting VM '$VMNAME' installation..."
 
   # === Stop bhyve if still active ===
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if is_vm_running "$VMNAME"; then
     log "VM '$VMNAME' is still running. Stopped..."
     pkill -f "bhyve.*$VMNAME"
     sleep 1
@@ -1655,7 +1679,7 @@ cmd_install() {
     log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
-    echo "$VM_PID" > "$VM_DIR/vm.pid"
+    save_vm_pid "$VMNAME" "$VM_PID"
     log "Bhyve VM started in background with PID $VM_PID"
 
     sleep 2 # Give bhyve a moment to start
@@ -1723,7 +1747,7 @@ cmd_install() {
     log "Running bhyve installer in background..."    local BHYVE_CMD="$BHYVE -c "$CPUS" -m "$MEMORY" -AHP -s 0,hostbridge $DISK_ARGS -s 4:0,ahci-cd,"$ISO_PATH" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME""    log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
-    echo "$VM_PID" > "$VM_DIR/vm.pid"
+    save_vm_pid "$VMNAME" "$VM_PID"
     log "Bhyve VM started in background with PID $VM_PID"
 
     echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
@@ -1765,7 +1789,7 @@ cmd_start() {
   load_vm_config "$VMNAME"
 
   # Check if VM is already running
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if is_vm_running "$VMNAME"; then
     display_and_log "INFO" "VM '$VMNAME' is already running."
     log "VM '$VMNAME' is already running. Exiting start command."
     exit 0
@@ -1816,7 +1840,7 @@ cmd_start() {
     log_to_global_file "INFO" "Starting bhyve VM with command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     BHYVE_PID=$!
-    echo "$BHYVE_PID" > "$VM_DIR/vm.pid"
+    save_vm_pid "$VMNAME" "$BHYVE_PID"
 
     # Wait briefly for bhyve to start or fail
     sleep 1
@@ -1828,7 +1852,7 @@ cmd_start() {
     else
       display_and_log "ERROR" "Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
       # Clean up the vm.pid file if the VM failed to start
-      rm -f "$VM_DIR/vm.pid"
+      delete_vm_pid "$VMNAME"
       # Also destroy from kernel memory if it somehow registered and then failed
       $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
       exit 1 # Exit the script as VM failed to start
@@ -1876,7 +1900,7 @@ cmd_start() {
     log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     BHYVE_PID=$!
-    echo "$BHYVE_PID" > "$VM_DIR/vm.pid"
+    save_vm_pid "$VMNAME" "$BHYVE_PID"
 
     # Wait briefly for bhyve to start or fail
     sleep 1
@@ -1887,7 +1911,7 @@ cmd_start() {
       display_and_log "INFO" "VM '$VMNAME' started. Please connect to the console using: $0 console $VMNAME"
     else
       display_and_log "ERROR" "Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
-      rm -f "$VM_DIR/vm.pid"
+      delete_vm_pid "$VMNAME"
       $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
       exit 1
     fi
@@ -1903,7 +1927,7 @@ cmd_startall() {
   for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
     [ -f "$VMCONF" ] || continue
     local VMNAME=$(basename "$(dirname "$VMCONF")")
-    if ! pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    if ! is_vm_running "$VMNAME"; then
       display_and_log "INFO" "Starting VM '$VMNAME'..."
       "$0" start "$VMNAME" > /dev/null 2>&1
     else
@@ -1951,7 +1975,7 @@ cmd_stop() {
   display_and_log "INFO" "Initiating stop process for VM '$VMNAME'..."
 
   local VM_RUNNING=false
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if is_vm_running "$VMNAME"; then
     VM_RUNNING=true
     log "VM '$VMNAME' is detected as running."
     display_and_log "INFO" "VM '$VMNAME' is currently running."
@@ -2079,16 +2103,10 @@ cmd_stop() {
   cleanup_vm_network_interfaces "$VMNAME"
 
   # Remove vm.pid file
-  if [ -f "$VM_DIR/vm.pid" ]; then
-    rm "$VM_DIR/vm.pid"
-    if [ $? -eq 0 ]; then
-      display_and_log "INFO" "vm.pid file removed."
-    else
-      display_and_log "WARNING" "Failed to remove vm.pid file."
-    fi
-  else
-    display_and_log "INFO" "vm.pid file not found. Skipping removal."
-  fi
+  # Clean up the vm.pid file
+    # Clean up the vm.pid file
+    delete_vm_pid "$VMNAME"
+    log "vm.pid file removed."
   log "Exiting cmd_stop function for VM: $VMNAME"
 }
 
@@ -2106,7 +2124,7 @@ cmd_stopall() {
   for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
     [ -f "$VMCONF" ] || continue
     local VMNAME=$(basename "$(dirname "$VMCONF")")
-    if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    if is_vm_running "$VMNAME"; then
       display_and_log "INFO" "Stopping VM '$VMNAME'..."
       if [ "$FORCEFUL_SHUTDOWN" = true ]; then
         "$0" stop "$VMNAME" --force > /dev/null 2>&1
@@ -2206,25 +2224,7 @@ cmd_status() {
     local CPUS="${CPUS:-N/A}"
     local MEMORY="${MEMORY:-N/A}"
    
-    local PID="" # Initialize to empty string
-
-    # Try to get PID from vm.pid file first
-    if [ -f "$VM_DIR/vm.pid" ]; then
-      local STORED_PID
-      STORED_PID=$(cat "$VM_DIR/vm.pid")
-      if [ -n "$STORED_PID" ] && ps -p "$STORED_PID" > /dev/null 2>&1; then
-        PID="$STORED_PID"
-      fi
-    fi
-
-    # If PID is still empty, try to find it with grep
-    if [ -z "$PID" ]; then
-      local GREPPED_PID
-      GREPPED_PID=$(pgrep -f "bhyve .* $VMNAME")
-      if [ -n "$GREPPED_PID" ] && ps -p "$GREPPED_PID" > /dev/null 2>&1; then
-        PID="$GREPPED_PID"
-      fi
-    fi
+    local PID=$(get_vm_pid "$VMNAME")
 
     local BHYVECTL_GET_ALL
     BHYVECTL_GET_ALL=$($BHYVECTL --vm="$VMNAME" --get-all 2>/dev/null)
@@ -2346,7 +2346,7 @@ cmd_modify() {
   local REMOVE_DISK_INDEX=""
 
   # === Check if VM is running ===
-  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
+  if is_vm_running "$VMNAME"; then
     display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before modifying its configuration."
     exit 1
   fi
@@ -2852,23 +2852,7 @@ cmd_info() {
   local RES_MEM="N/A"
   local VM_EXITS="N/A"
 
-  # Try to get PID from vm.pid file first
-  if [ -f "$VM_DIR/vm.pid" ]; then
-    local STORED_PID
-    STORED_PID=$(cat "$VM_DIR/vm.pid")
-    if [ -n "$STORED_PID" ] && ps -p "$STORED_PID" > /dev/null 2>&1; then
-      PID="$STORED_PID"
-    fi
-  fi
-
-  # If PID is still empty, try to find it with grep
-  if [ -z "$PID" ] || [ "$PID" = "N/A" ]; then
-    local GREPPED_PIDS
-    GREPPED_PIDS=$(pgrep -f "bhyve .* $VMNAME")
-    if [ -n "$GREPPED_PIDS" ]; then
-      PID="$GREPPED_PIDS"
-    fi
-  fi
+  local PID=$(get_vm_pid "$VMNAME")
 
   if [ -n "$PID" ] && [ "$PID" != "N/A" ]; then
     local PID_COUNT
