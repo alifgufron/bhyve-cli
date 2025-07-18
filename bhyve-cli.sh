@@ -1690,7 +1690,7 @@ cmd_install() {
     run_bhyveload "$ISO_PATH" || exit 1
 
     display_and_log "INFO" "Starting VM with nmdm console for installation..."
-    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s 4:0,ahci-cd,\"$ISO_PATH\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
+    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s ${NEXT_DISK_DEV_NUM}:0,ahci-cd,\"$ISO_PATH\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     VM_PID=$!
@@ -1698,6 +1698,11 @@ cmd_install() {
     log "Bhyve VM started in background with PID $VM_PID"
 
     sleep 2 # Give bhyve a moment to start
+    if ! is_vm_running "$VMNAME"; then
+      log_to_global_file "ERROR" "bhyve process for $VMNAME exited prematurely. Check vm.log for details."
+      display_and_log "ERROR" "Failed to start VM for installation. Check logs."
+      exit 1
+    fi
     echo_message ""
     echo_message ">>> Entering VM '$VMNAME' installation console (exit with ~.)"
     echo_message ">>> IMPORTANT: After shutting down the VM from within, you MUST type '~.' (tilde then dot) to exit this console and allow the script to continue cleanup."
@@ -1897,26 +1902,13 @@ cmd_start() {
 
     # Wait briefly for bhyve to start or fail
     sleep 1
-
-    # Check if the bhyve process is still running
-    if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
+    if ! is_vm_running "$VMNAME"; then
       stop_spinner
-      display_and_log "INFO" "VM '$VMNAME' started successfully."
-      if [ "$CONNECT_TO_CONSOLE" = true ]; then
-        display_and_log "INFO" ">>> Entering VM '$VMNAME' console (exit with ~.)"
-        cu -l /dev/"${CONSOLE}B"
-        log "cu session ended."
-      else
-        display_and_log "INFO" "Please connect to the console using: $0 console $VMNAME"
-      fi
-    else
-      stop_spinner
+      log_to_global_file "ERROR" "bhyve process for $VMNAME exited prematurely. Check vm.log for details."
       display_and_log "ERROR" "Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
-      # Clean up the vm.pid file if the VM failed to start
       delete_vm_pid "$VMNAME"
-      # Also destroy from kernel memory if it somehow registered and then failed
       $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
-      exit 1 # Exit the script as VM failed to start
+      exit 1
     fi
   else
     log "Preparing for non-bhyveload start..."
