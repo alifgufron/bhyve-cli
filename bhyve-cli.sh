@@ -2041,37 +2041,37 @@ cmd_stop() {
 
   load_vm_config "$VMNAME"
 
-  log "Stopping VM '$VMNAME'..."
-  display_and_log "INFO" "Initiating stop process for VM '$VMNAME'..."
+  start_spinner "Stopping VM '$VMNAME'..."
+  log "Initiating stop process for VM '$VMNAME'..."
 
   local VM_RUNNING=false
   if is_vm_running "$VMNAME"; then
     VM_RUNNING=true
     log "VM '$VMNAME' is detected as running."
-    display_and_log "INFO" "VM '$VMNAME' is currently running."
   else
     log "VM '$VMNAME' is not detected as running by ps."
+    stop_spinner
     display_and_log "INFO" "VM '$VMNAME' is not detected as running."
+    log "VM '$VMNAME' was not running. No action taken."
+    exit 0
   fi
 
   local VM_STOPPED=false
   if [ "$FORCEFUL_SHUTDOWN" = false ] && [ "$VM_RUNNING" = true ]; then
-    log "Attempting graceful shutdown for VM '$VMNAME'..."
-    display_and_log "INFO" "Attempting graceful shutdown for VM '$VMNAME' using ACPI poweroff..."
+    log "Attempting graceful shutdown for VM '$VMNAME' using ACPI poweroff..."
     local BHYVECTL_POWEROFF_CMD="$BHYVECTL --vm=\"$VMNAME\" --force-poweroff"
     log "Executing: $BHYVECTL_POWEROFF_CMD"
     $BHYVECTL --vm="$VMNAME" --force-poweroff
     if [ $? -ne 0 ]; then
       log "WARNING: bhyvectl --poweroff failed for '$VMNAME'. Proceeding with forceful shutdown."
-      display_and_log "WARNING" "Graceful shutdown failed for '$VMNAME'. Proceeding with forceful shutdown."
     else
-      display_and_log "INFO" "ACPI poweroff signal sent. Waiting for VM to shut down..."
+      log "ACPI poweroff signal sent. Waiting for VM to shut down..."
       local TIMEOUT=30 # seconds
       local ELAPSED_TIME=0
 
       while [ "$ELAPSED_TIME" -lt "$TIMEOUT" ]; do
         if ! is_vm_running "$VMNAME"; then
-          display_and_log "INFO" "VM '$VMNAME' has gracefully shut down."
+          log "VM '$VMNAME' has gracefully shut down."
           VM_STOPPED=true
           break
         fi
@@ -2080,7 +2080,7 @@ cmd_stop() {
       done
 
       if [ "$VM_STOPPED" = false ]; then
-        display_and_log "WARNING" "VM '$VMNAME' did not shut down gracefully within $TIMEOUT seconds. Forcing termination."
+        log "VM '$VMNAME' did not shut down gracefully within $TIMEOUT seconds. Forcing termination."
       fi
     fi
   fi
@@ -2088,17 +2088,14 @@ cmd_stop() {
   # Forceful termination (if not gracefully stopped or if --force is used)
   if [ "$VM_RUNNING" = true ] && [ "$VM_STOPPED" = false ]; then
     log "Initiating forceful termination for VM '$VMNAME'..."
-    display_and_log "INFO" "Initiating forceful termination for VM '$VMNAME'..."
     # === Find the PID of the bhyve process, anchor to end of line for specificity ===
     local VM_PID=""
     if [ -f "$VM_DIR/vm.pid" ]; then
       VM_PID=$(cat "$VM_DIR/vm.pid")
       log "Found VM PID from vm.pid file: $VM_PID"
-      display_and_log "INFO" "Found VM PID from vm.pid file: $VM_PID"
     else
       VM_PID=$(get_vm_pid "$VMNAME")
       log "Found VM PID by ps grep: $VM_PID"
-      display_and_log "INFO" "Found VM PID by process search: $VM_PID"
     fi
 
     if [ -n "$VM_PID" ]; then
@@ -2106,7 +2103,6 @@ cmd_stop() {
       local PIDS_TO_KILL_STR
   PIDS_TO_KILL_STR="$(echo "$VM_PID" | tr '\n' ' ')"
       log "Sending TERM signal to PID(s): $PIDS_TO_KILL_STR"
-      display_and_log "INFO" "Sending TERM signal to PID(s): $PIDS_TO_KILL_STR"
       kill "$VM_PID"
       sleep 1 # Wait a moment for the processes to terminate
 
@@ -2114,46 +2110,36 @@ cmd_stop() {
       for pid in $VM_PID; do
         if ps -p "$pid" > /dev/null 2>&1; then
           log "PID $pid still running, forcing KILL..."
-          display_and_log "WARNING" "PID $pid still running, forcing KILL..."
           kill -9 "$pid"
           sleep 1
         fi
       done
       log "bhyve process stopped."
-      display_and_log "INFO" "bhyve process(es) stopped."
     else
       log "No running bhyve process found for '$VMNAME' to kill."
-      display_and_log "INFO" "No running bhyve process found for '$VMNAME'."
     fi
   fi
 
   # === Stop associated console (cu) processes ===
   log "Attempting to stop associated cu process for /dev/${CONSOLE}B..."
-  display_and_log "INFO" "Attempting to stop associated console (cu) process..."
   pkill -f "cu -l /dev/${CONSOLE}B"
   if pgrep -f "cu -l /dev/${CONSOLE}B" > /dev/null; then
     log "cu process for /dev/${CONSOLE}B stopped."
-    display_and_log "INFO" "Console (cu) process stopped."
   else
     log "No cu process found or failed to stop for /dev/${CONSOLE}B."
-    display_and_log "INFO" "No console (cu) process found or failed to stop."
   fi
 
   # Only kill tail -f process if it's not the global log file and is not empty
   if [ -n "$LOG_FILE" ] && [ "$LOG_FILE" != "$GLOBAL_LOG_FILE" ]; then
     log "Attempting to stop associated tail -f process for $LOG_FILE..."
-    display_and_log "INFO" "Attempting to stop associated log tail process..."
     pkill -f "tail -f $LOG_FILE"
     if pgrep -f "tail -f $LOG_FILE" > /dev/null; then
       log "tail -f process for $LOG_FILE stopped."
-      display_and_log "INFO" "Log tail process stopped."
     else
       log "No tail -f process found or failed to stop for $LOG_FILE."
-      display_and_log "INFO" "No log tail process found or failed to stop."
     fi
   else
     log "Skipping termination of tail -f for global log file or empty log path: $LOG_FILE."
-    display_and_log "INFO" "Skipping termination of tail -f for global log file."
   fi
 
   # === Always attempt to destroy the VM from the kernel ===
@@ -2162,14 +2148,11 @@ cmd_stop() {
   log "Executing: $BHYVECTL_DESTROY_CMD"
   if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
     log "VM '$VMNAME' successfully destroyed from kernel memory."
-    display_and_log "INFO" "VM '$VMNAME' successfully stopped and removed from kernel memory."
   else
     log "VM '$VMNAME' was not found in kernel memory (already destroyed or never started)."
-    display_and_log "INFO" "VM '$VMNAME' was not found in kernel memory (already stopped or never started)."
   fi
 
   # Clean up network interfaces after stopping
-  display_and_log "INFO" "Cleaning up VM network interfaces..."
   cleanup_vm_network_interfaces "$VMNAME"
 
   # Remove vm.pid file
@@ -2177,6 +2160,9 @@ cmd_stop() {
     # Clean up the vm.pid file
     delete_vm_pid "$VMNAME"
     log "vm.pid file removed."
+
+  stop_spinner
+  display_and_log "INFO" "VM '$VMNAME' stopped successfully."
   log "Exiting cmd_stop function for VM: $VMNAME"
 }
 
