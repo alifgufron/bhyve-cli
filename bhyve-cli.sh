@@ -228,41 +228,41 @@ create_and_configure_tap_interface() {
   local VM_NAME="$4"
   local NIC_IDX="$5"
 
-  display_and_log "INFO" "Attempting to create TAP interface '$TAP_NAME'..."
+  log "Attempting to create TAP interface '$TAP_NAME'..."
   local CREATE_TAP_CMD="ifconfig \"$TAP_NAME\" create"
   log "Executing: $CREATE_TAP_CMD"
   ifconfig "$TAP_NAME" create || { display_and_log "ERROR" "Failed to create TAP interface '$TAP_NAME'. Command: '$CREATE_TAP_CMD'"; return 1; }
-  display_and_log "INFO" "TAP interface '$TAP_NAME' successfully created."
+  log "TAP interface '$TAP_NAME' successfully created."
 
-  display_and_log "INFO" "Setting TAP description for '$TAP_NAME'..."
+  log "Setting TAP description for '$TAP_NAME'..."
   local TAP_DESC="vmnet/${VM_NAME}/${NIC_IDX}/${BRIDGE_NAME}"
   local DESC_TAP_CMD="ifconfig \"$TAP_NAME\" description \"$TAP_DESC\""
   log "Executing: $DESC_TAP_CMD"
   ifconfig "$TAP_NAME" description "$TAP_DESC" || { display_and_log "WARNING" "Failed to set description for TAP interface '$TAP_NAME'. Command: '$DESC_TAP_CMD'"; }
-  display_and_log "INFO" "TAP description for '$TAP_NAME' set to: '$TAP_DESC'."
+  log "TAP description for '$TAP_NAME' set to: '$TAP_DESC'."
 
-  display_and_log "INFO" "Activating TAP interface '$TAP_NAME'..."
+  log "Activating TAP interface '$TAP_NAME'..."
   local ACTIVATE_TAP_CMD="ifconfig \"$TAP_NAME\" up"
   log "Executing: $ACTIVATE_TAP_CMD"
   ifconfig "$TAP_NAME" up || { display_and_log "ERROR" "Failed to activate TAP interface '$TAP_NAME'. Command: '$ACTIVATE_TAP_CMD'"; return 1; }
-  display_and_log "INFO" "TAP '$TAP_NAME' activated successfully."
+  log "TAP '$TAP_NAME' activated successfully."
 
   # === Check and create bridge interface if it doesn't exist ===
   if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
-    display_and_log "INFO" "Bridge interface '$BRIDGE_NAME' does not exist. Attempting to create..."
+    log "Bridge interface '$BRIDGE_NAME' does not exist. Attempting to create..."
     local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$BRIDGE_NAME\""
     log "Executing: $CREATE_BRIDGE_CMD"
     ifconfig bridge create name "$BRIDGE_NAME" || { display_and_log "ERROR" "Failed to create bridge '$BRIDGE_NAME'. Command: '$CREATE_BRIDGE_CMD'"; return 1; }
-    display_and_log "INFO" "Bridge interface '$BRIDGE_NAME' successfully created."
+    log "Bridge interface '$BRIDGE_NAME' successfully created."
   else
-    display_and_log "INFO" "Bridge interface '$BRIDGE_NAME' already exists. Skipping creation."
+    log "Bridge interface '$BRIDGE_NAME' already exists. Skipping creation."
   fi
 
-  display_and_log "INFO" "Adding TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'..."
+  log "Adding TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'..."
   local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$BRIDGE_NAME\" addm \"$TAP_NAME\""
   log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
   ifconfig "$BRIDGE_NAME" addm "$TAP_NAME" || { display_and_log "ERROR" "Failed to add TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
-  display_and_log "INFO" "TAP '$TAP_NAME' successfully added to bridge '$BRIDGE_NAME'."
+  log "TAP '$TAP_NAME' successfully added to bridge '$BRIDGE_NAME'."
 
   return 0
 }
@@ -322,7 +322,7 @@ build_network_args() {
       break # No more network interfaces configured
     fi
 
-    display_and_log "INFO" "Checking network interface NIC_${NIC_IDX} (TAP: $CURRENT_TAP, MAC: $CURRENT_MAC, Bridge: $CURRENT_BRIDGE)"
+    log "Checking network interface NIC_${NIC_IDX} (TAP: $CURRENT_TAP, MAC: $CURRENT_MAC, Bridge: $CURRENT_BRIDGE)"
 
     # === Create and configure TAP interface if it doesn't exist or activate if it does ===
     if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
@@ -330,28 +330,28 @@ build_network_args() {
         return 1
       fi
     else
-      display_and_log "INFO" "TAP '$CURRENT_TAP' already exists. Attempting to activate and ensure bridge connection..."
+      log "TAP '$CURRENT_TAP' already exists. Attempting to activate and ensure bridge connection..."
       local ACTIVATE_TAP_CMD="ifconfig "$CURRENT_TAP" up"
       log "Executing: $ACTIVATE_TAP_CMD"
       ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate existing TAP interface '$CURRENT_TAP'. Command: '$ACTIVATE_TAP_CMD'"; return 1; }
-      display_and_log "INFO" "TAP '$CURRENT_TAP' activated."
+      log "TAP '$CURRENT_TAP' activated."
 
       # Ensure bridge exists and TAP is a member
       if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
-        display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' does not exist. Attempting to create..."
+        log "Bridge interface '$CURRENT_BRIDGE' does not exist. Attempting to create..."
         local CREATE_BRIDGE_CMD="ifconfig bridge create name "$CURRENT_BRIDGE""
         log "Executing: $CREATE_BRIDGE_CMD"
         ifconfig bridge create name "$CURRENT_BRIDGE" || { display_and_log "ERROR" "Failed to create bridge '$CURRENT_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; return 1; }
-        display_and_log "INFO" "Bridge interface '$CURRENT_BRIDGE' successfully created."
+        log "Bridge interface '$CURRENT_BRIDGE' successfully created."
       fi
 
       if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
-        display_and_log "INFO" "Adding TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'...";
+        log "Adding TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'...";
         local ADD_TAP_TO_BRIDGE_CMD="ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP""
         log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
         ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP" || { display_and_log "ERROR" "Failed to add TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
       else
-        display_and_log "INFO" "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'."
+        log "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'."
       fi
     fi
 
@@ -631,7 +631,7 @@ cmd_start_usage() {
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to start."
   echo_message "\nOptions:"
-  echo_message "  --console   - Automatically connect to the VM's console after starting."
+  echo_message "  --console   - Automatically connect to the VM's console after starting. Bootloader output will be shown."
 }
 
 # === Usage function for stop ===
@@ -1606,7 +1606,7 @@ cmd_install() {
   ensure_nmdm_device_nodes "$CONSOLE"
   sleep 1 # Give nmdm devices a moment to be ready
 
-  log "Starting VM '$VMNAME' installation..."
+      log "INFO" "Starting VM '$VMNAME'..."
 
   # === Stop bhyve if still active ===
   if is_vm_running "$VMNAME"; then
@@ -1802,15 +1802,14 @@ cmd_start() {
 
   local VMNAME="$1"
   local CONNECT_TO_CONSOLE=false
-  local QUIET_BOOTLOADER=false
+  local QUIET_BOOTLOADER=true # Default to quiet bootloader (no console)
 
   # Parse arguments
   local ARGS=()
   for arg in "$@"; do
     if [[ "$arg" == "--console" ]]; then
       CONNECT_TO_CONSOLE=true
-    elif [[ "$arg" == "--quiet-bootloader" ]]; then # Hidden option for internal use (e.g., startall)
-      QUIET_BOOTLOADER=true
+      QUIET_BOOTLOADER=false # Show bootloader output if console is requested
     else
       ARGS+=("$arg")
     fi
@@ -1831,14 +1830,15 @@ cmd_start() {
   # Check if VM is already running
   if is_vm_running "$VMNAME"; then
     display_and_log "INFO" "VM '$VMNAME' is already running."
-    log "VM '$VMNAME' is already running. Exiting start command."
     if [ "$CONNECT_TO_CONSOLE" = true ]; then
+      display_and_log "INFO" "Connecting to console..."
       cmd_console "$VMNAME"
     fi
     exit 0
   fi
 
-  display_and_log "INFO" "Loading VM configuration for '$VMNAME'...";
+  start_spinner "Starting VM '$VMNAME'..."
+  log "Loading VM configuration for '$VMNAME'...";
   log "VM Name: $VMNAME"
   log "CPUs: $CPUS"
   log "Memory: $MEMORY"
@@ -1847,39 +1847,46 @@ cmd_start() {
   local DISK_ARGS=$(echo "$DISK_ARGS_AND_NEXT_DEV" | head -n 1)
   local NEXT_DISK_DEV_NUM=$(echo "$DISK_ARGS_AND_NEXT_DEV" | tail -n 1)
   if [ $? -ne 0 ]; then
-    display_and_log "ERROR" "Failed to build disk arguments."
+    stop_spinner
+    display_and_log "ERROR" "Failed to build disk arguments. Check VM logs for details."
     exit 1
   fi
 
   local NETWORK_ARGS=$(build_network_args "$VMNAME" "$VM_DIR")
   if [ $? -ne 0 ]; then
-    display_and_log "ERROR" "Failed to build network arguments."
+    stop_spinner
+    display_and_log "ERROR" "Failed to build network arguments. Check VM logs for details."
     exit 1
   fi
 
 
   # === Start Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
-    # --- BHYVELOAD START ---
-    display_and_log "INFO" "Preparing for bhyveload start..."
+    log "Preparing for bhyveload start..."
     ensure_nmdm_device_nodes "$CONSOLE"
     sleep 1 # Give nmdm devices a moment to be ready
     
-    display_and_log "INFO" "Verifying nmdm device nodes:"
+    log "Verifying nmdm device nodes:"
     if [ -e "/dev/${CONSOLE}A" ]; then
-      display_and_log "INFO" "/dev/${CONSOLE}A exists with permissions: $(stat -f "%Sp" /dev/${CONSOLE}A)"
+      log "/dev/${CONSOLE}A exists with permissions: $(stat -f "%Sp" /dev/${CONSOLE}A)"
     else
+      stop_spinner
       display_and_log "ERROR" "/dev/${CONSOLE}A does NOT exist! Please ensure the VM has been run at least once, or the device has been created."
       exit 1
     fi
     if [ -e "/dev/${CONSOLE}B" ]; then
-      display_and_log "INFO" "/dev/${CONSOLE}B exists with permissions: $(stat -f "%Sp" /dev/${CONSOLE}B)"
+      log "/dev/${CONSOLE}B exists with permissions: $(stat -f "%Sp" /dev/${CONSOLE}B)"
     else
+      stop_spinner
       display_and_log "ERROR" "/dev/${CONSOLE}B does NOT exist! Please ensure the VM has been run at least once, or the device has been created."
       exit 1
     fi
 
-    run_bhyveload "$VM_DIR/$DISK" "$QUIET_BOOTLOADER" || exit 1
+    run_bhyveload "$VM_DIR/$DISK" "$QUIET_BOOTLOADER" || {
+      stop_spinner
+      display_and_log "ERROR" "bhyveload failed. Check VM logs for details."
+      exit 1
+    }
 
     local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
@@ -1893,8 +1900,8 @@ cmd_start() {
 
     # Check if the bhyve process is still running
     if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
-      log "Bhyve process $BHYVE_PID is running."
-      display_and_log "INFO" "VM '$VMNAME' started."
+      stop_spinner
+      display_and_log "INFO" "VM '$VMNAME' started successfully."
       if [ "$CONNECT_TO_CONSOLE" = true ]; then
         display_and_log "INFO" ">>> Entering VM '$VMNAME' console (exit with ~.)"
         cu -l /dev/"${CONSOLE}B"
@@ -1903,6 +1910,7 @@ cmd_start() {
         display_and_log "INFO" "Please connect to the console using: $0 console $VMNAME"
       fi
     else
+      stop_spinner
       display_and_log "ERROR" "Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
       # Clean up the vm.pid file if the VM failed to start
       delete_vm_pid "$VMNAME"
@@ -1911,8 +1919,7 @@ cmd_start() {
       exit 1 # Exit the script as VM failed to start
     fi
   else
-    # --- uefi/GRUB START ---
-    display_and_log "INFO" "Preparing for non-bhyveload start..."
+    log "Preparing for non-bhyveload start..."
     local BHYVE_LOADER_CLI_ARG=""
     case "$BOOTLOADER_TYPE" in
       uefi|bootrom)
@@ -1928,8 +1935,8 @@ cmd_start() {
         fi
 
         if [ "$UEFI_FIRMWARE_FOUND" = false ]; then
-          display_and_log "ERROR" "UEFI firmware not found."
-          echo_message "Please ensure 'edk2-bhyve' is installed (pkg install edk2-bhyve) or copy a compatible UEFI firmware file to $UEFI_FIRMWARE_PATH."
+          stop_spinner
+          echo_message "ERROR: UEFI firmware not found. Please ensure 'edk2-bhyve' is installed (pkg install edk2-bhyve) or copy a compatible UEFI firmware file to $UEFI_FIRMWARE_PATH. Check VM logs for details."
           exit 1
         fi
         ;;
@@ -1938,12 +1945,14 @@ cmd_start() {
           BHYVE_LOADER_CLI_ARG="-l grub,${VM_DIR}/grub.conf"
           log "Using grub2-bhyve with config: ${VM_DIR}/grub.conf"
         else
-          display_and_log "ERROR" "grub.conf not found in $VM_DIR."
+          stop_spinner
+          echo_message "ERROR: grub.conf not found in $VM_DIR. Check VM logs for details."
           exit 1
         fi
         ;;
       *)
-        display_and_log "ERROR" "Unsupported bootloader type: $BOOTLOADER_TYPE"
+        stop_spinner
+        echo_message "ERROR: Unsupported bootloader type: $BOOTLOADER_TYPE. Check VM logs for details."
         exit 1
         ;;
     esac
@@ -1960,17 +1969,18 @@ cmd_start() {
 
     # Check if the bhyve process is still running
     if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
-      log "Bhyve process $BHYVE_PID is running."
-      display_and_log "INFO" "VM '$VMNAME' started."
+      stop_spinner
+      echo_message "VM '$VMNAME' started successfully."
       if [ "$CONNECT_TO_CONSOLE" = true ]; then
-        display_and_log "INFO" ">>> Entering VM '$VMNAME' console (exit with ~.)"
+        echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
         cu -l /dev/"${CONSOLE}B"
         log "cu session ended."
       else
-        display_and_log "INFO" "Please connect to the console using: $0 console $VMNAME"
+        echo_message "Please connect to the console using: $0 console $VMNAME"
       fi
     else
-      display_and_log "ERROR" "Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
+      stop_spinner
+      echo_message "ERROR: Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
       delete_vm_pid "$VMNAME"
       $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
       exit 1
@@ -1989,12 +1999,12 @@ cmd_startall() {
     local VMNAME=$(basename "$(dirname "$VMCONF")")
     if ! is_vm_running "$VMNAME"; then
       display_and_log "INFO" "Starting VM '$VMNAME'..."
-      "$0" start "$VMNAME" --quiet-bootloader > /dev/null 2>&1
+      "$0" start "$VMNAME" > /dev/null 2>&1
     else
       display_and_log "INFO" "VM '$VMNAME' is already running. Skipping."
     fi
   done
-  display_and_log "INFO" "Attempt to start all VMs complete."
+  log "Attempt to start all VMs complete."
   log "Exiting cmd_startall function."
 }
 
