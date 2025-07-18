@@ -423,7 +423,7 @@ cleanup_vm_network_interfaces() {
 
   # Explicitly kill bhyve process associated with this VMNAME
   local VM_PIDS_TO_KILL
-  VM_PIDS_TO_KILL=$(pgrep -f "bhyve .* $VM_NAME_CLEANUP$")
+  VM_PIDS_TO_KILL=$(get_vm_pid "$VM_NAME_CLEANUP")
   if [ -n "$VM_PIDS_TO_KILL" ]; then
       local PIDS_STRING
   PIDS_STRING=$(echo "$VM_PIDS_TO_KILL" | tr '\n' ' ')
@@ -2000,7 +2000,7 @@ cmd_stop() {
       local ELAPSED_TIME=0
 
       while [ "$ELAPSED_TIME" -lt "$TIMEOUT" ]; do
-        if ! pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+        if ! is_vm_running "$VMNAME"; then
           display_and_log "INFO" "VM '$VMNAME' has gracefully shut down."
           VM_STOPPED=true
           break
@@ -2026,7 +2026,7 @@ cmd_stop() {
       log "Found VM PID from vm.pid file: $VM_PID"
       display_and_log "INFO" "Found VM PID from vm.pid file: $VM_PID"
     else
-      VM_PID=$(pgrep -f "bhyve .* $VMNAME")
+      VM_PID=$(get_vm_pid "$VMNAME")
       log "Found VM PID by ps grep: $VM_PID"
       display_and_log "INFO" "Found VM PID by process search: $VM_PID"
     fi
@@ -2968,7 +2968,7 @@ cmd_resize_disk() {
   local DISK_PATH="$VM_DIR/$DISK"
 
   # === Check if VM is running ===
-  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+  if is_vm_running "$VMNAME"; then
     display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before resizing its disk."
     exit 1
   fi
@@ -3405,6 +3405,10 @@ case "$1" in
   startall)
     shift
     cmd_startall "$@"
+    ;;
+  iso)
+    shift
+    cmd_iso "$@"
     ;;
   *)
     main_usage
