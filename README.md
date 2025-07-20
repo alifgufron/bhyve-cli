@@ -10,13 +10,37 @@
 -   **Autostart:** Configure VMs to start automatically on boot.
 -   **ISO Management:** List and download ISO images.
 
+## Compatibility
+
+This script is designed to be compatible with **FreeBSD versions 11.x, 12.x, 13.x, and 14.x**.
+
+While the core functionality is expected to work across these versions, please be aware that the behavior of `bhyve` and its associated tools can vary slightly between major releases. This script aims to use common, stable flags, but if you encounter an issue, please check the official `bhyve(8)` man page for your specific FreeBSD version.
+
 ## Prerequisites
 
--   **FreeBSD:** Operating system.
--   **Bash:** Script execution.
--   **bhyve:** Hypervisor and utilities (`bhyvectl`, `bhyveload`).
--   **Kernel Modules:** `vmm` and `nmdm` loaded.
--   **Utilities:** `uuidgen`, `fetch`, `cu`, `bc`.
+Before using `bhyve-cli.sh`, ensure the following requirements are met:
+
+**Required Packages:**
+-   `bash`: For running the script.
+-   `uuidgen`: For generating unique VM identifiers.
+-   `fetch`: For downloading ISOs.
+-   `cu`: For accessing the VM console.
+-   `bc`: For basic calculations (e.g., ISO size).
+
+**Optional but Recommended Packages:**
+-   `edk2-bhyve`: Required for creating and running UEFI-based virtual machines (e.g., Windows, modern Linux distributions).
+
+**System Configuration:**
+-   The `vmm` and `nmdm` kernel modules must be loaded. You can load them by running:
+    ```bash
+    kldload vmm
+    kldload nmdm
+    ```
+    To load them automatically on boot, add them to `/boot/loader.conf`:
+    ```
+    vmm_load="YES"
+    nmdm_load="YES"
+    ```
 
 ## Installation and Setup
 
