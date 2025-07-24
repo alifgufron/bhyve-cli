@@ -23,10 +23,17 @@ main_usage() {
   echo_message "  resize-disk   - Resize a VM's disk image."
   echo_message "  export        - Export a VM to an archive file."
   echo_message "  import        - Import a VM from an archive file."
+  echo_message "  template      - Manage VM templates (create, list, delete)."
+  echo_message "  snapshot      - Manage VM snapshots (create, list, revert, delete)."
+  echo_message "  suspend       - Suspend a running virtual machine."
+  echo_message "  resume        - Resume a suspended virtual machine."
+  echo_message "  vnc           - Connect to a VM's VNC console."
   echo_message "  iso           - Manage ISO images (list and download)."
   echo_message "  switch        - Manage network bridges and physical interfaces."
   echo_message "  stopall       - Stop all running virtual machines."
   echo_message "  startall      - Start all configured virtual machines."
+  echo_message "  verify        - Verify the consistency and integrity of VM configurations."
+  echo_message "  vmnet         - Manage isolated virtual networks for VMs."
   echo_message " "
   echo_message "For detailed usage of each command, use: $0 <command> --help"
 }
@@ -36,7 +43,7 @@ main_usage() {
 cmd_init_usage() {
   echo_message "Usage: $0 init"
   echo_message "\nDescription:"
-  echo_message "  Initializes the bhyve-cli configuration directory and files."
+  echo_message "  Initializes the bhyve-cli configuration."
 }
 
 # === Usage function for switch init ===
@@ -86,15 +93,18 @@ cmd_switch_usage() {
 
 # === Usage function for create ===
 cmd_create_usage() {
-  echo_message "Usage: $0 create --name <vmname> --disk-size <disksize in GB> --switch <bridge_name> [--bootloader <type>]"
+  echo_message "Usage: $0 create --name <vmname> --disk-size <disksize in GB> --switch <bridge_name> [--bootloader <type>] [--vnc-port <port>] [--vnc-wait] [--nic-type <type>]"
   echo_message "\nOptions:"
   echo_message "  --name <vmname>              - Name of the virtual machine."
   echo_message "  --disk-size <size in GB>     - Size of the virtual disk in GB."
   echo_message "  --switch <bridge_name>       - Name of the network bridge to connect the VM to."
   echo_message "  --bootloader <type>          - Optional. Type of bootloader (bhyveload, uefi). Default: bhyveload."
+  echo_message "  --vnc-port <port>            - Optional. Enable VNC console on specified port (e.g., 5900)."
+  echo_message "  --vnc-wait                   - Optional. Wait for VNC client connection before booting VM."
+  echo_message "  --nic-type <type>            - Optional. Type of virtual NIC (virtio-net, e1000, re0). Default: virtio-net."
   echo_message "\nExample:"
   echo_message "  $0 create --name vm-bsd --disk-size 40 --switch bridge100"
-  echo_message "  $0 create --name vm-uefi --disk-size 60 --switch bridge101 --bootloader uefi"
+  echo_message "  $0 create --name vm-uefi --disk-size 60 --switch bridge101 --bootloader uefi --vnc-port 5900 --vnc-wait --nic-type e1000"
 }
 
 # === Usage function for delete ===
@@ -186,12 +196,16 @@ cmd_modify_usage() {
   echo_message "  --add-nic <bridge_name>      - Automatically add a NEW network interface to the VM, connected to the specified bridge."
   echo_message "  --remove-nic <index>         - Remove a network interface by its index (e.g., 0 for TAP_0)."
   echo_message "  --add-disk <size_in_GB>      - Add a new virtual disk to the VM with the specified size in GB."
-  echo_message "  --remove-disk <index>        - Remove a virtual disk by its index (e.g., 0 for the primary disk, 1 for DISK_1)."
+  echo_message "  --add-disk-path <path>       - Add an existing disk image file to the VM."
+  echo_message "  --add-disk-type <type>       - Specify disk type for --add-disk or --add-disk-path (virtio-blk, ahci-hd). Default: virtio-blk."
+  echo_message "  --remove-disk <index>        - Remove a virtual disk by its index (e.g., 0 for the primary disk, 1 for DISK_1).\n  --nic-type <type>            - Specify NIC type for --add-nic (virtio-net, e1000, re0). Default: virtio-net.\n\nExamples:"
   echo_message "\nExamples:"
   echo_message "  $0 modify myvm --cpu 4 --ram 4096M"
   echo_message "  $0 modify myvm --nic 0 --tap tap1 --bridge bridge1 # Modify existing NIC 0"
   echo_message "  $0 modify myvm --add-nic bridge2                 # Add a new NIC connected to bridge2"
   echo_message "  $0 modify myvm --add-disk 20"
+  echo_message "  $0 modify myvm --add-disk-path /path/to/my/data.img --add-disk-type ahci-hd"
+  echo_message "  $0 modify myvm --remove-disk 1"
 }
 
 # === Usage function for clone ===
@@ -251,11 +265,75 @@ cmd_startall_usage() {
 
 # === Usage function for ISO ===
 cmd_iso_usage() {
-  echo_message "Usage: $0 iso [list | <URL>]"
+  echo_message "Usage: $0 iso [list | <URL> | delete <iso_filename>]"
   echo_message "\nSubcommands:"
   echo_message "  list         - List all ISO images in $ISO_DIR."
   echo_message "  <URL>        - Download an ISO image from the specified URL to $ISO_DIR."
+  echo_message "  delete <iso_filename> - Delete a specified ISO image from $ISO_DIR."
   echo_message "\nExample:"
   echo_message "  $0 iso list"
   echo_message "  $0 iso https://example.com/freebsd.iso"
+  echo_message "  $0 iso delete my_iso.iso"
+}
+
+# === Usage function for VNC ===
+cmd_vnc_usage() {
+  echo_message "Usage: $0 vnc <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to connect to via VNC."
+  echo_message "\nDescription:"
+  echo_message "  Connects to the VNC console of a running VM. Requires a VNC client installed on the host."
+}
+
+# === Usage function for snapshot ===
+cmd_snapshot_usage() {
+  echo_message "Usage: $0 snapshot <subcommand> [options/arguments]"
+  echo_message "\nSubcommands:"
+  echo_message "  create <vmname> <snapshot_name> - Creates a new snapshot of the VM."
+  echo_message "  list <vmname>                   - Lists all snapshots for the specified VM."
+  echo_message "  revert <vmname> <snapshot_name> - Reverts the VM to a specified snapshot. VM must be stopped."
+  echo_message "  delete <vmname> <snapshot_name> - Deletes a specified snapshot."
+  echo_message "\nExamples:"
+  echo_message "  $0 snapshot create myvm initial_state"
+  echo_message "  $0 snapshot list myvm"
+  echo_message "  $0 snapshot revert myvm initial_state"
+  echo_message "  $0 snapshot delete myvm initial_state"
+}
+
+# === Usage function for template ===
+cmd_template_usage() {
+  echo_message "Usage: $0 template <subcommand> [options/arguments]"
+  echo_message "\nSubcommands:"
+  echo_message "  create <source_vmname> <template_name> - Creates a new template from an existing VM."
+  echo_message "  list                                   - Lists all available VM templates."
+  echo_message "  delete <template_name>                 - Deletes a specified template."
+  echo_message "\nExamples:"
+  echo_message "  $0 template create myvm my_template"
+  echo_message "  $0 template list"
+  echo_message "  $0 template delete my_template"
+}
+
+# === Usage function for suspend ===
+cmd_suspend_usage() {
+  echo_message "Usage: $0 suspend <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to suspend."
+  echo_message "\nDescription:"
+  echo_message "  Suspends a running virtual machine, saving its state to disk."
+}
+
+# === Usage function for resume ===
+cmd_resume_usage() {
+  echo_message "Usage: $0 resume <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to resume."
+  echo_message "\nDescription:"
+  echo_message "  Resumes a previously suspended virtual machine from its saved state."
+}
+
+# === Usage function for verify ===
+cmd_verify_usage() {
+  echo_message "Usage: $0 verify"
+  echo_message "\nDescription:"
+  echo_message "  Verifies the consistency and integrity of all VM configurations, checking for syntax errors and missing disk images."
 }
