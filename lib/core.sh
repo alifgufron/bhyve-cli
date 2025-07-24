@@ -304,10 +304,13 @@ build_disk_args() {
   local CURRENT_DISK_IDX=0
   while true; do
     local CURRENT_DISK_VAR="DISK"
+    local CURRENT_DISK_TYPE_VAR="DISK_${CURRENT_DISK_IDX}_TYPE"
+
     if [ "$CURRENT_DISK_IDX" -gt 0 ]; then
       CURRENT_DISK_VAR="DISK_${CURRENT_DISK_IDX}"
     fi
     local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+    local DISK_TYPE="${!CURRENT_DISK_TYPE_VAR:-virtio-blk}" # Default to virtio-blk
 
     if [ -z "$CURRENT_DISK_FILENAME" ]; then
       break # No more disks configured
@@ -320,7 +323,7 @@ build_disk_args() {
       echo "1" # Indicate error for next_dev_num (arbitrary non-zero to signal error)
       return 1
     fi
-    DISK_ARGS+=" -s ${DISK_DEV_NUM}:0,virtio-blk,\""$CURRENT_DISK_PATH"\""
+    DISK_ARGS+=" -s ${DISK_DEV_NUM}:0,${DISK_TYPE},\""$CURRENT_DISK_PATH"\""
     DISK_DEV_NUM=$((DISK_DEV_NUM + 1))
     CURRENT_DISK_IDX=$((CURRENT_DISK_IDX + 1))
   done
@@ -341,16 +344,18 @@ build_network_args() {
     local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
     local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
     local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+    local CURRENT_NIC_TYPE_VAR="NIC_${NIC_IDX}_TYPE"
 
     local CURRENT_TAP="${!CURRENT_TAP_VAR}"
     local CURRENT_MAC="${!CURRENT_MAC_VAR}"
     local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+    local CURRENT_NIC_TYPE="${!CURRENT_NIC_TYPE_VAR:-virtio-net}" # Default to virtio-net
 
     if [ -z "$CURRENT_TAP" ]; then
       break # No more network interfaces configured
     fi
 
-    log "Checking network interface NIC_${NIC_IDX} (TAP: $CURRENT_TAP, MAC: $CURRENT_MAC, Bridge: $CURRENT_BRIDGE)"
+    log "Checking network interface NIC_${NIC_IDX} (TAP: $CURRENT_TAP, MAC: $CURRENT_MAC, Bridge: $CURRENT_BRIDGE, Type: $CURRENT_NIC_TYPE)"
 
     # === Create and configure TAP interface if it doesn't exist or activate if it does ===
     if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
@@ -367,23 +372,23 @@ build_network_args() {
       # Ensure bridge exists and TAP is a member
       if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
         log "Bridge interface '$CURRENT_BRIDGE' does not exist. Attempting to create..."
-        local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$BRIDGE_NAME\""
+        local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$CURRENT_BRIDGE\""
         log "Executing: $CREATE_BRIDGE_CMD"
-        ifconfig bridge create name "$BRIDGE_NAME" || { display_and_log "ERROR" "Failed to create bridge '$CURRENT_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; return 1; }
-        log "Bridge interface '$BRIDGE_NAME' successfully created."
+        ifconfig bridge create name "$CURRENT_BRIDGE" || { display_and_log "ERROR" "Failed to create bridge '$CURRENT_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; return 1; }
+        log "Bridge interface '$CURRENT_BRIDGE' successfully created."
       fi
 
       if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
         log "Adding TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'...";
-        local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$BRIDGE_NAME\" addm \"$CURRENT_TAP\""
+        local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$CURRENT_BRIDGE\" addm \"$CURRENT_TAP\""
         log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
-        ifconfig "$BRIDGE_NAME" addm "$CURRENT_TAP" || { display_and_log "ERROR" "Failed to add TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
+        ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP" || { display_and_log "ERROR" "Failed to add TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
       else
         log "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'."
       fi
     fi
 
-    NETWORK_ARGS+=" -s ${NIC_DEV_NUM}:0,virtio-net,\""$CURRENT_TAP"\",mac=\""$CURRENT_MAC"\""
+    NETWORK_ARGS+=" -s ${NIC_DEV_NUM}:0,${CURRENT_NIC_TYPE},\""$CURRENT_TAP"\",mac=\""$CURRENT_MAC"\""
     NIC_DEV_NUM=$((NIC_DEV_NUM + 1))
     NIC_IDX=$((NIC_IDX + 1))
   done
@@ -393,18 +398,23 @@ build_network_args() {
 
 run_bhyveload() {
   local DATA_PATH="$1"
-  local QUIET_LOAD="${2:-false}" # New optional parameter
+  local QUIET_LOAD="${2:-false}" # Default to false (interactive) if not provided
 
-  if [ "$QUIET_LOAD" = true ]; then
-    log "Loading kernel via bhyveload (quiet mode)..."
-    $BHYVELOAD -m "$MEMORY" -d "$DATA_PATH" -c stdio "$VMNAME" > /dev/null 2>&1
-  else
-    display_and_log "INFO" "Loading kernel via bhyveload..."
+  # In 'install' mode (QUIET_LOAD=false), we need an interactive console.
+  # In 'start' mode (QUIET_LOAD=true), we just load and exit.
+  if [ "$QUIET_LOAD" = false ]; then
+    display_and_log "INFO" "Loading kernel via bhyveload for installation..."
     $BHYVELOAD -m "$MEMORY" -d "$DATA_PATH" -c stdio "$VMNAME"
+  else
+    log "Loading kernel via bhyveload (quiet mode)..."
+    # When quiet, we don't want any output, just load the kernel from disk.
+    $BHYVELOAD -m "$MEMORY" -d "$DATA_PATH" "$VMNAME" > /dev/null 2>&1
   fi
+
   local exit_code=$?
   if [ $exit_code -ne 0 ]; then
-    echo_message "[ERROR] bhyveload failed with exit code $exit_code. Cannot proceed."
+    log_to_global_file "ERROR" "bhyveload for $VMNAME failed with exit code $exit_code. Data path: $DATA_PATH"
+    display_and_log "ERROR" "bhyveload failed with exit code $exit_code. Cannot proceed."
     $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
     return 1
   fi
@@ -459,6 +469,57 @@ cleanup_vm_network_interfaces() {
   log "Exiting cleanup_vm_network_interfaces function for VM: $VMNAME_CLEANUP"
 }
 
+# === Helper function to format bytes into human-readable format ===
+format_bytes() {
+    local bytes=$1
+    if (( bytes < 1024 )); then
+        echo "${bytes}B"
+    elif (( bytes < 1024 * 1024 )); then
+        printf "%.2fK" $(echo "$bytes / 1024" | bc -l)
+    elif (( bytes < 1024 * 1024 * 1024 )); then
+        printf "%.2fM" $(echo "$bytes / (1024 * 1024)" | bc -l)
+    else
+        printf "%.2fG" $(echo "$bytes / (1024 * 1024 * 1024)" | bc -l)
+    fi
+}
+
+# === Helper function to format etime into a more readable format ===
+format_etime() {
+    local etime=$1
+    local days=0
+    local hours=0
+    local mins=0
+    local secs=0
+
+    if [[ $etime == *-* ]]; then
+        days=$(echo $etime | cut -d- -f1)
+        etime=$(echo $etime | cut -d- -f2)
+    fi
+
+    local parts=$(echo $etime | tr ':' ' ')
+    read -ra time_parts <<< "$parts"
+
+    if [ ${#time_parts[@]} -eq 3 ]; then
+        hours=${time_parts[0]}
+        mins=${time_parts[1]}
+        secs=${time_parts[2]}
+    elif [ ${#time_parts[@]} -eq 2 ]; then
+        mins=${time_parts[0]}
+        secs=${time_parts[1]}
+    else
+        secs=${time_parts[0]}
+    fi
+
+    local formatted_time=""
+    if [ "$days" -gt 0 ]; then
+        formatted_time="${days}d"
+    fi
+    printf -v rhours "%02d" $hours
+    printf -v rmins "%02d" $mins
+    printf -v rsecs "%02d" $secs
+    formatted_time="${formatted_time}${rhours}:${rmins}:${rsecs}"
+    echo "$formatted_time"
+}
 
 
 # === Function to load main configuration ===
