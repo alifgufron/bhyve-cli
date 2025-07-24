@@ -26,6 +26,7 @@ source "$SCRIPT_DIR/lib/commands/vm.sh"
 source "$SCRIPT_DIR/lib/commands/switch.sh"
 source "$SCRIPT_DIR/lib/commands/iso.sh"
 source "$SCRIPT_DIR/lib/commands/utils.sh"
+source "$SCRIPT_DIR/lib/commands/vmnet.sh"
 
 # === Main Command Dispatcher ===
 main() {
@@ -34,6 +35,8 @@ main() {
 
   # Check initialization status (unless the command is 'init')
   check_initialization "$1"
+
+  
 
   # Most commands require root privileges
   case "$1" in
@@ -53,21 +56,25 @@ main() {
       cmd_init "$@"
       ;;
     create)
+      cmd_vmnet_init
       cmd_create "$@"
       ;;
     delete)
       cmd_delete "$@"
       ;;
     install)
+      cmd_vmnet_init
       cmd_install "$@"
       ;;
     start)
+      cmd_vmnet_init
       cmd_start "$@"
       ;;
     stop)
       cmd_stop "$@"
       ;;
     restart)
+      cmd_vmnet_init
       cmd_restart "$@"
       ;;
     console)
@@ -86,9 +93,11 @@ main() {
       cmd_autostart "$@"
       ;;
     modify)
+      cmd_vmnet_init
       cmd_modify "$@"
       ;;
     clone)
+      cmd_vmnet_init
       cmd_clone "$@"
       ;;
     info)
@@ -101,18 +110,47 @@ main() {
       cmd_export "$@"
       ;;
     import)
+      cmd_vmnet_init
       cmd_import "$@"
+      ;;
+    template)
+      cmd_template "$@"
+      ;;
+    verify)
+      cmd_verify "$@"
+      ;;
+    snapshot)
+      cmd_snapshot "$@"
+      ;;
+    suspend)
+      cmd_vmnet_init
+      cmd_suspend "$@"
+      ;;
+    resume)
+      cmd_vmnet_init
+      cmd_resume "$@"
       ;;
     iso)
       cmd_iso "$@"
       ;;
+    vnc)
+      cmd_vmnet_init
+      cmd_vnc "$@"
+      ;;
     switch)
+      cmd_vmnet_init
       cmd_switch "$@"
       ;;
+    vmnet)
+      cmd_vmnet_init
+      cmd_vmnet "$@"
+      ;;
     stopall)
+      cmd_vmnet_init
       cmd_stopall "$@"
       ;;
     startall)
+      cmd_vmnet_init
       cmd_startall "$@"
       ;;
     --version|-v)

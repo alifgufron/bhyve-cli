@@ -6,6 +6,10 @@ cmd_create() {
   local DISKSIZE=""
   local VM_BRIDGE=""
   local BOOTLOADER_TYPE="bhyveload" # Default bootloader
+  local VNC_PORT=""
+  local VNC_WAIT="no"
+  local FROM_TEMPLATE=""
+  local NIC_TYPE="virtio-net" # Default NIC type
 
   # Parse named arguments
   while (( "$#" )); do
@@ -26,6 +30,21 @@ cmd_create() {
         shift
         BOOTLOADER_TYPE="$1"
         ;;
+      --vnc-port)
+        shift
+        VNC_PORT="$1"
+        ;;
+      --vnc-wait)
+        VNC_WAIT="yes"
+        ;;
+      --from-template)
+        shift
+        FROM_TEMPLATE="$1"
+        ;;
+      --nic-type)
+        shift
+        NIC_TYPE="$1"
+        ;;
       *)
         display_and_log "ERROR" "Invalid option: $1"
         cmd_create_usage
@@ -36,7 +55,19 @@ cmd_create() {
   done
 
   # Validate required arguments
-  if [ -z "$VMNAME" ] || [ -z "$DISKSIZE" ] || [ -z "$VM_BRIDGE" ]; then
+  if [ -z "$VMNAME" ] || [ -z "$VM_BRIDGE" ]; then
+    cmd_create_usage
+    exit 1
+  fi
+
+  if [ -z "$FROM_TEMPLATE" ] && [ -z "$DISKSIZE" ]; then
+    display_and_log "ERROR" "Either --disk-size or --from-template must be specified."
+    cmd_create_usage
+    exit 1
+  fi
+
+  if [ -n "$FROM_TEMPLATE" ] && [ -n "$DISKSIZE" ]; then
+    display_and_log "ERROR" "Cannot use both --disk-size and --from-template simultaneously."
     cmd_create_usage
     exit 1
   fi
@@ -53,23 +84,30 @@ cmd_create() {
 
   log "Preparing to create VM '$VMNAME' with disk size ${DISKSIZE}GB and connecting to bridge '$VM_BRIDGE'."
 
-  # === Check and create bridge interface if it doesn't exist ===
-  if ! ifconfig "$VM_BRIDGE" > /dev/null 2>&1; then
-    log "Bridge interface '$VM_BRIDGE' does not exist. Attempting to create..."
-    local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$VM_BRIDGE\""
-    log "Executing: $CREATE_BRIDGE_CMD"
-    ifconfig bridge create name "$VM_BRIDGE" || { stop_spinner; display_and_log "ERROR" "Failed to create bridge '$VM_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; exit 1; }
-    log "Bridge interface '$VM_BRIDGE' successfully created."
+  # === Handle template or new disk ===
+  if [ -n "$FROM_TEMPLATE" ]; then
+    local TEMPLATE_PATH="$VM_CONFIG_BASE_DIR/templates/$FROM_TEMPLATE"
+    if [ ! -d "$TEMPLATE_PATH" ] || [ ! -f "$TEMPLATE_PATH/disk.img" ] || [ ! -f "$TEMPLATE_PATH/vm.conf" ]; then
+      stop_spinner
+      display_and_log "ERROR" "Template '$FROM_TEMPLATE' not found or incomplete."
+      rmdir "$VM_DIR" 2>/dev/null
+      exit 1
+    fi
+    log "Creating VM from template '$FROM_TEMPLATE'."
+    cp "$TEMPLATE_PATH/disk.img" "$VM_DIR/disk.img" || { stop_spinner; display_and_log "ERROR" "Failed to copy disk image from template."; rm -rf "$VM_DIR"; exit 1; }
+    cp "$TEMPLATE_PATH/vm.conf" "$CONF" || { stop_spinner; display_and_log "ERROR" "Failed to copy vm.conf from template."; rm -rf "$VM_DIR"; exit 1; }
+    # Load template config to get disk size for logging
+    # shellcheck disable=SC1090
+    . "$CONF"
+    DISKSIZE="${DISKSIZE:-$(stat -f %z "$VM_DIR/disk.img" | awk '{print int($1 / (1024*1024*1024))}')}" # Get size from copied disk if not specified
   else
-    log "Bridge interface '$VM_BRIDGE' already exists. Skipping creation."
+    # === Create disk image ===
+    log "Attempting to create disk image: $VM_DIR/disk.img with size ${DISKSIZE}GB..."
+    local TRUNCATE_CMD="truncate -s \"${DISKSIZE}G\" \"$VM_DIR/disk.img\""
+    log "Executing: $TRUNCATE_CMD"
+    truncate -s "${DISKSIZE}G" "$VM_DIR/disk.img" || { stop_spinner; display_and_log "ERROR" "Failed to create disk image at '$VM_DIR/disk.img'. Command: '$TRUNCATE_CMD'"; exit 1; }
+    log "Disk image '$VM_DIR/disk.img' (${DISKSIZE}GB) created successfully."
   fi
-
-  # === Create disk image ===
-  log "Attempting to create disk image: $VM_DIR/disk.img with size ${DISKSIZE}GB..."
-  local TRUNCATE_CMD="truncate -s \"${DISKSIZE}G\" \"$VM_DIR/disk.img\""
-  log "Executing: $TRUNCATE_CMD"
-  truncate -s "${DISKSIZE}G" "$VM_DIR/disk.img" || { stop_spinner; display_and_log "ERROR" "Failed to create disk image at '$VM_DIR/disk.img'. Command: '$TRUNCATE_CMD'"; exit 1; }
-  log "Disk image '$VM_DIR/disk.img' (${DISKSIZE}GB) created successfully."
 
   # === Generate unique UUID ===
   UUID=$(uuidgen)
@@ -95,25 +133,29 @@ cmd_create() {
   CONSOLE="nmdm-${VMNAME}.1"
   log "Console device assigned: $CONSOLE"
 
-  # === Create configuration file ===
-  log "Attempting to create VM configuration file: $CONF"
-  cat > "$CONF" <<EOF
+  # === Update/Create configuration file ===
+  log "Attempting to create/update VM configuration file: $CONF"
+  # If from template, vm.conf already exists, just append/overwrite specific values
+  cat >> "$CONF" <<EOF
 VMNAME=$VMNAME
 UUID=$UUID
-CPUS=2
-MEMORY=2048M
+CPUS=${CPUS:-2}
+MEMORY=${MEMORY:-2048M}
 TAP_0=$TAP_0
 MAC_0=$MAC_0
 BRIDGE_0=$VM_BRIDGE
+NIC_0_TYPE=$NIC_TYPE
 DISK=disk.img
 DISKSIZE=$DISKSIZE
 CONSOLE=$CONSOLE
 LOG=$LOG_FILE
-AUTOSTART=no
-BOOTLOADER_TYPE=$BOOTLOADER_TYPE
+AUTOSTART=${AUTOSTART:-no}
+BOOTLOADER_TYPE=${BOOTLOADER_TYPE:-bhyveload}
+VNC_PORT=${VNC_PORT}
+VNC_WAIT=${VNC_WAIT}
 EOF
 
-  log "Configuration file created: $CONF"
+  log "Configuration file created/updated: $CONF"
 
   stop_spinner
   echo_message "VM '$VMNAME' successfully created."
@@ -122,7 +164,6 @@ EOF
 
 # === Subcommand: delete ===
 cmd_delete() {
-  log "Entering cmd_delete function for VM: $1"
   if [ -z "$1" ]; then
     cmd_delete_usage
     exit 1
@@ -184,12 +225,66 @@ cmd_delete() {
 
   stop_spinner
   echo_message "VM '$VMNAME' successfully deleted."
-  log "Exiting cmd_delete function for VM: $VMNAME"
+}
+
+# === Subcommand: suspend ===
+cmd_suspend() {
+  if [ -z "$1" ]; then
+    cmd_suspend_usage
+    exit 1
+  fi
+
+  local VMNAME="$1"
+  load_vm_config "$VMNAME"
+
+  if ! is_vm_running "$VMNAME"; then
+    display_and_log "ERROR" "VM '$VMNAME' is not running. Cannot suspend a stopped VM."
+    exit 1
+  fi
+
+  display_and_log "INFO" "Suspending VM '$VMNAME'..."
+  start_spinner "Suspending VM '$VMNAME'..."
+
+  if ! $BHYVECTL --vm="$VMNAME" --suspend; then
+    stop_spinner
+    display_and_log "ERROR" "Failed to suspend VM '$VMNAME'. Check logs for details."
+    exit 1
+  fi
+
+  stop_spinner
+  display_and_log "INFO" "VM '$VMNAME' suspended successfully."
+}
+
+# === Subcommand: resume ===
+cmd_resume() {
+  if [ -z "$1" ]; then
+    cmd_resume_usage
+    exit 1
+  fi
+
+  local VMNAME="$1"
+  load_vm_config "$VMNAME"
+
+  if is_vm_running "$VMNAME"; then
+    display_and_log "ERROR" "VM '$VMNAME' is already running. Cannot resume a running VM."
+    exit 1
+  fi
+
+  display_and_log "INFO" "Resuming VM '$VMNAME'..."
+  start_spinner "Resuming VM '$VMNAME'..."
+
+  if ! $BHYVECTL --vm="$VMNAME" --resume; then
+    stop_spinner
+    display_and_log "ERROR" "Failed to resume VM '$VMNAME'. Check logs for details."
+    exit 1
+  fi
+
+  stop_spinner
+  display_and_log "INFO" "VM '$VMNAME' resumed successfully."
 }
 
 # === Subcommand: restart ===
 cmd_restart() {
-  log "Entering cmd_restart function for VM: $1"
   if [ -z "$1" ]; then
     cmd_restart_usage
     exit 1
@@ -211,7 +306,6 @@ cmd_restart() {
   if ! is_vm_running "$VMNAME"; then
     display_and_log "INFO" "VM '$VMNAME' is not running. Starting it..."
     cmd_start "$VMNAME"
-    log "Exiting cmd_restart function for VM: $VMNAME"
     exit 0
   fi
 
@@ -239,14 +333,10 @@ cmd_restart() {
     cmd_start "$VMNAME"
     display_and_log "INFO" "VM '$VMNAME' restart initiated."
   fi
-
-  log "Exiting cmd_restart function for VM: $VMNAME"
 }
 
 # === Subcommand: install ===
 cmd_install() {
-  #set -x # Enable debug tracing for this function
-  log "Entering cmd_install function for VM: $1"
   local VMNAME=""
   local INSTALL_BOOTLOADER_TYPE="" # Bootloader type for this installation only
 
@@ -284,8 +374,8 @@ cmd_install() {
 
   ensure_nmdm_device_nodes "$CONSOLE"
   sleep 1 # Give nmdm devices a moment to be ready
-
-      log "INFO" "Starting VM '$VMNAME'..."
+  
+  log "INFO" "Starting VM '$VMNAME'..."
 
   # === Stop bhyve if still active ===
   if is_vm_running "$VMNAME"; then
@@ -389,11 +479,11 @@ cmd_install() {
 
     log "cu session ended. Initiating cleanup..."
 
-    cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
-
     # Check the exit status of the bhyve process
     wait "$VM_PID"
     local BHYVE_EXIT_STATUS=$?
+
+    cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
 
     if [ "$BHYVE_EXIT_STATUS" -eq 3 ] || [ "$BHYVE_EXIT_STATUS" -eq 4 ]; then
         display_and_log "ERROR" "Virtual machine '$VMNAME' installer exited with an error (exit code: $BHYVE_EXIT_STATUS). Check VM logs for details."
@@ -402,7 +492,6 @@ cmd_install() {
         log "Bhyve process $VM_PID exited cleanly (status: $BHYVE_EXIT_STATUS)."
     fi
     display_and_log "INFO" "Installation finished. You can now start the VM with: $0 start $VMNAME"
-
   else
     # --- uefi/GRUB INSTALL ---
     log "Preparing for non-bhyveload installation..."
@@ -465,31 +554,27 @@ cmd_install() {
 
     log "cu session ended. Initiating cleanup..."
 
-    cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
-
     # Wait for the bhyve process to exit.
     # Capture its exit status.
     wait "$VM_PID"
     local BHYVE_EXIT_STATUS=$?
 
-    # Check the exit status of the bhyve process
+    cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
+
     if [ "$BHYVE_EXIT_STATUS" -eq 3 ] || [ "$BHYVE_EXIT_STATUS" -eq 4 ]; then
-        # If bhyve exited due to a fault or error, then display error message
         display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error (exit code: $BHYVE_EXIT_STATUS). Check VM logs for details."
         exit 1
     else
         log "Bhyve process $VM_PID exited cleanly (status: $BHYVE_EXIT_STATUS)."
     fi
     log "Bhyve process $VM_PID exited."
+    display_and_log "INFO" "Installation finished. You can now start the VM with: $0 start $VMNAME"
   fi
-  log "Exiting cmd_install function for VM: $VMNAME"
 }
 
 
 # === Subcommand: start ===
 cmd_start() {
-  #set -x # Enable debug tracing for this function
-  log "Entering cmd_start function for VM: $1"
   if [ -z "$1" ]; then
     cmd_start_usage
     exit 1
@@ -498,6 +583,7 @@ cmd_start() {
   local VMNAME="$1"
   local CONNECT_TO_CONSOLE=false
   local QUIET_BOOTLOADER=true # Default to quiet bootloader (no console)
+  local BHYVE_LOADER_CLI_ARG="" # Initialize to empty
 
   # Parse arguments
   local ARGS=()
@@ -532,6 +618,24 @@ cmd_start() {
     exit 0
   fi
 
+  # === Check if VM is installed ===
+  local DISK_PATH="$VM_DIR/$DISK"
+  if [ -f "$DISK_PATH" ]; then
+    # Check actual disk usage. A truncated file will have 0 usage.
+    local DISK_USAGE_KB=$(du -k "$DISK_PATH" | awk '{print $1}')
+    if [ "$DISK_USAGE_KB" -lt 1024 ]; then # Check if less than 1MB, a reasonable threshold for an uninstalled OS
+      stop_spinner
+      display_and_log "ERROR" "VM '$VMNAME' has not been installed yet. The disk image is empty."
+      echo_message "Please run '$0 install $VMNAME' first."
+      exit 1
+    fi
+  else
+    stop_spinner
+    display_and_log "ERROR" "Primary disk for VM '$VMNAME' not found at '$DISK_PATH'."
+    exit 1
+  fi
+
+
   start_spinner "Starting VM '$VMNAME'..."
   log "Loading VM configuration for '$VMNAME'...";
   log "VM Name: $VMNAME"
@@ -554,6 +658,11 @@ cmd_start() {
     exit 1
   fi
 
+  local VNC_ARGS=""
+  if [ -n "$VNC_PORT" ]; then
+    VNC_ARGS="-s 29,fbuf,tcp=$VNC_PORT,w=1024,h=768,vga=std,password=,wait=$VNC_WAIT"
+    log "VNC enabled on port $VNC_PORT, wait: $VNC_WAIT"
+  fi
 
   # === Start Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
@@ -563,14 +672,14 @@ cmd_start() {
     
     log "Verifying nmdm device nodes:"
     if [ -e "/dev/${CONSOLE}A" ]; then
-      log "/dev/${CONSOLE}A exists with permissions: $(stat -f "%Sp" /dev/${CONSOLE}A)"
+      log "/dev/${CONSOLE}A exists with permissions: $(stat -f \"%Sp\" /dev/${CONSOLE}A)"
     else
       stop_spinner
       display_and_log "ERROR" "/dev/${CONSOLE}A does NOT exist! Please ensure the VM has been run at least once, or the device has been created."
       exit 1
     fi
     if [ -e "/dev/${CONSOLE}B" ]; then
-      log "/dev/${CONSOLE}B exists with permissions: $(stat -f "%Sp" /dev/${CONSOLE}B)"
+      log "/dev/${CONSOLE}B exists with permissions: $(stat -f \"%Sp\" /dev/${CONSOLE}B)"
     else
       stop_spinner
       display_and_log "ERROR" "/dev/${CONSOLE}B does NOT exist! Please ensure the VM has been run at least once, or the device has been created."
@@ -583,7 +692,7 @@ cmd_start() {
       exit 1
     }
 
-    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
+    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} $VNC_ARGS \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     log_to_global_file "INFO" "Starting bhyve VM with command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
@@ -604,7 +713,8 @@ cmd_start() {
     stop_spinner
     echo_message "VM '$VMNAME' started successfully."
     if [ "$CONNECT_TO_CONSOLE" = true ]; then
-      echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+      sleep 2 # Give console a moment to be ready
+      echo_message "Entering VM '$VMNAME' console (exit with ~.)"
       cu -l /dev/"${CONSOLE}B" -s 115200
       log "cu session ended."
     else
@@ -612,7 +722,6 @@ cmd_start() {
     fi
   else
     log "Preparing for non-bhyveload start..."
-    local BHYVE_LOADER_CLI_ARG=""
     case "$BOOTLOADER_TYPE" in
       uefi|bootrom)
         local UEFI_FIRMWARE_FOUND=false
@@ -656,7 +765,7 @@ cmd_start() {
     esac
 
     log "Starting VM '$VMNAME'..."
-    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
+    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} $VNC_ARGS \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     BHYVE_PID=$!
@@ -670,7 +779,7 @@ cmd_start() {
       stop_spinner
       echo_message "VM '$VMNAME' started successfully."
       if [ "$CONNECT_TO_CONSOLE" = true ]; then
-        echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+        echo_message "Entering VM '$VMNAME' console (exit with ~.)"
         cu -l /dev/"${CONSOLE}B" -s 115200
         log "cu session ended."
       else
@@ -684,12 +793,10 @@ cmd_start() {
       exit 1
     fi
   fi
-  log "Exiting cmd_start function for VM: $VMNAME"
 }
 
 # === Subcommand: startall ===
 cmd_startall() {
-  log "Entering cmd_startall function."
   display_and_log "INFO" "Attempting to start all configured VMs..."
 
   for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
@@ -703,12 +810,10 @@ cmd_startall() {
     fi
   done
   log "Attempt to start all VMs complete."
-  log "Exiting cmd_startall function."
 }
 
 # === Subcommand: stop ===
 cmd_stop() {
-  log "Entering cmd_stop function for VM: $1"
   if [ -z "$1" ]; then
     cmd_stop_usage
     exit 1
@@ -761,12 +866,10 @@ cmd_stop() {
 
   delete_vm_pid "$VMNAME"
   display_and_log "INFO" "VM '$VMNAME' stopped."
-  log "Exiting cmd_stop function for VM: $VMNAME"
 }
 
 # === Subcommand: stopall ===
 cmd_stopall() {
-  log "Entering cmd_stopall function."
   local FORCE_STOP_ALL=false
   if [ "$1" = "--force" ]; then
     FORCE_STOP_ALL=true
@@ -788,5 +891,159 @@ cmd_stopall() {
     fi
   done
   log "Attempt to stop all VMs complete."
-  log "Exiting cmd_stopall function."
+}
+
+# === Subcommand: modify ===
+cmd_modify() {
+  if [ -z "$1" ]; then
+    cmd_modify_usage
+    exit 1
+  fi
+
+  VMNAME="$1"
+  shift
+
+  load_vm_config "$VMNAME"
+
+  local CURRENT_DISK_PATH=""
+  local CURRENT_DISK_TYPE="virtio-blk" # Default disk type
+
+  while (( "$#" )); do
+    case "$1" in
+      --cpu)
+        sed -i '' "s/^CPUS=.*/CPUS=$2/" "$CONF_FILE"
+        display_and_log "INFO" "Set CPU count to $2 for VM '$VMNAME'."
+        shift 2
+        ;;
+      --ram)
+        sed -i '' "s/^MEMORY=.*/MEMORY=$2/" "$CONF_FILE"
+        display_and_log "INFO" "Set RAM to $2 for VM '$VMNAME'."
+        shift 2
+        ;;
+      --nic)
+        local NIC_TO_MODIFY_IDX="$2"
+        shift 2
+        local NIC_MOD_OPTS=()
+        while (( "$#" )); do
+          case "$1" in
+            --tap)
+              NIC_MOD_OPTS+=("TAP_${NIC_TO_MODIFY_IDX}=$2")
+              shift 2
+              ;;
+            --mac)
+              NIC_MOD_OPTS+=("MAC_${NIC_TO_MODIFY_IDX}=$2")
+              shift 2
+              ;;
+            --bridge)
+              NIC_MOD_OPTS+=("BRIDGE_${NIC_TO_MODIFY_IDX}=$2")
+              shift 2
+              ;;
+            --type)
+              NIC_MOD_OPTS+=("NIC_${NIC_TO_MODIFY_IDX}_TYPE=$2")
+              shift 2
+              ;;
+            *)
+              break # Exit inner loop if not a NIC option
+              ;;
+          esac
+        done
+        if [ ${#NIC_MOD_OPTS[@]} -eq 0 ]; then
+          display_and_log "ERROR" "No modification options provided for --nic."
+          cmd_modify_usage
+          exit 1
+        fi
+        for OPTION in "${NIC_MOD_OPTS[@]}"; do
+          local VAR_NAME=$(echo "$OPTION" | cut -d'=' -f1)
+          local NEW_VALUE=$(echo "$OPTION" | cut -d'=' -f2)
+          sed -i '' "s/^${VAR_NAME}=.*/${VAR_NAME}=${NEW_VALUE}/" "$CONF_FILE"
+          display_and_log "INFO" "Updated ${VAR_NAME} to ${NEW_VALUE} for VM '$VMNAME'."
+        done
+        ;;
+      --add-nic)
+        local NEW_BRIDGE="$2"
+        local NEW_NIC_TYPE="virtio-net" # Default type for new NIC
+        shift 2
+        # Check for optional --nic-type argument after --add-nic
+        if [[ "$1" == "--nic-type" ]]; then
+          NEW_NIC_TYPE="$2"
+          shift 2
+        fi
+        local NEXT_NIC_IDX=$(grep -c '^TAP_' "$CONF_FILE")
+        local NEXT_TAP_NUM=$(get_next_available_tap_num)
+        local NEW_TAP="tap${NEXT_TAP_NUM}"
+        local NEW_MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+        echo "TAP_${NEXT_NIC_IDX}=${NEW_TAP}" >> "$CONF_FILE"
+        echo "MAC_${NEXT_NIC_IDX}=${NEW_MAC}" >> "$CONF_FILE"
+        echo "BRIDGE_${NEXT_NIC_IDX}=${NEW_BRIDGE}" >> "$CONF_FILE"
+        echo "NIC_${NEXT_NIC_IDX}_TYPE=${NEW_NIC_TYPE}" >> "$CONF_FILE"
+        display_and_log "INFO" "Added NIC ${NEXT_NIC_IDX} (TAP: ${NEW_TAP}, Bridge: ${NEW_BRIDGE}, Type: ${NEW_NIC_TYPE}) to VM '$VMNAME'."
+        ;;
+      --remove-nic)
+        local NIC_TO_REMOVE_IDX="$2"
+        sed -i '' "/^TAP_${NIC_TO_REMOVE_IDX}=/d" "$CONF_FILE"
+        sed -i '' "/^MAC_${NIC_TO_REMOVE_IDX}=/d" "$CONF_FILE"
+        sed -i '' "/^BRIDGE_${NIC_TO_REMOVE_IDX}=/d" "$CONF_FILE"
+        display_and_log "INFO" "Removed NIC ${NIC_TO_REMOVE_IDX} from VM '$VMNAME'."
+        shift 2
+        ;;
+      --add-disk)
+        local DISK_SIZE="$2"
+        local NEXT_DISK_IDX=$(grep -c '^DISK' "$CONF_FILE")
+        local NEW_DISK_FILENAME="disk${NEXT_DISK_IDX}.img"
+        local NEW_DISK_PATH="$VM_DIR/$NEW_DISK_FILENAME"
+        truncate -s "${DISK_SIZE}G" "$NEW_DISK_PATH" || { display_and_log "ERROR" "Failed to create new disk image."; exit 1; }
+        echo "DISK_${NEXT_DISK_IDX}=${NEW_DISK_FILENAME}" >> "$CONF_FILE"
+        echo "DISK_${NEXT_DISK_IDX}_TYPE=${CURRENT_DISK_TYPE}" >> "$CONF_FILE"
+        display_and_log "INFO" "Added new disk ${NEXT_DISK_IDX} (${DISK_SIZE}GB, type: ${CURRENT_DISK_TYPE}) to VM '$VMNAME'."
+        shift 2
+        CURRENT_DISK_TYPE="virtio-blk" # Reset to default
+        ;;
+      --add-disk-path)
+        local DISK_PATH_TO_ADD="$2"
+        if [ ! -f "$DISK_PATH_TO_ADD" ]; then
+          display_and_log "ERROR" "Disk file '$DISK_PATH_TO_ADD' not found."
+          exit 1
+        fi
+        local NEXT_DISK_IDX=$(grep -c '^DISK' "$CONF_FILE")
+        local DISK_FILENAME_ONLY=$(basename "$DISK_PATH_TO_ADD")
+        # Decide whether to copy or link. For simplicity, let's copy for now.
+        cp "$DISK_PATH_TO_ADD" "$VM_DIR/$DISK_FILENAME_ONLY" || { display_and_log "ERROR" "Failed to copy disk file."; exit 1; }
+        echo "DISK_${NEXT_DISK_IDX}=${DISK_FILENAME_ONLY}" >> "$CONF_FILE"
+        echo "DISK_${NEXT_DISK_IDX}_TYPE=${CURRENT_DISK_TYPE}" >> "$CONF_FILE"
+        display_and_log "INFO" "Added existing disk ${NEXT_DISK_IDX} ('$DISK_FILENAME_ONLY', type: ${CURRENT_DISK_TYPE}) to VM '$VMNAME'."
+        shift 2
+        CURRENT_DISK_TYPE="virtio-blk" # Reset to default
+        ;;
+      --add-disk-type)
+        CURRENT_DISK_TYPE="$2"
+        shift 2
+        ;;
+      --remove-disk)
+        local DISK_TO_REMOVE_IDX="$2"
+        local DISK_VAR_NAME="DISK_${DISK_TO_REMOVE_IDX}"
+        local DISK_TYPE_VAR_NAME="DISK_${DISK_TO_REMOVE_IDX}_TYPE"
+        
+        # Get filename before deleting config line
+        local FILENAME_TO_DELETE=$(grep "^${DISK_VAR_NAME}=" "$CONF_FILE" | cut -d'=' -f2)
+
+        sed -i '' "/^${DISK_VAR_NAME}=/d" "$CONF_FILE"
+        sed -i '' "/^${DISK_TYPE_VAR_NAME}=/d" "$CONF_FILE"
+        
+        if [ -n "$FILENAME_TO_DELETE" ]; then
+          read -rp "Delete associated disk file '$VM_DIR/$FILENAME_TO_DELETE'? (y/n): " CONFIRM_FILE_DELETE
+          if [[ "$CONFIRM_FILE_DELETE" =~ ^[Yy]$ ]]; then
+            rm -f "$VM_DIR/$FILENAME_TO_DELETE"
+            display_and_log "INFO" "Associated disk file deleted."
+          fi
+        fi
+        display_and_log "INFO" "Removed disk ${DISK_TO_REMOVE_IDX} from VM '$VMNAME'."
+        shift 2
+        ;;
+      *)
+        display_and_log "ERROR" "Invalid option: $1"
+        cmd_modify_usage
+        exit 1
+        ;;
+    esac
+  done
 }
