@@ -66,6 +66,8 @@ stop_spinner() {
     kill "$_spinner_pid" >/dev/null 2>&1
     wait "$_spinner_pid" 2>/dev/null
     echo -ne "\n"
+    _spinner_pid=
+    trap - EXIT # Clear the trap
   fi
 }
 
@@ -451,17 +453,25 @@ cleanup_vm_network_interfaces() {
     fi
 
     if ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
-      log "Removing TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'..."
-      if ! ifconfig "$CURRENT_BRIDGE" deletem "$CURRENT_TAP"; then
-        log "WARNING: Failed to remove TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'."
+      log "Attempting to remove TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'..."
+      if ifconfig "$CURRENT_BRIDGE" deletem "$CURRENT_TAP"; then
+        log "Successfully removed TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'."
+      else
+        log "ERROR: Failed to remove TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'."
       fi
+    else
+      log "TAP '$CURRENT_TAP' is not a member of bridge '$CURRENT_BRIDGE' or bridge does not exist. Skipping bridge detachment."
     fi
 
     if ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
-      log "Destroying TAP interface '$CURRENT_TAP'..."
-      if ! ifconfig "$CURRENT_TAP" destroy; then
-        log "WARNING: Failed to destroy TAP interface '$CURRENT_TAP'."
+      log "Attempting to destroy TAP interface '$CURRENT_TAP'..."
+      if ifconfig "$CURRENT_TAP" destroy; then
+        log "Successfully destroyed TAP interface '$CURRENT_TAP'."
+      else
+        log "ERROR: Failed to destroy TAP interface '$CURRENT_TAP'."
       fi
+    else
+      log "TAP interface '$CURRENT_TAP' does not exist. Skipping destruction."
     fi
     NIC_IDX=$((NIC_IDX + 1))
   done
@@ -514,9 +524,9 @@ format_etime() {
     if [ "$days" -gt 0 ]; then
         formatted_time="${days}d"
     fi
-    printf -v rhours "%02d" $hours
-    printf -v rmins "%02d" $mins
-    printf -v rsecs "%02d" $secs
+    printf -v rhours "%02d" "$((10#$hours))"
+    printf -v rmins "%02d" "$((10#$mins))"
+    printf -v rsecs "%02d" "$((10#$secs))"
     formatted_time="${formatted_time}${rhours}:${rmins}:${rsecs}"
     echo "$formatted_time"
 }

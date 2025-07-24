@@ -300,39 +300,40 @@ cmd_restart() {
 
   load_vm_config "$VMNAME"
 
-  display_and_log "INFO" "Restarting VM '$VMNAME'..."
+  echo_message "Restarting VM '$VMNAME'..."
+  log "Restarting VM '$VMNAME'..."
 
   # Check if the VM is running
   if ! is_vm_running "$VMNAME"; then
-    display_and_log "INFO" "VM '$VMNAME' is not running. Starting it..."
-    cmd_start "$VMNAME"
+    log "VM '$VMNAME' is not running. Starting it..."
+    cmd_start "$VMNAME" >/dev/null 2>&1
+    echo_message "VM '$VMNAME' was not running, started successfully."
     exit 0
   fi
 
   if [ "$FORCE_RESTART" = true ]; then
     # --- Fast but unsafe restart ---
-    display_and_log "INFO" "VM is running. Performing a fast (forced) restart..."
-    local BHYVECTL_RESET_CMD="$BHYVECTL --vm=\"$VMNAME\" --force-reset"
-    log "Executing: $BHYVECTL_RESET_CMD"
-
-    if $BHYVECTL --vm="$VMNAME" --force-reset; then
-      log "VM '$VMNAME' successfully reset via bhyvectl. Waiting a moment before starting again..."
-      sleep 2 # Give a moment for the process to fully terminate
-      cmd_start "$VMNAME"
-      display_and_log "INFO" "VM '$VMNAME' successfully restarted."
-    else
-      display_and_log "WARNING" "Fast reset failed. The VM might be in an inconsistent state."
+    log "Performing a fast (forced) restart..."
+    if ! $BHYVECTL --vm="$VMNAME" --force-reset >> "$LOG_FILE" 2>&1; then
+      display_and_log "ERROR" "Fast reset failed. The VM might be in an inconsistent state."
       log "bhyvectl --force-reset failed for '$VMNAME'."
-      exit 1 # Exit with an error to indicate the forced restart failed
+      exit 1
     fi
+    log "VM '$VMNAME' successfully reset. Waiting before starting again..."
+    sleep 2
+    cmd_start "$VMNAME" >/dev/null 2>&1
+    log "VM '$VMNAME' successfully restarted."
   else
     # --- Safe default restart ---
-    display_and_log "INFO" "Performing a safe restart (stop and start)..."
-    cmd_stop "$VMNAME"
-    sleep 2 # Give it a moment to fully stop and clean up
-    cmd_start "$VMNAME"
-    display_and_log "INFO" "VM '$VMNAME' restart initiated."
+    log "Performing a safe restart (stop and start)..."
+    cmd_stop "$VMNAME" >/dev/null 2>&1
+    log "VM '$VMNAME' stopped. Waiting before starting again..."
+    sleep 2
+    cmd_start "$VMNAME" >/dev/null 2>&1
+    log "VM '$VMNAME' restart initiated."
   fi
+
+  echo_message "VM '$VMNAME' restarted successfully."
 }
 
 # === Subcommand: install ===
@@ -575,36 +576,24 @@ cmd_install() {
 
 # === Subcommand: start ===
 cmd_start() {
-  if [ -z "$1" ]; then
-    cmd_start_usage
-    exit 1
-  fi
-
-  local VMNAME="$1"
+  local VMNAME=""
   local CONNECT_TO_CONSOLE=false
-  local QUIET_BOOTLOADER=true # Default to quiet bootloader (no console)
-  local BHYVE_LOADER_CLI_ARG="" # Initialize to empty
+  local QUIET_BOOTLOADER=true
 
   # Parse arguments
-  local ARGS=()
   for arg in "$@"; do
-    if [[ "$arg" == "--console" ]]; then
-      CONNECT_TO_CONSOLE=true
-      QUIET_BOOTLOADER=false # Show bootloader output if console is requested
-    else
-      ARGS+=("$arg")
-    fi
+    case "$arg" in
+      --console)
+        CONNECT_TO_CONSOLE=true
+        QUIET_BOOTLOADER=false
+        ;;
+      *)
+        if [[ ! "$arg" =~ ^-- ]]; then
+          VMNAME="$arg"
+        fi
+        ;;
+    esac
   done
-
-  # Ensure VMNAME is set from ARGS
-  if [ -z "$VMNAME" ] && [ ${#ARGS[@]} -gt 0 ]; then
-    VMNAME="${ARGS[0]}"
-  fi
-
-  if [ -z "$VMNAME" ]; then
-    cmd_start_usage
-    exit 1
-  fi
 
   load_vm_config "$VMNAME"
 
@@ -814,41 +803,56 @@ cmd_startall() {
 
 # === Subcommand: stop ===
 cmd_stop() {
-  if [ -z "$1" ]; then
+  local VMNAME=""
+  local FORCE_STOP=false
+  local SILENT_MODE=false
+
+  # Parse arguments
+  for arg in "$@"; do
+    case "$arg" in
+      --force)
+        FORCE_STOP=true
+        ;;
+      --silent)
+        SILENT_MODE=true
+        ;;
+      *)
+        if [ -z "$VMNAME" ]; then
+          VMNAME="$arg"
+        fi
+        ;;
+    esac
+  done
+
+  if [ -z "$VMNAME" ]; then
     cmd_stop_usage
     exit 1
-  fi
-
-  local VMNAME="$1"
-  local FORCE_STOP=false
-
-  # Check for --force flag
-  if [ "$2" = "--force" ]; then
-    FORCE_STOP=true
   fi
 
   load_vm_config "$VMNAME"
 
   if ! is_vm_running "$VMNAME"; then
-    display_and_log "INFO" "VM '$VMNAME' is not running."
+    if [ "$SILENT_MODE" = false ]; then
+      display_and_log "INFO" "VM '$VMNAME' is not running."
+    fi
     # Clean up just in case
     cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
     delete_vm_pid "$VMNAME"
     exit 0
   fi
 
-  display_and_log "INFO" "Stopping VM '$VMNAME'..."
+  if [ "$SILENT_MODE" = false ]; then
+    display_and_log "INFO" "Stopping VM '$VMNAME'..."
+  fi
 
   if [ "$FORCE_STOP" = true ]; then
     log "Forcefully stopping VM '$VMNAME'."
     cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
   else
     log "Attempting graceful shutdown for VM '$VMNAME'."
-    # bhyvectl --force-poweroff is not graceful, so we use kill
     local VM_PID_TO_KILL=$(get_vm_pid "$VMNAME")
     if [ -n "$VM_PID_TO_KILL" ]; then
       kill "$VM_PID_TO_KILL"
-      # Wait for the process to terminate
       local COUNT=0
       while ps -p "$VM_PID_TO_KILL" > /dev/null 2>&1; do
         sleep 1
@@ -862,10 +866,13 @@ cmd_stop() {
     fi
     # Final cleanup, even after graceful shutdown
     cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
+    cleanup_vm_network_interfaces "$VMNAME"
   fi
 
   delete_vm_pid "$VMNAME"
-  display_and_log "INFO" "VM '$VMNAME' stopped."
+  if [ "$SILENT_MODE" = false ]; then
+    display_and_log "INFO" "VM '$VMNAME' stopped."
+  fi
 }
 
 # === Subcommand: stopall ===
@@ -924,7 +931,7 @@ cmd_modify() {
         local NIC_TO_MODIFY_IDX="$2"
         shift 2
         local NIC_MOD_OPTS=()
-        while (( "$#" )); do
+        while (( "#" )); do
           case "$1" in
             --tap)
               NIC_MOD_OPTS+=("TAP_${NIC_TO_MODIFY_IDX}=$2")
@@ -1046,4 +1053,79 @@ cmd_modify() {
         ;;
     esac
   done
+}
+
+# === Subcommand: clone ===
+cmd_clone() {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    cmd_clone_usage
+    exit 1
+  fi
+
+  local SOURCE_VM="$1"
+  local NEW_VM="$2"
+  local SOURCE_DIR="$VM_CONFIG_BASE_DIR/$SOURCE_VM"
+  local NEW_DIR="$VM_CONFIG_BASE_DIR/$NEW_VM"
+  local NEW_CONF="$NEW_DIR/vm.conf"
+
+  # --- Validation ---
+  if [ ! -d "$SOURCE_DIR" ]; then
+    display_and_log "ERROR" "Source VM '$SOURCE_VM' does not exist."
+    exit 1
+  fi
+
+  if [ -d "$NEW_DIR" ]; then
+    display_and_log "ERROR" "A VM with the name '$NEW_VM' already exists."
+    exit 1
+  fi
+
+  if is_vm_running "$SOURCE_VM"; then
+    display_and_log "ERROR" "Source VM '$SOURCE_VM' is running. Please stop it before cloning."
+    exit 1
+  fi
+
+  start_spinner "Cloning VM '$SOURCE_VM' to '$NEW_VM'..."
+  log "Starting clone from '$SOURCE_VM' to '$NEW_VM'."
+
+  # --- Directory and Config ---
+  mkdir -p "$NEW_DIR" || { stop_spinner; display_and_log "ERROR" "Failed to create directory for new VM."; exit 1; }
+  cp "$SOURCE_DIR/vm.conf" "$NEW_CONF" || { stop_spinner; display_and_log "ERROR" "Failed to copy config file."; rm -rf "$NEW_DIR"; exit 1; }
+
+  # --- Disk Cloning ---
+  log "Cloning disks..."
+  for disk_file in "$SOURCE_DIR"/*.img; do
+    if [ -f "$disk_file" ]; then
+      local filename=$(basename "$disk_file")
+      cp "$disk_file" "$NEW_DIR/$filename" || { stop_spinner; display_and_log "ERROR" "Failed to copy disk image '$filename'."; rm -rf "$NEW_DIR"; exit 1; }
+      log "Copied disk: $filename"
+    fi
+  done
+
+  # --- Configuration Update ---
+  log "Updating configuration for '$NEW_VM'."
+  local NEW_UUID=$(uuidgen)
+  local NEW_CONSOLE="nmdm-${NEW_VM}.1"
+  local NEW_LOG_FILE="$NEW_DIR/vm.log"
+
+  sed -i '' "s/^VMNAME=.*/VMNAME=$NEW_VM/" "$NEW_CONF"
+  sed -i '' "s/^UUID=.*/UUID=$NEW_UUID/" "$NEW_CONF"
+  sed -i '' "s/^CONSOLE=.*/CONSOLE=$NEW_CONSOLE/" "$NEW_CONF"
+  sed -i '' "s/^LOG=.*/LOG=$NEW_LOG_FILE/" "$NEW_CONF"
+  sed -i '' "s/^AUTOSTART=.*/AUTOSTART=no/" "$NEW_CONF" # Cloned VMs should not autostart by default
+
+  # --- Network Interface Update ---
+  local nic_indices=$(grep -o '^TAP_[0-9]*' "$NEW_CONF" | cut -d'_' -f2 | sort -u)
+  for i in $nic_indices; do
+    local new_mac="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+    local next_tap_num=$(get_next_available_tap_num)
+    local new_tap="tap${next_tap_num}"
+    
+    sed -i '' "s/^MAC_${i}=.*/MAC_${i}=${new_mac}/" "$NEW_CONF"
+    sed -i '' "s/^TAP_${i}=.*/TAP_${i}=${new_tap}/" "$NEW_CONF"
+    log "Updated NIC $i: New MAC=$new_mac, New TAP=$new_tap"
+  done
+
+  stop_spinner
+  display_and_log "INFO" "VM '$SOURCE_VM' successfully cloned to '$NEW_VM'."
+  echo_message "You can now start the new VM with: $0 start $NEW_VM"
 }
