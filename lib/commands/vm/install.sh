@@ -41,7 +41,7 @@ cmd_install() {
   ensure_nmdm_device_nodes "$CONSOLE"
   sleep 1 # Give nmdm devices a moment to be ready
 
-      log "INFO" "Starting VM '$VMNAME'..."
+  log "Starting VM '$VMNAME'..."
 
   # === Stop bhyve if still active ===
   if is_vm_running "$VMNAME"; then
@@ -127,17 +127,11 @@ cmd_install() {
     display_and_log "INFO" "Starting VM with nmdm console for installation..."
     local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s ${NEXT_DISK_DEV_NUM}:0,ahci-cd,\"$ISO_PATH\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
-    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
-    VM_PID=$!
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1
+    VM_PID=$(pgrep -f "bhyve: $VMNAME") # Get PID after bhyve exits
     save_vm_pid "$VMNAME" "$VM_PID"
-    log "Bhyve VM started in background with PID $VM_PID"
+    log "Bhyve VM started in foreground with PID $VM_PID"
 
-    sleep 2 # Give bhyve a moment to start
-    if ! is_vm_running "$VMNAME"; then
-      log_to_global_file "ERROR" "bhyve process for $VMNAME exited prematurely. Check vm.log for details."
-      display_and_log "ERROR" "Failed to start VM for installation. Check logs."
-      exit 1
-    fi
     echo_message ""
     echo_message ">\>\> Entering VM '$VMNAME' installation console \(exit with ~.\)"
     echo_message ">\>\> IMPORTANT: After shutting down the VM from within, you MUST type '~.' \(tilde then dot\) to exit this console and allow the script to continue cleanup."
@@ -199,14 +193,14 @@ cmd_install() {
 
     clear # Clear screen before console
 
-    log "Running bhyve installer in background..."    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s 4:0,ahci-cd,\"$ISO_PATH\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""    log "Executing bhyve command: $BHYVE_CMD"
-    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    log "Running bhyve installer in foreground..."    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s 4:0,ahci-cd,\"$ISO_PATH\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""    log "Executing bhyve command: $BHYVE_CMD"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1
     VM_PID=$!
     save_vm_pid "$VMNAME" "$VM_PID"
-    log "Bhyve VM started in background with PID $VM_PID"
+    log "Bhyve VM started in foreground with PID $VM_PID"
 
-    echo_message ">\>\> Entering VM '$VMNAME' console \(exit with ~.\)"
-    echo_message ">\>\> IMPORTANT: After shutting down the VM from within, you MUST type '~.' \(tilde then dot\) to exit this console and allow the script to continue cleanup."
+    echo_message ">>> Entering VM '$VMNAME' console \(exit with ~.\)"
+    echo_message ">>> IMPORTANT: After shutting down the VM from within, you MUST type '~.' \(tilde then dot\) to exit this console and allow the script to continue cleanup."
     cu -l /dev/"${CONSOLE}B"
 
     log "cu session ended. Initiating cleanup..."

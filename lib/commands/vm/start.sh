@@ -38,6 +38,21 @@ cmd_start() {
 
   load_vm_config "$VMNAME"
 
+  # Check if VM is installed (disk size check)
+  local DISK_PATH="$VM_DIR/$DISK"
+  if [ ! -f "$DISK_PATH" ]; then
+    display_and_log "ERROR" "VM disk image not found at '$DISK_PATH'. Cannot start."
+    exit 1
+  fi
+
+  local ACTUAL_DISK_USAGE_KB=$(du -k "$DISK_PATH" | awk '{print $1}')
+  local MIN_INSTALLED_DISK_SIZE_KB=10240 # 10MB threshold
+
+  if (( ACTUAL_DISK_USAGE_KB < MIN_INSTALLED_DISK_SIZE_KB )); then
+    display_and_log "ERROR" "VM '$VMNAME' appears to be uninstalled (either uninstalled or not yet installed). Please run './bhyve-cli.sh install $VMNAME' first."
+    exit 1
+  fi
+
   # Check if VM is already running
   if is_vm_running "$VMNAME"; then
     display_and_log "INFO" "VM '$VMNAME' is already running."
