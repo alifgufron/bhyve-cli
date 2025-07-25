@@ -1,96 +1,5 @@
 #!/usr/local/bin/bash
 
-# === Main Usage Function ===
-main_usage() {
-  echo_message "Usage: $0 <command> [options/arguments]"
-  echo_message " "
-  echo_message "Available Commands:"
-  echo_message "  init          - Initialize bhyve-cli configuration."
-  echo_message "  create        - Create a new virtual machine."
-  echo_message "  delete        - Delete an existing virtual machine."
-  echo_message "  install       - Install an operating system on a VM."
-  echo_message "  start         - Start a virtual machine."
-  echo_message "  stop          - Stop a running virtual machine."
-  echo_message "  restart       - Restart a virtual machine."
-  echo_message "  console       - Access the console of a VM."
-  echo_message "  logs          - Display real-time logs for a VM."
-  echo_message "  list          - List all configured virtual machines and their static configuration."
-  echo_message "  status        - Show the live status and resource usage of all virtual machines."
-  echo_message "  autostart     - Enable or disable VM autostart on boot."
-  echo_message "  modify        - Modify VM configuration (CPU, RAM, network, etc.)."
-  echo_message "  clone         - Create a clone of an existing VM."
-  echo_message "  info          - Display detailed information about a VM."
-  echo_message "  resize-disk   - Resize a VM's disk image."
-  echo_message "  export        - Export a VM to an archive file."
-  echo_message "  import        - Import a VM from an archive file."
-  echo_message "  template      - Manage VM templates (create, list, delete)."
-  echo_message "  snapshot      - Manage VM snapshots (create, list, revert, delete)."
-  echo_message "  suspend       - Suspend a running virtual machine."
-  echo_message "  resume        - Resume a suspended virtual machine."
-  echo_message "  vnc           - Connect to a VM's VNC console."
-  echo_message "  iso           - Manage ISO images (list and download)."
-  echo_message "  switch        - Manage network bridges and physical interfaces."
-  echo_message "  stopall       - Stop all running virtual machines."
-  echo_message "  startall      - Start all configured virtual machines."
-  echo_message "  verify        - Verify the consistency and integrity of VM configurations."
-  echo_message "  vmnet         - Manage isolated virtual networks for VMs."
-  echo_message " "
-  echo_message "For detailed usage of each command, use: $0 <command> --help"
-}
-
-# === Usage Functions for All Commands ===
-# === Usage function for init ===
-cmd_init_usage() {
-  echo_message "Usage: $0 init"
-  echo_message "\nDescription:"
-  echo_message "  Initializes the bhyve-cli configuration."
-}
-
-# === Usage function for switch init ===
-cmd_switch_init_usage() {
-  echo_message "Usage: $0 switch init"
-  echo_message "\nDescription:"
-  echo_message "  Re-initializes all saved switch configurations from the switch config file."
-  echo_message "  This is useful for restoring network configuration after a host reboot."
-}
-
-# === Usage function for switch add ===
-cmd_switch_add_usage() {
-  echo_message "Usage: $0 switch add --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]"
-  echo_message "\nOptions:"
-  echo_message "  --name <bridge_name>         - Name of the bridge or vSwitch."
-  echo_message "  --interface <physical_interface> - Parent physical network interface (e.g., em0, igb1)."
-  echo_message "  --vlan <vlan_tag>            - Optional. VLAN ID if the parent interface is in trunk mode. A VLAN interface (e.g., vlan100) will be created on top of the physical interface and tagged to the bridge."
-}
-
-
-# === Usage function for switch destroy ===
-cmd_switch_destroy_usage() {
-  echo_message "Usage: $0 switch destroy <bridge_name>"
-  echo_message "\nArguments:"
-  echo_message "  <bridge_name> - The name of the bridge to destroy."
-}
-
-# === Usage function for switch delete ===
-cmd_switch_delete_usage() {
-  echo_message "\nUsage: $0 switch delete --member <interface> --from <bridge_name>"
-  echo_message "\nOptions:"
-  echo_message "  --member <interface> \t- The specific member interface to remove (e.g., tap0, vlan100)."
-  echo_message "  --from <bridge_name> \t- The bridge from which to remove the member."
-}
-
-# === Usage function for switch ===
-cmd_switch_usage() {
-  echo_message "Usage: $0 switch [subcommand] [Option] [Arguments]"
-  echo_message "\nSubcommands:"
-  echo_message "  init        - Re-initialize all saved switch configurations."
-  echo_message "  add         - Create a bridge and add a physical interface"
-
-  echo_message "  list        - List all bridge interfaces and their members"
-  echo_message "  destroy     - Destroy a bridge and all its members"
-  echo_message "  delete      - Remove a specific member from a bridge"
-}
-
 # === Usage function for create ===
 cmd_create_usage() {
   echo_message "Usage: $0 create --name <vmname> --disk-size <disksize in GB> --switch <bridge_name> [--bootloader <type>] [--vnc-port <port>] [--vnc-wait] [--nic-type <type>]"
@@ -146,11 +55,7 @@ cmd_console_usage() {
   echo_message "  <vmname>    - The name of the virtual machine to connect to."
 }
 
-# === Usage function for logs ===
-cmd_logs_usage() {
-  echo_message "Usage: $0 logs <vmname>\nArguments:"
-  echo_message "  <vmname>    - The name of the virtual machine whose logs you want to view."
-}
+
 
 # === Usage function for autostart ===
 cmd_autostart_usage() {
@@ -263,56 +168,6 @@ cmd_startall_usage() {
   echo_message "Usage: $0 startall"
 }
 
-# === Usage function for ISO ===
-cmd_iso_usage() {
-  echo_message "Usage: $0 iso [list | <URL> | delete <iso_filename>]"
-  echo_message "\nSubcommands:"
-  echo_message "  list         - List all ISO images in $ISO_DIR."
-  echo_message "  <URL>        - Download an ISO image from the specified URL to $ISO_DIR."
-  echo_message "  delete <iso_filename> - Delete a specified ISO image from $ISO_DIR."
-  echo_message "\nExample:"
-  echo_message "  $0 iso list"
-  echo_message "  $0 iso https://example.com/freebsd.iso"
-  echo_message "  $0 iso delete my_iso.iso"
-}
-
-# === Usage function for VNC ===
-cmd_vnc_usage() {
-  echo_message "Usage: $0 vnc <vmname>"
-  echo_message "\nArguments:"
-  echo_message "  <vmname>    - The name of the virtual machine to connect to via VNC."
-  echo_message "\nDescription:"
-  echo_message "  Connects to the VNC console of a running VM. Requires a VNC client installed on the host."
-}
-
-# === Usage function for snapshot ===
-cmd_snapshot_usage() {
-  echo_message "Usage: $0 snapshot <subcommand> [options/arguments]"
-  echo_message "\nSubcommands:"
-  echo_message "  create <vmname> <snapshot_name> - Creates a new snapshot of the VM."
-  echo_message "  list <vmname>                   - Lists all snapshots for the specified VM."
-  echo_message "  revert <vmname> <snapshot_name> - Reverts the VM to a specified snapshot. VM must be stopped."
-  echo_message "  delete <vmname> <snapshot_name> - Deletes a specified snapshot."
-  echo_message "\nExamples:"
-  echo_message "  $0 snapshot create myvm initial_state"
-  echo_message "  $0 snapshot list myvm"
-  echo_message "  $0 snapshot revert myvm initial_state"
-  echo_message "  $0 snapshot delete myvm initial_state"
-}
-
-# === Usage function for template ===
-cmd_template_usage() {
-  echo_message "Usage: $0 template <subcommand> [options/arguments]"
-  echo_message "\nSubcommands:"
-  echo_message "  create <source_vmname> <template_name> - Creates a new template from an existing VM."
-  echo_message "  list                                   - Lists all available VM templates."
-  echo_message "  delete <template_name>                 - Deletes a specified template."
-  echo_message "\nExamples:"
-  echo_message "  $0 template create myvm my_template"
-  echo_message "  $0 template list"
-  echo_message "  $0 template delete my_template"
-}
-
 # === Usage function for suspend ===
 cmd_suspend_usage() {
   echo_message "Usage: $0 suspend <vmname>"
@@ -329,11 +184,4 @@ cmd_resume_usage() {
   echo_message "  <vmname>    - The name of the virtual machine to resume."
   echo_message "\nDescription:"
   echo_message "  Resumes a previously suspended virtual machine from its saved state."
-}
-
-# === Usage function for verify ===
-cmd_verify_usage() {
-  echo_message "Usage: $0 verify"
-  echo_message "\nDescription:"
-  echo_message "  Verifies the consistency and integrity of all VM configurations, checking for syntax errors and missing disk images."
 }

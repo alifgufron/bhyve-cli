@@ -1,0 +1,3482 @@
+#!/usr/local/bin/bash
+
+# === Ensure Script is Run with Bash ===
+if [ -z "$BASH_VERSION" ]; then
+  echo_message "[ERROR] This script requires Bash to run. Please execute with 'bash <script_name>' or ensure your shell is Bash."
+  exit 1
+fi
+
+# === Global Variables ===
+CONFIG_DIR="/usr/local/etc/bhyve-cli"
+MAIN_CONFIG_FILE="$CONFIG_DIR/bhyve-cli.conf"
+VM_CONFIG_BASE_DIR="$CONFIG_DIR/vm.d"
+SWITCH_CONFIG_FILE="$CONFIG_DIR/switch.conf"
+VERSION="1.1.0"
+
+# These will be loaded from the main config file
+ISO_DIR=""
+UEFI_FIRMWARE_PATH=""
+GLOBAL_LOG_FILE=""
+
+# === Bhyve Binaries Paths ===
+BHYVE="/usr/sbin/bhyve"
+BHYVECTL="/usr/sbin/bhyvectl"
+BHYVELOAD="/usr/sbin/bhyveload"
+
+# === Log Function with Timestamp ===
+log() {
+  local TIMESTAMP_MESSAGE
+  TIMESTAMP_MESSAGE="[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1"
+  # Write to VM-specific log file if LOG_FILE is set
+  if [ -n "$LOG_FILE" ]; then
+    echo "$TIMESTAMP_MESSAGE" >> "$LOG_FILE"
+  fi
+  # Always write to global log file for verbose debugging
+  echo "$TIMESTAMP_MESSAGE" >> "$GLOBAL_LOG_FILE"
+}
+
+# === Function to echo messages to console without timestamp ===
+echo_message() {
+  echo -e "$1" >&2
+}
+
+# === Function to display message to console with timestamp and log to file ===
+display_and_log() {
+  local LEVEL="$1"
+  local MESSAGE="$2"
+  local TIMESTAMP_MESSAGE
+  TIMESTAMP_MESSAGE="[$(date '+%Y-%m-%d %H:%M:%S')] [$LEVEL] $MESSAGE"
+  echo "$MESSAGE" >&2 # === Display to console without timestamp or INFO prefix ===
+  # Write to VM-specific log file if LOG_FILE is set
+  if [ -n "$LOG_FILE" ]; then
+    echo "$TIMESTAMP_MESSAGE" >> "$LOG_FILE"
+  fi
+  # Always write to global log file
+  echo "$TIMESTAMP_MESSAGE" >> "$GLOBAL_LOG_FILE"
+}
+
+# === Function to write to global log file only ===
+log_to_global_file() {
+  local LEVEL="$1"
+  local MESSAGE="$2"
+  if [ -n "$GLOBAL_LOG_FILE" ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$LEVEL] $MESSAGE" >> "$GLOBAL_LOG_FILE"
+  fi
+}
+
+# === Spinner Functions ===
+_spinner_chars='|/-\'
+_spinner_pid=
+
+start_spinner() {
+  local message="$1"
+  echo -n "$message"
+  (
+    while :; do
+      for (( i=0; i<${#_spinner_chars}; i++ )); do
+        echo -ne "${_spinner_chars:$i:1}"
+        echo -ne "\b"
+        sleep 0.1
+      done
+    done
+  ) &
+  _spinner_pid=$!
+  trap stop_spinner EXIT
+}
+
+stop_spinner() {
+  if [[ -n "$_spinner_pid" ]]; then
+    kill "$_spinner_pid" >/dev/null 2>&1
+    wait "$_spinner_pid" 2>/dev/null
+    echo -ne "\n"
+  fi
+}
+
+# === Prerequisite Checks ===
+check_root() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo_message "ERROR This script must be run with superuser (root) privileges."
+    exit 1
+  fi
+}
+
+check_kld() {
+  if ! kldstat -q -m "$1"; then
+    display_and_log "ERROR" "Kernel module '$1.ko' is not loaded. Please run 'kldload $1'."
+    exit 1
+  fi
+}
+
+# === Helper function to check if a VM is running ===
+is_vm_running() {
+  local VMNAME_CHECK="$1"
+  get_vm_pid "$VMNAME_CHECK" > /dev/null
+  return $?
+}
+
+# === Helper functions for VM PID file management ===
+get_vm_pid() {
+  local VMNAME_GET_PID="$1"
+  local VM_DIR_GET_PID="$VM_CONFIG_BASE_DIR/$VMNAME_GET_PID"
+  local PID=""
+  if [ -f "$VM_DIR_GET_PID/vm.pid" ]; then
+    PID=$(cat "$VM_DIR_GET_PID/vm.pid")
+    if [ -n "$PID" ] && ps -p "$PID" > /dev/null 2>&1; then
+      echo "$PID"
+      return 0
+    fi
+  fi
+  # Fallback to pgrep if vm.pid is not found or invalid
+  PID=$(pgrep -f "bhyve .* $VMNAME_GET_PID$")
+  if [ -n "$PID" ] && ps -p "$PID" > /dev/null 2>&1; then
+    echo "$PID"
+    return 0
+  fi
+  return 1 # PID not found
+}
+
+save_vm_pid() {
+  local VMNAME_SAVE_PID="$1"
+  local PID_TO_SAVE="$2"
+  local VM_DIR_SAVE_PID="$VM_CONFIG_BASE_DIR/$VMNAME_SAVE_PID"
+  echo "$PID_TO_SAVE" > "$VM_DIR_SAVE_PID/vm.pid"
+}
+
+delete_vm_pid() {
+  local VMNAME_DELETE_PID="$1"
+  local VM_DIR_DELETE_PID="$VM_CONFIG_BASE_DIR/$VMNAME_DELETE_PID"
+  if [ -f "$VM_DIR_DELETE_PID/vm.pid" ]; then
+    rm "$VM_DIR_DELETE_PID/vm.pid"
+  fi
+}
+
+# === Helper Functions ===
+ensure_nmdm_device_nodes() {
+  local CONSOLE_DEVICE="$1"
+  if [ ! -e "/dev/${CONSOLE_DEVICE}A" ]; then
+    log "Creating nmdm device node /dev/${CONSOLE_DEVICE}A"
+    mknod "/dev/${CONSOLE_DEVICE}A" c 106 0
+    local MKNOD_A_EXIT_CODE=$?
+    if [ $MKNOD_A_EXIT_CODE -ne 0 ]; then
+      display_and_log "ERROR" "Failed to create /dev/${CONSOLE_DEVICE}A (mknod exit code: $MKNOD_A_EXIT_CODE)"; exit 1;
+    fi
+    chmod 660 "/dev/${CONSOLE_DEVICE}A"
+    local CHMOD_A_EXIT_CODE=$?
+    if [ $CHMOD_A_EXIT_CODE -ne 0 ]; then
+      display_and_log "ERROR" "Failed to set permissions for /dev/${CONSOLE_DEVICE}A (chmod exit code: $CHMOD_A_EXIT_CODE)"; exit 1;
+    fi
+    log "Created /dev/${CONSOLE_DEVICE}A. Permissions: $(stat -f "%Sp" "/dev/${CONSOLE_DEVICE}A")"
+  fi
+  if [ ! -e "/dev/${CONSOLE_DEVICE}B" ]; then
+    log "Creating nmdm device node /dev/${CONSOLE_DEVICE}B"
+    mknod "/dev/${CONSOLE_DEVICE}B" c 106 1
+    local MKNOD_B_EXIT_CODE=$?
+    if [ $MKNOD_B_EXIT_CODE -ne 0 ]; then
+      display_and_log "ERROR" "Failed to create /dev/${CONSOLE_DEVICE}B (mknod exit code: $MKNOD_B_EXIT_CODE)"; exit 1;
+    fi
+    chmod 660 "/dev/${CONSOLE_DEVICE}B"
+    local CHMOD_B_EXIT_CODE=$?
+    if [ $CHMOD_B_EXIT_CODE -ne 0 ]; then
+      display_and_log "ERROR" "Failed to set permissions for /dev/${CONSOLE_DEVICE}B (chmod exit code: $CHMOD_B_EXIT_CODE)"; exit 1;
+    fi
+    log "Created /dev/${CONSOLE_DEVICE}B. Permissions: $(stat -f "%Sp" "/dev/${CONSOLE_DEVICE}B")"
+  fi
+}
+
+# === Helper function to find the next available TAP number ===
+get_next_available_tap_num() {
+  local USED_TAPS=()
+
+  # Get currently active TAP interfaces
+  local ACTIVE_TAPS
+  ACTIVE_TAPS=$(ifconfig -l | tr ' ' '\n' | grep '^tap' | sed 's/tap//' | sort -n)
+  for tap_num in $ACTIVE_TAPS; do
+    USED_TAPS+=("$tap_num")
+  done
+
+  # Get TAP interfaces configured in all vm.conf files
+  for VMCONF_FILE in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
+    if [ -f "$VMCONF_FILE" ]; then
+      local CONFIGURED_TAPS
+      CONFIGURED_TAPS=$(grep '^TAP_[0-9]*=' "$VMCONF_FILE" | cut -d'=' -f2 | sed 's/tap//' | sort -n)
+      for tap_num in $CONFIGURED_TAPS; do
+        USED_TAPS+=("$tap_num")
+      done
+    fi
+  done
+
+  # Sort and get unique numbers
+  local UNIQUE_USED_TAPS
+  UNIQUE_USED_TAPS=$(printf "%s\n" "${USED_TAPS[@]}" | sort -n -u)
+
+  local NEXT_TAP_NUM=0
+  for num in $UNIQUE_USED_TAPS; do
+    if [ "$num" -eq "$NEXT_TAP_NUM" ]; then
+      NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
+    else
+      break # Found a gap
+    fi
+  done
+  echo "$NEXT_TAP_NUM"
+}
+
+# === Helper function to create and configure a TAP interface ===
+create_and_configure_tap_interface() {
+  local TAP_NAME="$1"
+  local MAC_ADDRESS="$2"
+  local BRIDGE_NAME="$3"
+  local VM_NAME="$4"
+  local NIC_IDX="$5"
+
+  log "Attempting to create TAP interface '$TAP_NAME'..."
+  local CREATE_TAP_CMD="ifconfig \"$TAP_NAME\" create"
+  log "Executing: $CREATE_TAP_CMD"
+  ifconfig "$TAP_NAME" create || { display_and_log "ERROR" "Failed to create TAP interface '$TAP_NAME'. Command: '$CREATE_TAP_CMD'"; return 1; }
+  log "TAP interface '$TAP_NAME' successfully created."
+
+  log "Setting TAP description for '$TAP_NAME'..."
+  local TAP_DESC="vmnet/${VM_NAME}/${NIC_IDX}/${BRIDGE_NAME}"
+  local DESC_TAP_CMD="ifconfig \"$TAP_NAME\" description \"$TAP_DESC\""
+  log "Executing: $DESC_TAP_CMD"
+  ifconfig "$TAP_NAME" description "$TAP_DESC" || { display_and_log "WARNING" "Failed to set description for TAP interface '$TAP_NAME'. Command: '$DESC_TAP_CMD'"; }
+  log "TAP description for '$TAP_NAME' set to: '$TAP_DESC'."
+
+  log "Activating TAP interface '$TAP_NAME'..."
+  local ACTIVATE_TAP_CMD="ifconfig \"$TAP_NAME\" up"
+  log "Executing: $ACTIVATE_TAP_CMD"
+  ifconfig "$TAP_NAME" up || { display_and_log "ERROR" "Failed to activate TAP interface '$TAP_NAME'. Command: '$ACTIVATE_TAP_CMD'"; return 1; }
+  log "TAP '$TAP_NAME' activated successfully."
+
+  # === Check and create bridge interface if it doesn't exist ===
+  if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
+    log "Bridge interface '$BRIDGE_NAME' does not exist. Attempting to create..."
+    local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$BRIDGE_NAME\""
+    log "Executing: $CREATE_BRIDGE_CMD"
+    ifconfig bridge create name "$BRIDGE_NAME" || { display_and_log "ERROR" "Failed to create bridge '$BRIDGE_NAME'. Command: '$CREATE_BRIDGE_CMD'"; return 1; }
+    log "Bridge interface '$BRIDGE_NAME' successfully created."
+  else
+    log "Bridge interface '$BRIDGE_NAME' already exists. Skipping creation."
+  fi
+
+  log "Adding TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'..."
+  local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$BRIDGE_NAME\" addm \"$TAP_NAME\""
+  log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
+  ifconfig "$BRIDGE_NAME" addm "$TAP_NAME" || { display_and_log "ERROR" "Failed to add TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
+  log "TAP '$TAP_NAME' successfully added to bridge '$BRIDGE_NAME'."
+
+  return 0
+}
+
+# === Helper function to build disk arguments ===
+build_disk_args() {
+  local VM_DIR="$1"
+  local DISK_ARGS=""
+  local DISK_DEV_NUM=3 # Starting device number for virtio-blk
+
+  local CURRENT_DISK_IDX=0
+  while true; do
+    local CURRENT_DISK_VAR="DISK"
+    if [ "$CURRENT_DISK_IDX" -gt 0 ]; then
+      CURRENT_DISK_VAR="DISK_${CURRENT_DISK_IDX}"
+    fi
+    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+
+    if [ -z "$CURRENT_DISK_FILENAME" ]; then
+      break # No more disks configured
+    fi
+
+    local CURRENT_DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
+    if [ ! -f "$CURRENT_DISK_PATH" ]; then
+      display_and_log "ERROR" "Disk image '$CURRENT_DISK_PATH' not found!"
+      echo "" # Return empty string for DISK_ARGS
+      echo "1" # Indicate error for next_dev_num (arbitrary non-zero to signal error)
+      return 1
+    fi
+    DISK_ARGS+=" -s ${DISK_DEV_NUM}:0,virtio-blk,"$CURRENT_DISK_PATH""
+    DISK_DEV_NUM=$((DISK_DEV_NUM + 1))
+    CURRENT_DISK_IDX=$((CURRENT_DISK_IDX + 1))
+  done
+  echo "$DISK_ARGS"
+  echo "$DISK_DEV_NUM" # Echo the next available device number
+  return 0
+}
+
+# === Helper function to build network arguments ===
+build_network_args() {
+  local VMNAME="$1"
+  local VM_DIR="$2" # Not directly used here, but might be useful for future expansion
+  local NETWORK_ARGS=""
+  local NIC_DEV_NUM=10 # Starting device number for virtio-net
+
+  local NIC_IDX=0
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+
+    if [ -z "$CURRENT_TAP" ]; then
+      break # No more network interfaces configured
+    fi
+
+    log "Checking network interface NIC_${NIC_IDX} (TAP: $CURRENT_TAP, MAC: $CURRENT_MAC, Bridge: $CURRENT_BRIDGE)"
+
+    # === Create and configure TAP interface if it doesn't exist or activate if it does ===
+    if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
+      if ! create_and_configure_tap_interface "$CURRENT_TAP" "$CURRENT_MAC" "$CURRENT_BRIDGE" "$VMNAME" "$NIC_IDX"; then
+        return 1
+      fi
+    else
+      log "TAP '$CURRENT_TAP' already exists. Attempting to activate and ensure bridge connection..."
+      local ACTIVATE_TAP_CMD="ifconfig "$CURRENT_TAP" up"
+      log "Executing: $ACTIVATE_TAP_CMD"
+      ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate existing TAP interface '$CURRENT_TAP'. Command: '$ACTIVATE_TAP_CMD'"; return 1; }
+      log "TAP '$CURRENT_TAP' activated."
+
+      # Ensure bridge exists and TAP is a member
+      if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
+        log "Bridge interface '$CURRENT_BRIDGE' does not exist. Attempting to create..."
+        local CREATE_BRIDGE_CMD="ifconfig bridge create name "$CURRENT_BRIDGE""
+        log "Executing: $CREATE_BRIDGE_CMD"
+        ifconfig bridge create name "$CURRENT_BRIDGE" || { display_and_log "ERROR" "Failed to create bridge '$CURRENT_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; return 1; }
+        log "Bridge interface '$CURRENT_BRIDGE' successfully created."
+      fi
+
+      if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
+        log "Adding TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'...";
+        local ADD_TAP_TO_BRIDGE_CMD="ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP""
+        log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
+        ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP" || { display_and_log "ERROR" "Failed to add TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
+      else
+        log "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'."
+      fi
+    fi
+
+    NETWORK_ARGS+=" -s ${NIC_DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\",mac=\"$CURRENT_MAC\""
+    NIC_DEV_NUM=$((NIC_DEV_NUM + 1))
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+  echo "$NETWORK_ARGS"
+  return 0
+}
+
+run_bhyveload() {
+  local DATA_PATH="$1"
+  local QUIET_LOAD="${2:-false}" # New optional parameter
+
+  if [ "$QUIET_LOAD" = true ]; then
+    log "Loading kernel via bhyveload (quiet mode)..."
+    $BHYVELOAD -m "$MEMORY" -d "$DATA_PATH" -c stdio "$VMNAME" > /dev/null 2>&1
+  else
+    display_and_log "INFO" "Loading kernel via bhyveload..."
+    $BHYVELOAD -m "$MEMORY" -d "$DATA_PATH" -c stdio "$VMNAME"
+  fi
+  local exit_code=$?
+  if [ $exit_code -ne 0 ]; then
+    echo_message "[ERROR] bhyveload failed with exit code $exit_code. Cannot proceed."
+    $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
+    return 1
+  fi
+  log "bhyveload completed successfully."
+  return 0
+}
+
+# === Function to clean up VM network interfaces ===
+cleanup_vm_network_interfaces() {
+  log "Entering cleanup_vm_network_interfaces function for VM: $1"
+  local VMNAME_CLEANUP="$1"
+  local VM_DIR_CLEANUP="$VM_CONFIG_BASE_DIR/$VMNAME_CLEANUP"
+  local CONF_FILE_CLEANUP="$VM_DIR_CLEANUP/vm.conf"
+
+  if [ ! -f "$CONF_FILE_CLEANUP" ]; then
+    log "VM config file not found for $VMNAME_CLEANUP. Skipping network cleanup."
+    return
+  fi
+
+  log "Cleaning up network interfaces for VM '$VMNAME_CLEANUP'..."
+
+  local NIC_IDX=0
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+
+    if [ -z "$CURRENT_TAP" ]; then
+      break # No more network interfaces configured
+    fi
+
+    if ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
+      log "Removing TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'..."
+      if ! ifconfig "$CURRENT_BRIDGE" deletem "$CURRENT_TAP"; then
+        log "WARNING: Failed to remove TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'."
+      fi
+    fi
+
+    if ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
+      log "Destroying TAP interface '$CURRENT_TAP'..."
+      if ! ifconfig "$CURRENT_TAP" destroy; then
+        log "WARNING: Failed to destroy TAP interface '$CURRENT_TAP'."
+      fi
+    fi
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+  log "Network interface cleanup for '$VMNAME_CLEANUP' complete."
+  log "Exiting cleanup_vm_network_interfaces function for VM: $VMNAME_CLEANUP"
+
+
+  log "Entering cleanup_vm_processes for VM: $VM_NAME_CLEANUP"
+
+  # Explicitly kill bhyve process associated with this VMNAME
+  local VM_PIDS_TO_KILL
+  VM_PIDS_TO_KILL=$(get_vm_pid "$VM_NAME_CLEANUP")
+  if [ -n "$VM_PIDS_TO_KILL" ]; then
+      local PIDS_STRING
+  PIDS_STRING=$(echo "$VM_PIDS_TO_KILL" | tr '\n' ' ')
+      log "Sending TERM signal to bhyve PID(s): $PIDS_STRING"
+      kill $VM_PIDS_TO_KILL
+      sleep 1 # Give it a moment to terminate
+
+      for pid_to_check in $VM_PIDS_TO_KILL; do
+          if ps -p "$pid_to_check" > /dev/null 2>&1; then
+              log "PID $pid_to_check still running, forcing KILL..."
+              kill -9 "$pid_to_check"
+              sleep 1
+          fi
+      done
+      log "bhyve process(es) stopped."
+  else
+      log "No bhyve process found for '$VM_NAME_CLEANUP' to kill."
+  fi
+
+  # Now, destroy from kernel memory
+  if $BHYVECTL --vm="$VM_NAME_CLEANUP" --destroy > /dev/null 2>&1; then
+      log "VM '$VM_NAME_CLEANUP' successfully destroyed from kernel memory."
+  else
+      log "VM '$VM_NAME_CLEANUP' was not found in kernel memory (already destroyed or never started)."
+  fi
+
+  # Kill any lingering cu or tail -f processes
+  log "Attempting to stop associated cu processes for /dev/${CONSOLE_DEVICE_CLEANUP}B and /dev/${CONSOLE_DEVICE_CLEANUP}A..."
+  pkill -f "cu -l /dev/${CONSOLE_DEVICE_CLEANUP}B" > /dev/null 2>&1
+  pkill -f "cu -l /dev/${CONSOLE_DEVICE_CLEANUP}A" > /dev/null 2>&1
+
+  # Only kill tail -f process if it's not the global log file and is not empty
+  if [ -n "$LOG_FILE_CLEANUP" ] && [ "$LOG_FILE_CLEANUP" != "$GLOBAL_LOG_FILE" ]; then
+    log "Attempting to stop associated tail -f process for $LOG_FILE_CLEANUP..."
+    pkill -f "tail -f $LOG_FILE_CLEANUP" > /dev/null 2>&1
+  else
+    log "Skipping termination of tail -f for global log file or empty log path: $LOG_FILE_CLEANUP."
+  fi
+  log "Exiting cleanup_vm_processes for VM: $VM_NAME_CLEANUP"
+}
+
+
+
+# === Function to load main configuration ===
+load_config() {
+  if [ -f "$MAIN_CONFIG_FILE" ]; then
+      # shellcheck disable=SC1090
+    . "$MAIN_CONFIG_FILE"
+  fi
+  # Set default log file if not set in config
+  GLOBAL_LOG_FILE="${GLOBAL_LOG_FILE:-/var/log/bhyve-cli.log}"
+  VM_CONFIG_BASE_DIR="${VM_CONFIG_BASE_DIR:-$CONFIG_DIR/vm.d}" # Ensure default if not in config
+}
+
+# === Function to check if the script has been initialized ===
+check_initialization() {
+  if [ "$1" != "init" ] && [ ! -f "$MAIN_CONFIG_FILE" ]; then
+    echo_message "
+[ERROR] bhyve-cli has not been initialized."
+    echo_message "Please run the command '$0 init' to generate the required configuration files."
+    exit 1
+  fi
+}
+
+
+# === Function to load VM configuration ===
+load_vm_config() {
+  VMNAME="$1"
+  VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
+  CONF_FILE="$VM_DIR/vm.conf"
+
+  if [ ! -f "$CONF_FILE" ]; then
+    display_and_log "ERROR" "VM configuration '$VMNAME' not found: $CONF_FILE"
+    exit 1
+  fi
+    # shellcheck disable=SC1090
+  . "$CONF_FILE"
+  LOG_FILE="$VM_DIR/vm.log" # Set LOG_FILE after loading config
+  BOOTLOADER_TYPE="${BOOTLOADER_TYPE:-bhyveload}" # Default to bhyveload if not set
+}
+
+# === Main Usage Function ===
+main_usage() {
+  echo_message "Usage: $0 <command> [options/arguments]"
+  echo_message " "
+  echo_message "Available Commands:"
+  echo_message "  init          - Initialize bhyve-cli configuration."
+  echo_message "  create        - Create a new virtual machine."
+  echo_message "  delete        - Delete an existing virtual machine."
+  echo_message "  install       - Install an operating system on a VM."
+  echo_message "  start         - Start a virtual machine."
+  echo_message "  stop          - Stop a running virtual machine."
+  echo_message "  restart       - Restart a virtual machine."
+  echo_message "  console       - Access the console of a VM."
+  echo_message "  logs          - Display real-time logs for a VM."
+  echo_message "  status        - Show the status of all virtual machines."
+  echo_message "  autostart     - Enable or disable VM autostart on boot."
+  echo_message "  modify        - Modify VM configuration (CPU, RAM, network, etc.)."
+  echo_message "  clone         - Create a clone of an existing VM."
+  echo_message "  info          - Display detailed information about a VM."
+  echo_message "  resize-disk   - Resize a VM's disk image."
+  echo_message "  export        - Export a VM to an archive file."
+  echo_message "  import        - Import a VM from an archive file."
+  echo_message "  iso           - Manage ISO images (list and download)."
+  echo_message "  switch        - Manage network bridges and physical interfaces."
+  echo_message "  stopall       - Stop all running virtual machines."
+  echo_message "  startall      - Start all configured virtual machines."
+  echo_message " "
+  echo_message "For detailed usage of each command, use: $0 <command> --help"
+}
+
+# === Usage Functions for All Commands ===
+# === Usage function for init ===
+cmd_init_usage() {
+  echo_message "Usage: $0 init"
+  echo_message "\nDescription:"
+  echo_message "  Initializes the bhyve-cli configuration directory and files."
+}
+
+# === Usage function for switch init ===
+cmd_switch_init_usage() {
+  echo_message "Usage: $0 switch init"
+  echo_message "\nDescription:"
+  echo_message "  Re-initializes all saved switch configurations from the switch config file."
+  echo_message "  This is useful for restoring network configuration after a host reboot."
+}
+
+# === Usage function for switch add ===
+cmd_switch_add_usage() {
+  echo_message "Usage: $0 switch add --name <bridge_name> --interface <physical_interface> [--vlan <vlan_tag>]"
+  echo_message "\nOptions:"
+  echo_message "  --name <bridge_name>         - Name of the bridge or vSwitch."
+  echo_message "  --interface <physical_interface> - Parent physical network interface (e.g., em0, igb1)."
+  echo_message "  --vlan <vlan_tag>            - Optional. VLAN ID if the parent interface is in trunk mode. A VLAN interface (e.g., vlan100) will be created on top of the physical interface and tagged to the bridge."
+}
+
+
+# === Usage function for switch destroy ===
+cmd_switch_destroy_usage() {
+  echo_message "Usage: $0 switch destroy <bridge_name>"
+  echo_message "\nArguments:"
+  echo_message "  <bridge_name> - The name of the bridge to destroy."
+}
+
+# === Usage function for switch delete ===
+cmd_switch_delete_usage() {
+  echo_message "\nUsage: $0 switch delete --member <interface> --from <bridge_name>"
+  echo_message "\nOptions:"
+  echo_message "  --member <interface> \t- The specific member interface to remove (e.g., tap0, vlan100)."
+  echo_message "  --from <bridge_name> \t- The bridge from which to remove the member."
+}
+
+# === Usage function for switch ===
+cmd_switch_usage() {
+  echo_message "Usage: $0 switch [subcommand] [Option] [Arguments]"
+  echo_message "\nSubcommands:"
+  echo_message "  init        - Re-initialize all saved switch configurations."
+  echo_message "  add         - Create a bridge and add a physical interface"
+
+  echo_message "  list        - List all bridge interfaces and their members"
+  echo_message "  destroy     - Destroy a bridge and all its members"
+  echo_message "  delete      - Remove a specific member from a bridge"
+}
+
+# === Usage function for create ===
+cmd_create_usage() {
+  echo_message "Usage: $0 create --name <vmname> --disk-size <disksize in GB> --switch <bridge_name> [--bootloader <type>]"
+  echo_message "\nOptions:"
+  echo_message "  --name <vmname>              - Name of the virtual machine."
+  echo_message "  --disk-size <size in GB>     - Size of the virtual disk in GB."
+  echo_message "  --switch <bridge_name>       - Name of the network bridge to connect the VM to."
+  echo_message "  --bootloader <type>          - Optional. Type of bootloader (bhyveload, uefi). Default: bhyveload."
+  echo_message "\nExample:"
+  echo_message "  $0 create --name vm-bsd --disk-size 40 --switch bridge100"
+  echo_message "  $0 create --name vm-uefi --disk-size 60 --switch bridge101 --bootloader uefi"
+}
+
+# === Usage function for delete ===
+cmd_delete_usage() {
+  echo_message "Usage: $0 delete <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to permanently delete."
+}
+
+# === Usage function for install ===
+cmd_install_usage() {
+  echo_message "Usage: $0 install <vmname> [--bootloader <type>]"
+  echo_message "\nOptions:"
+  echo_message "  --bootloader <type>          - Optional. Override the bootloader type for this installation (bhyveload, uefi)."
+}
+
+# === Usage function for start ===
+cmd_start_usage() {
+  echo_message "Usage: $0 start <vmname> [--console]"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to start."
+  echo_message "\nOptions:"
+  echo_message "  --console   - Automatically connect to the VM's console after starting. Bootloader output will be shown."
+}
+
+# === Usage function for stop ===
+cmd_stop_usage() {
+  echo_message "Usage: $0 stop <vmname> [--force]"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to stop."
+  echo_message "\nOptions:"
+  echo_message "  --force     - Forcefully stop the VM without attempting a graceful shutdown."
+}
+
+# === Usage function for console ===
+cmd_console_usage() {
+  echo_message "Usage: $0 console <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to connect to."
+}
+
+# === Usage function for logs ===
+cmd_logs_usage() {
+  echo_message "Usage: $0 logs <vmname>"
+  echo_message "
+Arguments:"
+  echo_message "  <vmname>    - The name of the virtual machine whose logs you want to view."
+}
+
+# === Usage function for autostart ===
+cmd_autostart_usage() {
+  echo_message "Usage: $0 autostart <vmname> <enable|disable>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine."
+  echo_message "  <action>    - 'enable' to set the VM to autostart on boot, or 'disable' to prevent it."
+}
+
+# === Usage function for info ===
+cmd_info_usage() {
+  echo_message "Usage: $0 info <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to display information about."
+}
+
+# === Usage function for modify ===
+cmd_modify_usage() {
+  echo_message "Usage: $0 modify <vmname> [options]"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to modify."
+  echo_message "\nOptions:"
+  echo_message "  --cpu <num>                  - Set the number of virtual CPUs for the VM."
+  echo_message "  --ram <size>                 - Set the amount of RAM for the VM (e.g., 2G, 4096M)."
+  echo_message "  --nic <index>                - Specify the index of an existing network interface to modify (e.g., 0 for TAP_0, 1 for TAP_1). This option MUST be used with --tap, --mac, or --bridge."
+  echo_message "  --tap <tap_name>             - Assign a new TAP device name to the specified NIC (requires --nic).
+                                   Example: --nic 0 --tap newtap0"
+  echo_message "  --mac <mac_address>          - Assign a new MAC address to the specified NIC (requires --nic).
+                                   Example: --nic 0 --mac 58:9c:fc:00:00:01"
+  echo_message "  --bridge <bridge_name>       - Connect the specified NIC to a different bridge (requires --nic).
+                                   Example: --nic 0 --bridge newbridge"
+  echo_message "  --add-nic <bridge_name>      - Automatically add a NEW network interface to the VM, connected to the specified bridge."
+  echo_message "  --remove-nic <index>         - Remove a network interface by its index (e.g., 0 for TAP_0)."
+  echo_message "  --add-disk <size_in_GB>      - Add a new virtual disk to the VM with the specified size in GB."
+  echo_message "  --remove-disk <index>        - Remove a virtual disk by its index (e.g., 0 for the primary disk, 1 for DISK_1)."
+  echo_message "\nExamples:"
+  echo_message "  $0 modify myvm --cpu 4 --ram 4096M"
+  echo_message "  $0 modify myvm --nic 0 --tap tap1 --bridge bridge1 # Modify existing NIC 0"
+  echo_message "  $0 modify myvm --add-nic bridge2                 # Add a new NIC connected to bridge2"
+  echo_message "  $0 modify myvm --add-disk 20"
+}
+
+# === Usage function for clone ===
+cmd_clone_usage() {
+  echo_message "Usage: $0 clone <source_vmname> <new_vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <source_vmname>    - The name of the existing virtual machine to clone."
+  echo_message "  <new_vmname>       - The name for the new cloned virtual machine."
+  echo_message "\nExample:"
+  echo_message "  $0 clone myvm newvm"
+}
+
+# === Usage function for resize-disk ===
+cmd_resize_disk_usage() {
+  echo_message "Usage: $0 resize-disk <vmname> <new_size_in_GB>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>         - The name of the virtual machine whose disk you want to resize."
+  echo_message "  <new_size_in_GB> - The new size of the virtual disk in GB. Must be larger than the current size."
+  echo_message "\nExample:"
+  echo_message "  $0 resize-disk myvm 60"
+}
+
+# === Usage function for export ===
+cmd_export_usage() {
+  echo_message "Usage: $0 export <vmname> <destination_path>"
+  echo_message "
+Arguments:"
+  echo_message "  <vmname>           - The name of the virtual machine to export."
+  echo_message "  <destination_path> - The full path including the filename for the exported archive (e.g., /tmp/myvm_backup.tar.gz)."
+  echo_message "
+Example:"
+  echo_message "  $0 export myvm /tmp/myvm_backup.tar.gz"
+}
+
+# === Usage function for import ===
+cmd_import_usage() {
+  echo_message "Usage: $0 import <path_to_vm_archive>"
+  echo_message "\nArguments:"
+  echo_message "  <path_to_vm_archive> - The full path to the VM archive file to import (e.g., /tmp/myvm_backup.tar.gz)."
+  echo_message "\nExample:"
+  echo_message "  $0 import /tmp/myvm_backup.tar.gz"
+}
+
+# === Usage function for restart ===
+cmd_restart_usage() {
+  echo_message "Usage: $0 restart <vmname> [--force]"
+  echo_message "
+Arguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to restart."
+  echo_message "
+Options:"
+  echo_message "  --force     - Perform a fast but unsafe restart (hard reset). Skips graceful shutdown."
+}
+
+# === Usage function for stopall ===
+cmd_stopall_usage() {
+  echo_message "Usage: $0 stopall [--force]"
+  echo_message "
+Options:"
+  echo_message "  --force     - Forcefully stop all VMs without attempting graceful shutdown."
+}
+
+# === Usage function for startall ===
+cmd_startall_usage() {
+  echo_message "Usage: $0 startall"
+}
+
+# === Usage function for ISO ===
+cmd_iso_usage() {
+  echo_message "Usage: $0 iso [list | <URL>]"
+  echo_message "\nSubcommands:"
+  echo_message "  list         - List all ISO images in $ISO_DIR."
+  echo_message "  <URL>        - Download an ISO image from the specified URL to $ISO_DIR."
+  echo_message "\nExample:"
+  echo_message "  $0 iso list"
+  echo_message "  $0 iso https://example.com/freebsd.iso"
+}
+
+
+# === Subcommand: iso ===
+cmd_iso() {
+  if [ -z "$1" ]; then
+    cmd_iso_usage
+    exit 1
+  fi
+
+  local SUBCOMMAND="$1"
+  shift
+
+  case "$SUBCOMMAND" in
+    list)
+      log "Listing ISO files in $ISO_DIR..."
+      if [ ! -d "$ISO_DIR" ]; then
+        display_and_log "INFO" "ISO directory '$ISO_DIR' not found. Creating it."
+        mkdir -p "$ISO_DIR"
+      fi
+      mapfile -t ISO_LIST < <(find "$ISO_DIR" -type f -name "*.iso" 2>/dev/null)
+      if [ ${#ISO_LIST[@]} -eq 0 ]; then
+        display_and_log "INFO" "No ISO files found in $ISO_DIR."
+      else
+        echo_message "\nAvailable ISOs in $ISO_DIR:"
+        local count=1
+        for iso in "${ISO_LIST[@]}"; do
+          local iso_filename=$(basename "$iso")
+          local iso_size_bytes=$(stat -f %z "$iso")
+          local iso_size_gb=$(echo "scale=2; $iso_size_bytes / (1024 * 1024 * 1024)" | bc)
+          echo_message "$((count++)). $iso_filename (${iso_size_gb}GB)"
+        done
+      fi
+      ;;
+    http://*|https://*)
+      local ISO_URL="$SUBCOMMAND"
+      local ISO_FILE="$(basename "$ISO_URL")"
+      local ISO_PATH="$ISO_DIR/$ISO_FILE"
+
+      mkdir -p "$ISO_DIR" || { display_and_log "ERROR" "Failed to create ISO directory '$ISO_DIR'."; exit 1; }
+
+      log "Downloading ISO from $ISO_URL to $ISO_PATH..."
+      display_and_log "INFO" "Downloading $ISO_FILE... This may take a while."
+      fetch "$ISO_URL" -o "$ISO_PATH" || {
+        display_and_log "ERROR" "Failed to download ISO from $ISO_URL."
+        exit 1
+      }
+      display_and_log "INFO" "ISO downloaded successfully to $ISO_PATH."
+      ;;
+    *)
+      display_and_log "ERROR" "Invalid subcommand or URL for 'iso': $SUBCOMMAND"
+      cmd_iso_usage
+      exit 1
+      ;;
+  esac
+}
+
+
+cmd_switch() {
+  if [ -z "$1" ]; then
+    cmd_switch_usage
+    exit 1
+  fi
+
+  local SUBCOMMAND="$1"
+  shift
+
+  case "$SUBCOMMAND" in
+    init)
+      cmd_switch_init
+      ;;
+    add)
+      cmd_switch_add "$@"
+      ;;
+    list)
+      cmd_switch_list
+      ;;
+    destroy)
+      cmd_switch_destroy "$@"
+      ;;
+    delete)
+      cmd_switch_delete "$@"
+      ;;
+    --help|help)
+      cmd_switch_usage
+      ;;
+    *)
+      display_and_log "ERROR" "Invalid subcommand for 'switch': $SUBCOMMAND"
+      cmd_switch_usage
+      exit 1
+      ;;
+  esac
+}
+
+
+cmd_switch_add() {
+  local BRIDGE_NAME=""
+  local PHYS_IF=""
+  local VLAN_TAG=""
+  local SAVE_CONFIG=true
+
+  # Parse named arguments
+  while (( "$#" )); do
+    case "$1" in
+      --name)
+        shift
+        BRIDGE_NAME="$1"
+        ;;
+      --interface)
+        shift
+        PHYS_IF="$1"
+        ;;
+      --vlan)
+        shift
+        VLAN_TAG="$1"
+        ;;
+      --no-save)
+        SAVE_CONFIG=false
+        ;;
+      *)
+        display_and_log "ERROR" "Invalid option: $1"
+        cmd_switch_add_usage
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  # Validate required arguments
+  if [ -z "$BRIDGE_NAME" ] || [ -z "$PHYS_IF" ]; then
+    cmd_switch_add_usage
+    exit 1
+  fi
+
+  log_to_global_file "INFO" "Checking physical interface '$PHYS_IF'..."
+  if ! ifconfig "$PHYS_IF" > /dev/null 2>&1; then
+    display_and_log "ERROR" "Physical interface '$PHYS_IF' not found."
+    exit 1
+  fi
+
+  # Bring up the physical interface
+  log_to_global_file "INFO" "Activating physical interface '$PHYS_IF'..."
+  if ! ifconfig "$PHYS_IF" up; then
+      log_to_global_file "WARNING" "Could not bring up physical interface '$PHYS_IF', it may already be up."
+  fi
+
+  MEMBER_IF="$PHYS_IF"
+  if [ -n "$VLAN_TAG" ]; then
+    VLAN_IF="vlan${VLAN_TAG}"
+    if ! ifconfig "$VLAN_IF" > /dev/null 2>&1; then
+      log_to_global_file "INFO" "Creating VLAN interface '$VLAN_IF'..."
+      if ! ifconfig "$VLAN_IF" create; then
+        display_and_log "ERROR" "Failed to create VLAN interface '$VLAN_IF'."
+        exit 1
+      fi
+      log_to_global_file "INFO" "Configuring '$VLAN_IF' with tag '$VLAN_TAG' on top of '$PHYS_IF'..."
+      if ! ifconfig "$VLAN_IF" vlan "$VLAN_TAG" vlandev "$PHYS_IF"; then
+        display_and_log "ERROR" "Failed to configure VLAN interface '$VLAN_IF'."
+        exit 1
+      fi
+      log_to_global_file "INFO" "VLAN interface '$VLAN_IF' successfully configured."
+      display_and_log "INFO" "Successfully created interface $VLAN_IF with VLAN $VLAN_TAG and vlandev to $PHYS_IF."
+    else
+      log_to_global_file "INFO" "VLAN interface '$VLAN_IF' already exists."
+    fi
+    MEMBER_IF="$VLAN_IF"
+    # Bring up the vlan interface
+    log_to_global_file "INFO" "Activating VLAN interface '$MEMBER_IF'..."
+    if ! ifconfig "$MEMBER_IF" up; then
+        log_to_global_file "WARNING" "Could not bring up vlan interface '$MEMBER_IF', it may already be up."
+    fi
+  fi
+
+  log_to_global_file "INFO" "Checking bridge '$BRIDGE_NAME'..."
+  if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
+    log_to_global_file "INFO" "Bridge interface '$BRIDGE_NAME' does not exist. Creating..."
+    if ! ifconfig "$BRIDGE_NAME" create; then
+      display_and_log "ERROR" "Failed to create bridge '$BRIDGE_NAME'."
+      exit 1
+    fi
+    log_to_global_file "INFO" "Bridge interface '$BRIDGE_NAME' successfully created."
+  else
+    log_to_global_file "INFO" "Bridge interface '$BRIDGE_NAME' already exists."
+  fi
+
+  # Bring up the bridge interface
+  log_to_global_file "INFO" "Activating bridge interface '$BRIDGE_NAME'..."
+  if ! ifconfig "$BRIDGE_NAME" up; then
+      log_to_global_file "WARNING" "Could not bring up bridge interface '$BRIDGE_NAME', it may already be up."
+  fi
+
+  if ! ifconfig "$BRIDGE_NAME" | grep -qw "$MEMBER_IF"; then
+    log_to_global_file "INFO" "Adding '$MEMBER_IF' to bridge '$BRIDGE_NAME'..."
+    if ! ifconfig "$BRIDGE_NAME" addm "$MEMBER_IF"; then
+      display_and_log "ERROR" "Failed to add '$MEMBER_IF' to bridge '$BRIDGE_NAME'."
+      exit 1
+    fi
+    log_to_global_file "INFO" "Interface '$MEMBER_IF' successfully added to bridge '$BRIDGE_NAME'."
+    display_and_log "INFO" "Now interface '$MEMBER_IF' is a member of bridge '$BRIDGE_NAME'."
+  else
+    log_to_global_file "INFO" "Interface '$MEMBER_IF' is already a member of bridge '$BRIDGE_NAME'."
+  fi
+
+  # Save switch configuration only if called directly
+  if [ "$SAVE_CONFIG" = true ]; then
+    touch "$SWITCH_CONFIG_FILE"
+    # Check for duplicates before saving
+    if ! grep -qxF "$BRIDGE_NAME $PHYS_IF $VLAN_TAG" "$SWITCH_CONFIG_FILE"; then
+        echo "$BRIDGE_NAME $PHYS_IF $VLAN_TAG" >> "$SWITCH_CONFIG_FILE"
+        log_to_global_file "INFO" "Switch configuration saved to $SWITCH_CONFIG_FILE"
+    else
+        log_to_global_file "INFO" "Switch configuration for '$BRIDGE_NAME' already exists."
+    fi
+  fi
+}
+
+# === Subcommand: switch init ===
+cmd_switch_init() {
+    if [ ! -f "$SWITCH_CONFIG_FILE" ]; then
+        display_and_log "INFO" "Switch configuration file not found. Nothing to do."
+        return
+    fi
+
+    display_and_log "INFO" "Initializing switches from $SWITCH_CONFIG_FILE..."
+    while read -r bridge_name phys_if vlan_tag; do
+        local args=("--name" "$bridge_name" "--interface" "$phys_if" "--no-save")
+        if [ -n "$vlan_tag" ]; then
+            args+=("--vlan" "$vlan_tag")
+        fi
+        cmd_switch_add "${args[@]}"
+    done < "$SWITCH_CONFIG_FILE"
+    display_and_log "INFO" "Switch initialization complete."
+}
+
+
+
+
+
+# === Subcommand: switch list ===
+cmd_switch_list() {
+  echo_message "List of Bridge Interfaces:"
+  BRIDGES=$(ifconfig -l | tr ' ' '\n' | grep '^bridge')
+
+  if [ -z "$BRIDGES" ]; then
+    display_and_log "INFO" "No bridge interfaces found."
+    return
+  fi
+
+  # Read switch.conf into an associative array for quick lookup
+  declare -A BRIDGE_VLAN_MAP
+  if [ -f "$SWITCH_CONFIG_FILE" ]; then
+    while read -r bridge_name phys_if vlan_tag; do
+      if [ -n "$vlan_tag" ]; then
+        BRIDGE_VLAN_MAP["$bridge_name"]="$phys_if"
+      fi
+    done < "$SWITCH_CONFIG_FILE"
+  fi
+
+  # --- NEW LOGIC: Build a map of TAP interfaces to VM names ---
+  declare -A TAP_TO_VM_MAP
+  for VMCONF_FILE in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
+    if [ -f "$VMCONF_FILE" ]; then
+      local VM_NAME_FROM_CONF=$(grep "^VMNAME=" "$VMCONF_FILE" | cut -d'=' -f2)
+      local NIC_IDX=0
+      while true; do
+        local TAP_VAR_NAME="TAP_${NIC_IDX}"
+        local TAP_NAME_FROM_CONF=$(grep "^${TAP_VAR_NAME}=" "$VMCONF_FILE" | cut -d'=' -f2)
+        if [ -z "$TAP_NAME_FROM_CONF" ]; then
+          break
+        fi
+        TAP_TO_VM_MAP["$TAP_NAME_FROM_CONF"]="$VM_NAME_FROM_CONF"
+        NIC_IDX=$((NIC_IDX + 1))
+      done
+    fi
+  done
+  # --- END NEW LOGIC ---
+
+  for BRIDGE_IF in $BRIDGES; do
+    echo_message "----------------------------------------"
+    local DISPLAY_NAME="$BRIDGE_IF"
+    if [ -n "${BRIDGE_VLAN_MAP["$BRIDGE_IF"]}" ]; then
+      DISPLAY_NAME="$BRIDGE_IF vlandev ${BRIDGE_VLAN_MAP["$BRIDGE_IF"]}"
+    fi
+    echo_message "Name: $DISPLAY_NAME"
+    MEMBERS=$(ifconfig "$BRIDGE_IF" | grep 'member:' | awk '{print $2}')
+    if [ -n "$MEMBERS" ]; then
+      echo_message "  Members:"
+      for MEMBER in $MEMBERS; do
+        local VM_INFO=""
+        if [[ "$MEMBER" =~ ^tap[0-9]+$ ]]; then # Check if it's a TAP interface
+          if [ -n "${TAP_TO_VM_MAP["$MEMBER"]}" ]; then
+            VM_INFO=" [vmnet/${TAP_TO_VM_MAP["$MEMBER"]}]"
+          fi
+        fi
+        echo_message "  - $MEMBER$VM_INFO"
+      done
+    else
+      echo_message "  No members."
+    fi
+  done
+  echo_message "----------------------------------------"
+}
+
+# === Subcommand: switch remove ===
+# This subcommand was removed in a previous refactoring.
+
+
+# === Subcommand: switch destroy ===
+cmd_switch_destroy() {
+  if [ -z "$1" ]; then
+    cmd_switch_destroy_usage
+    exit 1
+  fi
+
+  local BRIDGE_NAME="$1"
+
+  log_to_global_file "INFO" "Initiating destruction of bridge '$BRIDGE_NAME'."
+  if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
+    echo_message "[ERROR] Bridge '$BRIDGE_NAME' not found."
+    log_to_global_file "ERROR" "Bridge '$BRIDGE_NAME' not found. Aborting destruction."
+    exit 1
+  fi
+
+  MEMBERS=$(ifconfig "$BRIDGE_NAME" | grep 'member:' | awk '{print $2}')
+
+  if [ -n "$MEMBERS" ]; then
+    echo_message "
+WARNING: Bridge '$BRIDGE_NAME' has active members:"
+    for MEMBER in $MEMBERS; do
+      echo_message "  - $MEMBER"
+    done
+    echo_message "
+Destroying this bridge will also remove all its members and their configurations."
+    read -rp "Are you sure you want to destroy bridge '$BRIDGE_NAME' and all its members? (y/n): " CONFIRM_DESTROY
+    if ! [[ "$CONFIRM_DESTROY" =~ ^[Yy]$ ]]; then
+      echo_message "Bridge destruction cancelled."
+      log_to_global_file "INFO" "User cancelled bridge destruction."
+      exit 0
+    fi
+  else
+    echo_message "
+Bridge '$BRIDGE_NAME' is empty."
+    read -rp "Are you sure you want to destroy bridge '$BRIDGE_NAME'? (y/n): " CONFIRM_DESTROY
+    if ! [[ "$CONFIRM_DESTROY" =~ ^[Yy]$ ]]; then
+      echo_message "Bridge destruction cancelled."
+      log_to_global_file "INFO" "User cancelled bridge destruction."
+      exit 0
+    fi
+  fi
+
+  if [ -n "$MEMBERS" ]; then
+    echo_message "Removing members from bridge '$BRIDGE_NAME'..."
+    for MEMBER in $MEMBERS; do
+      log_to_global_file "INFO" "Executing: ifconfig \"$BRIDGE_NAME\" deletem \"$MEMBER\""
+      if ! ifconfig "$BRIDGE_NAME" deletem "$MEMBER"; then
+        echo_message "[WARNING] Failed to remove member '$MEMBER' from bridge '$BRIDGE_NAME'."
+        log_to_global_file "WARNING" "Command 'ifconfig "$BRIDGE_NAME" deletem "$MEMBER"' failed."
+      else
+        echo_message "  - Member '$MEMBER' removed."
+        log_to_global_file "INFO" "Member '$MEMBER' successfully removed from bridge '$BRIDGE_NAME'."
+      fi
+
+      if [[ "$MEMBER" =~ ^vlan[0-9]+$ ]]; then
+        log_to_global_file "INFO" "Executing: ifconfig \"$MEMBER\" destroy"
+        if ! ifconfig "$MEMBER" destroy; then
+          echo_message "[WARNING] Failed to destroy VLAN interface '$MEMBER'."
+          log_to_global_file "WARNING" "Command 'ifconfig \"$MEMBER\" destroy' failed."
+        else
+          echo_message "  - VLAN interface '$MEMBER' destroyed."
+          log_to_global_file "INFO" "VLAN interface '$MEMBER' successfully destroyed."
+        fi
+      fi
+    done
+  fi
+
+  echo_message "Destroying bridge '$BRIDGE_NAME'..."
+  log_to_global_file "INFO" "Executing: ifconfig "$BRIDGE_NAME" destroy"
+  if ! ifconfig "$BRIDGE_NAME" destroy; then
+    echo_message "[ERROR] Failed to destroy bridge '$BRIDGE_NAME'."
+    log_to_global_file "ERROR" "Command 'ifconfig "$BRIDGE_NAME" destroy' failed."
+    exit 1
+  fi
+  echo_message "Bridge '$BRIDGE_NAME' successfully destroyed."
+  log_to_global_file "INFO" "Bridge '$BRIDGE_NAME' successfully destroyed."
+
+  if [ -f "$SWITCH_CONFIG_FILE" ]; then
+    log_to_global_file "INFO" "Removing configuration line for '$BRIDGE_NAME' from $SWITCH_CONFIG_FILE."
+    sed -i '' "/^$BRIDGE_NAME /d" "$SWITCH_CONFIG_FILE"
+  fi
+}
+
+# === Subcommand: switch delete ===
+cmd_switch_delete() {
+  local MEMBER_IF=""
+  local BRIDGE_NAME=""
+
+  # Parse named arguments
+  while (( "$#" )); do
+    case "$1" in
+      --member)
+        shift
+        MEMBER_IF="$1"
+        ;;
+      --from)
+        shift
+        BRIDGE_NAME="$1"
+        ;;
+      *)
+        display_and_log "ERROR" "Invalid option: $1"
+        cmd_switch_delete_usage
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  # Validate required arguments
+  if [ -z "$MEMBER_IF" ] || [ -z "$BRIDGE_NAME" ]; then
+    cmd_switch_delete_usage
+    exit 1
+  fi
+
+  log "Checking bridge '$BRIDGE_NAME'..."
+  if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
+    display_and_log "ERROR" "Bridge '$BRIDGE_NAME' not found."
+    exit 1
+  fi
+
+  log "Checking if '$MEMBER_IF' is a member of '$BRIDGE_NAME'..."
+  if ! ifconfig "$BRIDGE_NAME" | grep -qw "$MEMBER_IF"; then
+    display_and_log "ERROR" "Interface '$MEMBER_IF' is not a member of bridge '$BRIDGE_NAME'."
+    exit 1
+  fi
+
+  log "Removing '$MEMBER_IF' from bridge '$BRIDGE_NAME'..."
+  if ! ifconfig "$BRIDGE_NAME" deletem "$MEMBER_IF"; then
+    display_and_log "ERROR" "Failed to remove '$MEMBER_IF' from bridge '$BRIDGE_NAME'."
+    exit 1
+  fi
+  display_and_log "INFO" "Interface '$MEMBER_IF' successfully removed from bridge '$BRIDGE_NAME'."
+
+  # Check if the removed member was a VLAN interface and destroy it
+  if [[ "$MEMBER_IF" =~ ^vlan[0-9]+$ ]]; then
+    log "Destroying VLAN interface '$MEMBER_IF'..."
+    if ! ifconfig "$MEMBER_IF" destroy; then
+      display_and_log "ERROR" "Failed to destroy VLAN interface '$MEMBER_IF'."
+      exit 1
+    fi
+    display_and_log "INFO" "VLAN interface '$MEMBER_IF' successfully destroyed."
+  fi
+
+  # Check if bridge is empty after removal
+  MEMBERS=$(ifconfig "$BRIDGE_NAME" | grep 'member:' | awk '{print $2}')
+  if [ -z "$MEMBERS" ]; then
+    read -rp "Bridge '$BRIDGE_NAME' is now empty. Destroy this bridge as well? (y/n): " CONFIRM_DESTROY
+    if [[ "$CONFIRM_DESTROY" =~ ^[Yy]$ ]]; then
+      log "Destroying bridge '$BRIDGE_NAME'..."
+      if ! ifconfig "$BRIDGE_NAME" destroy; then
+        display_and_log "ERROR" "Failed to destroy bridge '$BRIDGE_NAME'."
+        exit 1
+      fi
+      display_and_log "INFO" "Bridge '$BRIDGE_NAME' successfully destroyed."
+    else
+      display_and_log "INFO" "Bridge '$BRIDGE_NAME' not destroyed."
+    fi
+  else
+    display_and_log "INFO" "Bridge '$BRIDGE_NAME' still has members."
+  fi
+}
+
+
+
+
+
+
+
+# === Subcommand: create ===
+cmd_create() {
+  local VMNAME=""
+  local DISKSIZE=""
+  local VM_BRIDGE=""
+  local BOOTLOADER_TYPE="bhyveload" # Default bootloader
+
+  # Parse named arguments
+  while (( "$#" )); do
+    case "$1" in
+      --name)
+        shift
+        VMNAME="$1"
+        ;;
+      --disk-size)
+        shift
+        DISKSIZE="$1"
+        ;;
+      --switch)
+        shift
+        VM_BRIDGE="$1"
+        ;;
+      --bootloader)
+        shift
+        BOOTLOADER_TYPE="$1"
+        ;;
+      *)
+        display_and_log "ERROR" "Invalid option: $1"
+        cmd_create_usage
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  # Validate required arguments
+  if [ -z "$VMNAME" ] || [ -z "$DISKSIZE" ] || [ -z "$VM_BRIDGE" ]; then
+    cmd_create_usage
+    exit 1
+  fi
+
+  VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
+  CONF="$VM_DIR/vm.conf"
+
+  display_and_log "INFO" "Attempting to create VM directory: $VM_DIR"
+  mkdir -p "$VM_DIR" || { display_and_log "ERROR" "Failed to create VM directory '$VM_DIR'. Please check permissions or path."; exit 1; }
+  LOG_FILE="$VM_DIR/vm.log" # Set LOG_FILE for create command
+  log "VM directory '$VM_DIR' created successfully."
+
+  display_and_log "INFO" "Preparing to create VM '$VMNAME' with disk size ${DISKSIZE}GB and connecting to bridge '$VM_BRIDGE'."
+
+  # === Check and create bridge interface if it doesn't exist ===
+  if ! ifconfig "$VM_BRIDGE" > /dev/null 2>&1; then
+    display_and_log "INFO" "Bridge interface '$VM_BRIDGE' does not exist. Attempting to create..."
+    local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$VM_BRIDGE\""
+    log "Executing: $CREATE_BRIDGE_CMD"
+    ifconfig bridge create name "$VM_BRIDGE" || { display_and_log "ERROR" "Failed to create bridge '$VM_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; exit 1; }
+    display_and_log "INFO" "Bridge interface '$VM_BRIDGE' successfully created."
+  else
+    display_and_log "INFO" "Bridge interface '$VM_BRIDGE' already exists. Skipping creation."
+  fi
+
+  # === Create disk image ===
+  display_and_log "INFO" "Attempting to create disk image: $VM_DIR/disk.img with size ${DISKSIZE}GB..."
+  local TRUNCATE_CMD="truncate -s \"${DISKSIZE}G\" \"$VM_DIR/disk.img\""
+  log "Executing: $TRUNCATE_CMD"
+  truncate -s "${DISKSIZE}G" "$VM_DIR/disk.img" || { display_and_log "ERROR" "Failed to create disk image at '$VM_DIR/disk.img'. Command: '$TRUNCATE_CMD'"; exit 1; }
+  display_and_log "INFO" "Disk image '$VM_DIR/disk.img' (${DISKSIZE}GB) created successfully."
+
+  # === Generate unique UUID ===
+  UUID=$(uuidgen)
+  display_and_log "INFO" "Generated unique UUID for VM: $UUID"
+  log "VM UUID: $UUID"
+
+  # === Generate unique MAC address (static prefix, random suffix) ===
+  MAC_0="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+  display_and_log "INFO" "Generated MAC address for NIC0: $MAC_0"
+  log "NIC0 MAC Address: $MAC_0"
+
+  # === Safely detect next available TAP & create TAP ===
+  local NEXT_TAP_NUM=$(get_next_available_tap_num)
+  TAP_0="tap${NEXT_TAP_NUM}"
+  display_and_log "INFO" "Assigning next available TAP interface: $TAP_0"
+  log "Assigned TAP interface: $TAP_0"
+
+  # === Create and configure TAP interface ===
+  if ! create_and_configure_tap_interface "$TAP_0" "$MAC_0" "$VM_BRIDGE" "$VMNAME" 0; then
+    exit 1
+  fi
+
+  # === Generate unique console name ===
+  CONSOLE="nmdm-${VMNAME}.1"
+  display_and_log "INFO" "Console device assigned: $CONSOLE"
+  log "Assigned console device: $CONSOLE"
+
+  # === Create configuration file ===
+  display_and_log "INFO" "Attempting to create VM configuration file: $CONF"
+  cat > "$CONF" <<EOF
+VMNAME=$VMNAME
+UUID=$UUID
+CPUS=2
+MEMORY=2048M
+TAP_0=$TAP_0
+MAC_0=$MAC_0
+BRIDGE_0=$VM_BRIDGE
+DISK=disk.img
+DISKSIZE=$DISKSIZE
+CONSOLE=$CONSOLE
+LOG=$LOG_FILE
+AUTOSTART=no
+BOOTLOADER_TYPE=$BOOTLOADER_TYPE
+EOF
+
+  display_and_log "INFO" "Configuration file created: $CONF"
+  display_and_log "INFO" "VM '$VMNAME' successfully created."
+  echo_message "\nPlease continue by running: $0 install $VMNAME"
+}
+
+# === Subcommand: init ===
+cmd_init() {
+    GLOBAL_LOG_FILE="/var/log/bhyve-cli.log"
+    touch "$GLOBAL_LOG_FILE" || { echo_message "[ERROR] Could not create log file at $GLOBAL_LOG_FILE. Please check permissions."; exit 1; }
+
+    if [ -f "$MAIN_CONFIG_FILE" ]; then
+        read -rp "Configuration file already exists. Overwrite? (y/n): " choice
+        if [[ "$choice" != "y" ]]; then
+            exit 0
+        fi
+    fi
+
+    display_and_log "INFO" "Initializing bhyve-cli..."
+
+    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$VM_CONFIG_BASE_DIR"
+
+    read -rp "Enter the full path for storing ISO images [/var/bhyve/iso]: " iso_path
+    ISO_DIR=${iso_path:-/var/bhyve/iso}
+    mkdir -p "$ISO_DIR"
+    display_and_log "INFO" "ISO directory set to: $ISO_DIR"
+
+    read -rp "Enter the full path for storing VM configurations and disks [/usr/local/etc/bhyve-cli/vm.d]: " vm_config_path
+    local NEW_VM_CONFIG_BASE_DIR=${vm_config_path:-$CONFIG_DIR/vm.d}
+
+    if [ "$NEW_VM_CONFIG_BASE_DIR" != "$CONFIG_DIR/vm.d" ]; then
+        if [ -d "$CONFIG_DIR/vm.d" ] && [ "$(find "$CONFIG_DIR/vm.d" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+            display_and_log "ERROR" "Default VM config directory '$CONFIG_DIR/vm.d' is not empty. Please move its contents manually or choose the default path."
+            exit 1
+        fi
+        display_and_log "INFO" "Creating VM config base directory: $NEW_VM_CONFIG_BASE_DIR"
+        mkdir -p "$NEW_VM_CONFIG_BASE_DIR" || { display_and_log "ERROR" "Failed to create VM config base directory '$NEW_VM_CONFIG_BASE_DIR'."; exit 1; }
+        
+        display_and_log "INFO" "Removing default VM config directory '$CONFIG_DIR/vm.d' and creating symlink."
+        rmdir "$CONFIG_DIR/vm.d" 2>/dev/null # Remove if empty
+        ln -s "$NEW_VM_CONFIG_BASE_DIR" "$CONFIG_DIR/vm.d" || { display_and_log "ERROR" "Failed to create symlink for vm.d."; exit 1; }
+        VM_CONFIG_BASE_DIR="$NEW_VM_CONFIG_BASE_DIR"
+    else
+        display_and_log "INFO" "Using default VM config base directory: $CONFIG_DIR/vm.d"
+        mkdir -p "$CONFIG_DIR/vm.d"
+        VM_CONFIG_BASE_DIR="$CONFIG_DIR/vm.d"
+    fi
+
+    UEFI_FIRMWARE_PATH="$CONFIG_DIR/firmware"
+    mkdir -p "$UEFI_FIRMWARE_PATH"
+    display_and_log "INFO" "UEFI firmware path set to: $UEFI_FIRMWARE_PATH"
+
+    echo "ISO_DIR="$ISO_DIR"" > "$MAIN_CONFIG_FILE"
+    echo "UEFI_FIRMWARE_PATH="$UEFI_FIRMWARE_PATH"" >> "$MAIN_CONFIG_FILE"
+    echo "GLOBAL_LOG_FILE="$GLOBAL_LOG_FILE"" >> "$MAIN_CONFIG_FILE"
+    echo "VM_CONFIG_BASE_DIR="$VM_CONFIG_BASE_DIR"" >> "$MAIN_CONFIG_FILE"
+
+    display_and_log "INFO" "bhyve-cli initialized."
+    display_and_log "INFO" "Configuration file created at: $MAIN_CONFIG_FILE"
+    echo_message "bhyve-cli initialized successfully."
+    echo_message "Configuration file created at: $MAIN_CONFIG_FILE"
+}
+
+# === Subcommand: delete ===
+cmd_delete() {
+  log "Entering cmd_delete function for VM: $1"
+  if [ -z "$1" ]; then
+    cmd_delete_usage
+    exit 1
+  fi
+
+  VMNAME="$1"
+  load_vm_config "$VMNAME"
+
+  # Check if VM is running
+  if is_vm_running "$VMNAME"; then
+    display_and_log "ERROR" "VM '$VMNAME' is still running."
+    read -rp "Do you want to stop and delete the VM '$VMNAME'? [y/n]: " CONFIRM_STOP_DELETE
+    if ! [[ "$CONFIRM_STOP_DELETE" =~ ^[Yy]$ ]]; then
+      display_and_log "INFO" "VM deletion cancelled."
+      log "VM deletion cancelled by user."
+      exit 0 # Exit without deleting
+    fi
+    display_and_log "INFO" "Stopping VM '$VMNAME' before deletion..."
+    cmd_stop "$VMNAME" --force # Force stop the VM
+    # Give it a moment to ensure it's stopped
+    sleep 2
+  fi
+
+  log "Deleting VM '$VMNAME'..."
+  display_and_log "INFO" "Initiating deletion process for VM '$VMNAME'..."
+
+  display_and_log "INFO" "Cleaning up VM processes and kernel memory..."
+  cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
+
+  display_and_log "INFO" "Cleaning up VM network interfaces..."
+  cleanup_vm_network_interfaces "$VMNAME"
+
+  # === Remove console device files ===
+  if [ -e "/dev/${CONSOLE}A" ]; then
+    display_and_log "INFO" "Removing console device /dev/${CONSOLE}A..."
+    rm -f "/dev/${CONSOLE}A"
+    if [ $? -eq 0 ]; then
+      display_and_log "INFO" "/dev/${CONSOLE}A removed successfully."
+    else
+      display_and_log "WARNING" "Failed to remove /dev/${CONSOLE}A."
+    fi
+  else
+    display_and_log "INFO" "Console device /dev/${CONSOLE}A not found. Skipping removal."
+  fi
+  if [ -e "/dev/${CONSOLE}B" ]; then
+    display_and_log "INFO" "Removing console device /dev/${CONSOLE}B..."
+    rm -f "/dev/${CONSOLE}B"
+    if [ $? -eq 0 ]; then
+      display_and_log "INFO" "/dev/${CONSOLE}B removed successfully."
+    else
+      display_and_log "WARNING" "Failed to remove /dev/${CONSOLE}B."
+    fi
+  else
+    display_and_log "INFO" "Console device /dev/${CONSOLE}B not found. Skipping removal."
+  fi
+
+  # Remove vm.pid file if it exists
+  delete_vm_pid "$VMNAME"
+  display_and_log "INFO" "vm.pid file removal attempted."
+
+  unset LOG_FILE # Unset LOG_FILE here, after all operations that might use it for the VM.
+
+  # Remove vm.pid file if it exists
+  delete_vm_pid "$VMNAME"
+  display_and_log "INFO" "vm.pid file removal attempted."
+
+  unset LOG_FILE # Unset LOG_FILE after vm.pid is handled and before VM directory is removed
+
+  # === Delete VM directory ===
+  display_and_log "INFO" "Deleting VM directory: $VM_DIR..."
+  rm -rf "$VM_DIR"
+  if [ $? -eq 0 ]; then
+    display_and_log "INFO" "VM directory '$VM_DIR' removed successfully."
+  else
+    display_and_log "ERROR" "Failed to remove VM directory '$VM_DIR'. Please check permissions."
+  fi
+
+  display_and_log "INFO" "VM '$VMNAME' successfully deleted."
+  log "Exiting cmd_delete function for VM: $VMNAME"
+}
+
+# === Subcommand: restart ===
+cmd_restart() {
+  log "Entering cmd_restart function for VM: $1"
+  if [ -z "$1" ]; then
+    cmd_restart_usage
+    exit 1
+  fi
+
+  local VMNAME="$1"
+  local FORCE_RESTART=false
+
+  # Check for --force flag
+  if [ "$2" = "--force" ]; then
+    FORCE_RESTART=true
+  fi
+
+  load_vm_config "$VMNAME"
+
+  display_and_log "INFO" "Restarting VM '$VMNAME'..."
+
+  # Check if the VM is running
+  if ! is_vm_running "$VMNAME"; then
+    display_and_log "INFO" "VM '$VMNAME' is not running. Starting it..."
+    cmd_start "$VMNAME"
+    log "Exiting cmd_restart function for VM: $VMNAME"
+    exit 0
+  fi
+
+  if [ "$FORCE_RESTART" = true ]; then
+    # --- Fast but unsafe restart ---
+    display_and_log "INFO" "VM is running. Performing a fast (forced) restart..."
+    local BHYVECTL_RESET_CMD="$BHYVECTL --vm=\"$VMNAME\" --force-reset"
+    log "Executing: $BHYVECTL_RESET_CMD"
+
+    if $BHYVECTL --vm="$VMNAME" --force-reset; then
+      log "VM '$VMNAME' successfully reset via bhyvectl. Waiting a moment before starting again..."
+      sleep 2 # Give a moment for the process to fully terminate
+      cmd_start "$VMNAME"
+      display_and_log "INFO" "VM '$VMNAME' successfully restarted."
+    else
+      display_and_log "WARNING" "Fast reset failed. The VM might be in an inconsistent state."
+      log "bhyvectl --force-reset failed for '$VMNAME'."
+      exit 1 # Exit with an error to indicate the forced restart failed
+    fi
+  else
+    # --- Safe default restart ---
+    display_and_log "INFO" "Performing a safe restart (stop and start)..."
+    cmd_stop "$VMNAME"
+    sleep 2 # Give it a moment to fully stop and clean up
+    cmd_start "$VMNAME"
+    display_and_log "INFO" "VM '$VMNAME' restart initiated."
+  fi
+
+  log "Exiting cmd_restart function for VM: $VMNAME"
+}
+
+# === Subcommand: install ===
+cmd_install() {
+  log "Entering cmd_install function for VM: $1"
+  local VMNAME=""
+  local INSTALL_BOOTLOADER_TYPE="" # Bootloader type for this installation only
+
+  # Parse arguments
+  VMNAME="$1"
+  shift
+
+  while (( "$#" )); do
+    case "$1" in
+      --bootloader)
+        shift
+        INSTALL_BOOTLOADER_TYPE="$1"
+        ;;
+      *)
+        display_and_log "ERROR" "Invalid option for install: $1"
+        cmd_install_usage
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  if [ -z "$VMNAME" ]; then
+    cmd_install_usage
+    exit 1
+  fi
+
+  load_vm_config "$VMNAME"
+
+  # Override BOOTLOADER_TYPE if specified for installation
+  if [ -n "$INSTALL_BOOTLOADER_TYPE" ]; then
+    BOOTLOADER_TYPE="$INSTALL_BOOTLOADER_TYPE"
+    log "Overriding bootloader for installation to: $BOOTLOADER_TYPE"
+  fi
+
+  ensure_nmdm_device_nodes "$CONSOLE"
+  sleep 1 # Give nmdm devices a moment to be ready
+
+      log "INFO" "Starting VM '$VMNAME'..."
+
+  # === Stop bhyve if still active ===
+  if is_vm_running "$VMNAME"; then
+    log "VM '$VMNAME' is still running. Stopped..."
+    pkill -f "bhyve.*$VMNAME"
+    sleep 1
+  fi
+
+  # === Destroy if still remaining in kernel ===
+  if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
+    log "VM '$VMNAME' was still in memory. Destroyed."
+  fi
+
+  # === Select ISO source ===
+  echo_message ""
+  echo_message "Select ISO source:"
+  echo_message "1. Choose existing ISO"
+  echo_message "2. Download ISO from URL"
+  read -rp "Choice [1/2]: " CHOICE
+
+  local ISO_PATH=""
+  case "$CHOICE" in
+    1)
+      log "Searching for ISO files in $ISO_DIR..."
+      if [ ! -d "$ISO_DIR" ]; then
+        display_and_log "INFO" "ISO directory '$ISO_DIR' not found. Creating it."
+        mkdir -p "$ISO_DIR"
+      fi
+      mapfile -t ISO_LIST < <(find "$ISO_DIR" -type f -name "*.iso" 2>/dev/null)
+      if [ ${#ISO_LIST[@]} -eq 0 ]; then
+        display_and_log "WARNING" "No ISO files found in $ISO_DIR!"
+        exit 1
+      fi
+      echo_message "Available ISOs:"
+      select iso in "${ISO_LIST[@]}"; do
+        if [ -n "$iso" ]; then
+          ISO_PATH="$iso"
+          break
+        fi
+      done
+      ;;
+    2)
+      read -rp "Enter ISO URL: " ISO_URL
+      ISO_FILE="$(basename "$ISO_URL")"
+      ISO_PATH="$ISO_DIR/$ISO_FILE"
+      mkdir -p "$ISO_DIR"
+      log "Downloading ISO from $ISO_URL"
+      fetch "$ISO_URL" -o "$ISO_PATH" || {
+        display_and_log "ERROR" "Failed to download ISO"
+        exit 1
+      }
+      ;;
+    *)
+      display_and_log "ERROR" "Invalid choice"
+      exit 1
+      ;;
+  esac
+
+  if [ -z "$ISO_PATH" ]; then
+    display_and_log "ERROR" "No ISO selected."
+    exit 1
+  fi
+
+  local DISK_ARGS_AND_NEXT_DEV
+  DISK_ARGS_AND_NEXT_DEV=$(build_disk_args "$VM_DIR")
+  local DISK_ARGS=$(echo "$DISK_ARGS_AND_NEXT_DEV" | head -n 1)
+  local NEXT_DISK_DEV_NUM=$(echo "$DISK_ARGS_AND_NEXT_DEV" | tail -n 1)
+  if [ $? -ne 0 ]; then
+    display_and_log "ERROR" "Failed to build disk arguments."
+    exit 1
+  fi
+
+  local NETWORK_ARGS=$(build_network_args "$VMNAME" "$VM_DIR")
+  if [ $? -ne 0 ]; then
+    display_and_log "ERROR" "Failed to build network arguments."
+    exit 1
+  fi
+
+  # === Installation Logic ===
+  if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
+    run_bhyveload "$ISO_PATH" || exit 1
+
+    display_and_log "INFO" "Starting VM with nmdm console for installation..."
+    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s ${NEXT_DISK_DEV_NUM}:0,ahci-cd,\"$ISO_PATH\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
+    log "Executing bhyve command: $BHYVE_CMD"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    VM_PID=$!
+    save_vm_pid "$VMNAME" "$VM_PID"
+    log "Bhyve VM started in background with PID $VM_PID"
+
+    sleep 2 # Give bhyve a moment to start
+    if ! is_vm_running "$VMNAME"; then
+      log_to_global_file "ERROR" "bhyve process for $VMNAME exited prematurely. Check vm.log for details."
+      display_and_log "ERROR" "Failed to start VM for installation. Check logs."
+      exit 1
+    fi
+    echo_message ""
+    echo_message ">>> Entering VM '$VMNAME' installation console (exit with ~.)"
+    echo_message ">>> IMPORTANT: After shutting down the VM from within, you MUST type '~.' (tilde then dot) to exit this console and allow the script to continue cleanup."
+    cu -l /dev/"${CONSOLE}B"
+
+    log "cu session ended. Initiating cleanup..."
+
+    cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
+
+    # Check the exit status of the bhyve process
+    wait "$VM_PID"
+    local BHYVE_EXIT_STATUS=$?
+
+    if [ "$BHYVE_EXIT_STATUS" -eq 3 ] || [ "$BHYVE_EXIT_STATUS" -eq 4 ]; then
+        display_and_log "ERROR" "Virtual machine '$VMNAME' installer exited with an error (exit code: $BHYVE_EXIT_STATUS). Check VM logs for details."
+        exit 1
+    else
+        log "Bhyve process $VM_PID exited cleanly (status: $BHYVE_EXIT_STATUS)."
+    fi
+    display_and_log "INFO" "Installation finished. You can now start the VM with: $0 start $VMNAME"
+
+  else
+    # --- uefi/GRUB INSTALL ---
+    log "Preparing for non-bhyveload installation..."
+    local BHYVE_LOADER_CLI_ARG=""
+    case "$BOOTLOADER_TYPE" in
+      uefi|bootrom)
+        local UEFI_FIRMWARE_FOUND=false
+        if [ -f "$UEFI_FIRMWARE_PATH" ]; then
+          BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
+          log "Using uefi firmware from configured path: $UEFI_FIRMWARE_PATH"
+          UEFI_FIRMWARE_FOUND=true
+        elif [ -f "/usr/local/share/uefi-firmware/BHYVE_UEFI.fd" ]; then
+          BHYVE_LOADER_CLI_ARG="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
+          log "Using uefi firmware from default system path: /usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
+          UEFI_FIRMWARE_FOUND=true
+        fi
+
+        if [ "$UEFI_FIRMWARE_FOUND" = false ]; then
+          display_and_log "ERROR" "UEFI firmware not found."
+          echo_message "Please ensure 'edk2-bhyve' is installed (pkg install edk2-bhyve) or copy a compatible UEFI firmware file to $UEFI_FIRMWARE_PATH."
+          exit 1
+        fi
+        ;;
+      grub2-bhyve)
+        if [ -f "$VM_DIR/grub.conf" ]; then
+          BHYVE_LOADER_CLI_ARG="-l grub,${VM_DIR}/grub.conf"
+          log "Using grub2-bhyve with config: ${VM_DIR}/grub.conf"
+        else
+          display_and_log "ERROR" "grub.conf not found in $VM_DIR."
+          exit 1
+        fi
+        ;;
+      *)
+        display_and_log "ERROR" "Unsupported bootloader type for ISO installation: $BOOTLOADER_TYPE"
+        exit 1
+        ;;
+    esac
+
+    clear # Clear screen before console
+
+    log "Running bhyve installer in background..."    local BHYVE_CMD="$BHYVE -c "$CPUS" -m "$MEMORY" -AHP -s 0,hostbridge $DISK_ARGS -s 4:0,ahci-cd,"$ISO_PATH" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} "$VMNAME""    log "Executing bhyve command: $BHYVE_CMD"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    VM_PID=$!
+    save_vm_pid "$VMNAME" "$VM_PID"
+    log "Bhyve VM started in background with PID $VM_PID"
+
+    echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+    echo_message ">>> IMPORTANT: After shutting down the VM from within, you MUST type '~.' (tilde then dot) to exit this console and allow the script to continue cleanup."
+    cu -l /dev/"${CONSOLE}B"
+
+    log "cu session ended. Initiating cleanup..."
+
+    cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
+
+    # Wait for the bhyve process to exit.
+    # Capture its exit status.
+    wait "$VM_PID"
+    local BHYVE_EXIT_STATUS=$?
+
+    # Check the exit status of the bhyve process
+    if [ "$BHYVE_EXIT_STATUS" -eq 3 ] || [ "$BHYVE_EXIT_STATUS" -eq 4 ]; then
+        # If bhyve exited due to a fault or error, then display error message
+        display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error (exit code: $BHYVE_EXIT_STATUS). Check VM logs for details."
+        exit 1
+    else
+        log "Bhyve process $VM_PID exited cleanly (status: $BHYVE_EXIT_STATUS)."
+    fi
+    log "Bhyve process $VM_PID exited."
+  fi
+  log "Exiting cmd_install function for VM: $VMNAME"
+}
+
+
+# === Subcommand: start ===
+cmd_start() {
+  log "Entering cmd_start function for VM: $1"
+  if [ -z "$1" ]; then
+    cmd_start_usage
+    exit 1
+  fi
+
+  local VMNAME="$1"
+  local CONNECT_TO_CONSOLE=false
+  local QUIET_BOOTLOADER=true # Default to quiet bootloader (no console)
+
+  # Parse arguments
+  local ARGS=()
+  for arg in "$@"; do
+    if [[ "$arg" == "--console" ]]; then
+      CONNECT_TO_CONSOLE=true
+      QUIET_BOOTLOADER=false # Show bootloader output if console is requested
+    else
+      ARGS+=("$arg")
+    fi
+  done
+
+  # Ensure VMNAME is set from ARGS
+  if [ -z "$VMNAME" ] && [ ${#ARGS[@]} -gt 0 ]; then
+    VMNAME="${ARGS[0]}"
+  fi
+
+  if [ -z "$VMNAME" ]; then
+    cmd_start_usage
+    exit 1
+  fi
+
+  load_vm_config "$VMNAME"
+
+  # Check if VM is already running
+  if is_vm_running "$VMNAME"; then
+    display_and_log "INFO" "VM '$VMNAME' is already running."
+    if [ "$CONNECT_TO_CONSOLE" = true ]; then
+      display_and_log "INFO" "Connecting to console..."
+      cmd_console "$VMNAME"
+    fi
+    exit 0
+  fi
+
+  start_spinner "Starting VM '$VMNAME'..."
+  log "Loading VM configuration for '$VMNAME'...";
+  log "VM Name: $VMNAME"
+  log "CPUs: $CPUS"
+  log "Memory: $MEMORY"
+  local DISK_ARGS_AND_NEXT_DEV
+  DISK_ARGS_AND_NEXT_DEV=$(build_disk_args "$VM_DIR")
+  local DISK_ARGS=$(echo "$DISK_ARGS_AND_NEXT_DEV" | head -n 1)
+  local NEXT_DISK_DEV_NUM=$(echo "$DISK_ARGS_AND_NEXT_DEV" | tail -n 1)
+  if [ $? -ne 0 ]; then
+    stop_spinner
+    display_and_log "ERROR" "Failed to build disk arguments. Check VM logs for details."
+    exit 1
+  fi
+
+  local NETWORK_ARGS=$(build_network_args "$VMNAME" "$VM_DIR")
+  if [ $? -ne 0 ]; then
+    stop_spinner
+    display_and_log "ERROR" "Failed to build network arguments. Check VM logs for details."
+    exit 1
+  fi
+
+
+  # === Start Logic ===
+  if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
+    log "Preparing for bhyveload start..."
+    ensure_nmdm_device_nodes "$CONSOLE"
+    sleep 1 # Give nmdm devices a moment to be ready
+    
+    log "Verifying nmdm device nodes:"
+    if [ -e "/dev/${CONSOLE}A" ]; then
+      log "/dev/${CONSOLE}A exists with permissions: $(stat -f "%Sp" /dev/${CONSOLE}A)"
+    else
+      stop_spinner
+      display_and_log "ERROR" "/dev/${CONSOLE}A does NOT exist! Please ensure the VM has been run at least once, or the device has been created."
+      exit 1
+    fi
+    if [ -e "/dev/${CONSOLE}B" ]; then
+      log "/dev/${CONSOLE}B exists with permissions: $(stat -f "%Sp" /dev/${CONSOLE}B)"
+    else
+      stop_spinner
+      display_and_log "ERROR" "/dev/${CONSOLE}B does NOT exist! Please ensure the VM has been run at least once, or the device has been created."
+      exit 1
+    fi
+
+    run_bhyveload "$VM_DIR/$DISK" "$QUIET_BOOTLOADER" || {
+      stop_spinner
+      display_and_log "ERROR" "bhyveload failed. Check VM logs for details."
+      exit 1
+    }
+
+    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
+    log "Executing bhyve command: $BHYVE_CMD"
+    log_to_global_file "INFO" "Starting bhyve VM with command: $BHYVE_CMD"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    BHYVE_PID=$!
+    save_vm_pid "$VMNAME" "$BHYVE_PID"
+
+    # Wait briefly for bhyve to start or fail
+    sleep 1
+    if ! is_vm_running "$VMNAME"; then
+      stop_spinner
+      log_to_global_file "ERROR" "bhyve process for $VMNAME exited prematurely. Check vm.log for details."
+      display_and_log "ERROR" "Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
+      delete_vm_pid "$VMNAME"
+      $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
+      exit 1
+    fi
+
+    stop_spinner
+    echo_message "VM '$VMNAME' started successfully."
+    if [ "$CONNECT_TO_CONSOLE" = true ]; then
+      echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+      cu -l /dev/"${CONSOLE}B"
+      log "cu session ended."
+    else
+      echo_message "Please connect to the console using: $0 console $VMNAME"
+    fi
+  else
+    log "Preparing for non-bhyveload start..."
+    local BHYVE_LOADER_CLI_ARG=""
+    case "$BOOTLOADER_TYPE" in
+      uefi|bootrom)
+        local UEFI_FIRMWARE_FOUND=false
+        if [ -f "$UEFI_FIRMWARE_PATH" ]; then
+          BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
+          log "Using uefi firmware from configured path: $UEFI_FIRMWARE_PATH"
+          UEFI_FIRMWARE_FOUND=true
+        elif [ -f "/usr/local/share/uefi-firmware/BHYVE_UEFI.fd" ]; then
+          BHYVE_LOADER_CLI_ARG="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
+          log "Using uefi firmware from default system path: /usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
+          UEFI_FIRMWARE_FOUND=true
+        fi
+
+        if [ "$UEFI_FIRMWARE_FOUND" = false ]; then
+          stop_spinner
+          echo_message "ERROR: UEFI firmware not found. Please ensure 'edk2-bhyve' is installed (pkg install edk2-bhyve) or copy a compatible UEFI firmware file to $UEFI_FIRMWARE_PATH. Check VM logs for details."
+          exit 1
+        fi
+        ;;
+      grub2-bhyve)
+        if [ -f "$VM_DIR/grub.conf" ]; then
+          BHYVE_LOADER_CLI_ARG="-l grub,${VM_DIR}/grub.conf"
+          log "Using grub2-bhyve with config: ${VM_DIR}/grub.conf"
+        else
+          stop_spinner
+          echo_message "ERROR: grub.conf not found in $VM_DIR. Check VM logs for details."
+          exit 1
+        fi
+        ;;
+      *)
+        stop_spinner
+        echo_message "ERROR: Unsupported bootloader type: $BOOTLOADER_TYPE. Check VM logs for details."
+        exit 1
+        ;;
+    esac
+
+    log "Starting VM '$VMNAME'..."
+    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
+    log "Executing bhyve command: $BHYVE_CMD"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    BHYVE_PID=$!
+    save_vm_pid "$VMNAME" "$BHYVE_PID"
+
+    # Wait briefly for bhyve to start or fail
+    sleep 1
+
+    # Check if the bhyve process is still running
+    if ps -p "$BHYVE_PID" > /dev/null 2>&1; then
+      stop_spinner
+      echo_message "VM '$VMNAME' started successfully."
+      if [ "$CONNECT_TO_CONSOLE" = true ]; then
+        echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+        cu -l /dev/"${CONSOLE}B"
+        log "cu session ended."
+      else
+        echo_message "Please connect to the console using: $0 console $VMNAME"
+      fi
+    else
+      stop_spinner
+      echo_message "ERROR: Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
+      delete_vm_pid "$VMNAME"
+      $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
+      exit 1
+    fi
+  fi
+  log "Exiting cmd_start function for VM: $VMNAME"
+}
+
+# === Subcommand: startall ===
+cmd_startall() {
+  log "Entering cmd_startall function."
+  display_and_log "INFO" "Attempting to start all configured VMs..."
+
+  for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
+    [ -f "$VMCONF" ] || continue
+    local VMNAME=$(basename "$(dirname "$VMCONF")")
+    if ! is_vm_running "$VMNAME"; then
+      display_and_log "INFO" "Starting VM '$VMNAME'..."
+      "$0" start "$VMNAME" > /dev/null 2>&1
+    else
+      display_and_log "INFO" "VM '$VMNAME' is already running. Skipping."
+    fi
+  done
+  log "Attempt to start all VMs complete."
+  log "Exiting cmd_startall function."
+}
+
+# === Subcommand: stop ===
+cmd_stop() {
+  log "Entering cmd_stop function for VM: $1"
+  if [ -z "$1" ]; then
+    cmd_stop_usage
+    exit 1
+  fi
+
+  local VMNAME="$1"
+  local FORCEFUL_SHUTDOWN=false
+
+  # Parse arguments for forceful shutdown
+  local ARGS=()
+  for arg in "$@"; do
+    if [[ "$arg" == "--force" ]]; then
+      FORCEFUL_SHUTDOWN=true
+    else
+      ARGS+=("$arg")
+    fi
+  done
+
+  # Ensure VMNAME is set from ARGS
+  if [ -z "$VMNAME" ] && [ ${#ARGS[@]} -gt 0 ]; then
+    VMNAME="${ARGS[0]}"
+  fi
+
+  if [ -z "$VMNAME" ]; then
+    cmd_stop_usage
+    exit 1
+  fi
+
+  load_vm_config "$VMNAME"
+
+  start_spinner "Stopping VM '$VMNAME'..."
+  log "Initiating stop process for VM '$VMNAME'..."
+
+  local VM_RUNNING=false
+  if is_vm_running "$VMNAME"; then
+    VM_RUNNING=true
+    log "VM '$VMNAME' is detected as running."
+  else
+    log "VM '$VMNAME' is not detected as running by ps."
+    stop_spinner
+    display_and_log "INFO" "VM '$VMNAME' is not detected as running."
+    log "VM '$VMNAME' was not running. No action taken."
+    exit 0
+  fi
+
+  local VM_STOPPED=false
+  if [ "$FORCEFUL_SHUTDOWN" = false ] && [ "$VM_RUNNING" = true ]; then
+    log "Attempting graceful shutdown for VM '$VMNAME' using ACPI poweroff..."
+    local BHYVECTL_POWEROFF_CMD="$BHYVECTL --vm=\"$VMNAME\" --force-poweroff"
+    log "Executing: $BHYVECTL_POWEROFF_CMD"
+    $BHYVECTL --vm="$VMNAME" --force-poweroff
+    if [ $? -ne 0 ]; then
+      log "WARNING: bhyvectl --poweroff failed for '$VMNAME'. Proceeding with forceful shutdown."
+    else
+      log "ACPI poweroff signal sent. Waiting for VM to shut down..."
+      local TIMEOUT=30 # seconds
+      local ELAPSED_TIME=0
+
+      while [ "$ELAPSED_TIME" -lt "$TIMEOUT" ]; do
+        if ! is_vm_running "$VMNAME"; then
+          log "VM '$VMNAME' has gracefully shut down."
+          VM_STOPPED=true
+          break
+        fi
+        sleep 1
+        ELAPSED_TIME=$((ELAPSED_TIME + 1))
+      done
+
+      if [ "$VM_STOPPED" = false ]; then
+        log "VM '$VMNAME' did not shut down gracefully within $TIMEOUT seconds. Forcing termination."
+      fi
+    fi
+  fi
+
+  # Forceful termination (if not gracefully stopped or if --force is used)
+  if [ "$VM_RUNNING" = true ] && [ "$VM_STOPPED" = false ]; then
+    log "Initiating forceful termination for VM '$VMNAME'..."
+    # === Find the PID of the bhyve process, anchor to end of line for specificity ===
+    local VM_PID=""
+    if [ -f "$VM_DIR/vm.pid" ]; then
+      VM_PID=$(cat "$VM_DIR/vm.pid")
+      log "Found VM PID from vm.pid file: $VM_PID"
+    else
+      VM_PID=$(get_vm_pid "$VMNAME")
+      log "Found VM PID by ps grep: $VM_PID"
+    fi
+
+    if [ -n "$VM_PID" ]; then
+      # Handle multiple PIDs by not quoting the variable
+      local PIDS_TO_KILL_STR
+  PIDS_TO_KILL_STR="$(echo "$VM_PID" | tr '\n' ' ')"
+      log "Sending TERM signal to PID(s): $PIDS_TO_KILL_STR"
+      kill "$VM_PID"
+      sleep 1 # Wait a moment for the processes to terminate
+
+      # Loop through PIDs to check if they are still running and force kill if necessary
+      for pid in $VM_PID; do
+        if ps -p "$pid" > /dev/null 2>&1; then
+          log "PID $pid still running, forcing KILL..."
+          kill -9 "$pid"
+          sleep 1
+        fi
+      done
+      log "bhyve process stopped."
+    else
+      log "No running bhyve process found for '$VMNAME' to kill."
+    fi
+  fi
+
+  # === Stop associated console (cu) processes ===
+  log "Attempting to stop associated cu process for /dev/${CONSOLE}B..."
+  pkill -f "cu -l /dev/${CONSOLE}B"
+  if pgrep -f "cu -l /dev/${CONSOLE}B" > /dev/null; then
+    log "cu process for /dev/${CONSOLE}B stopped."
+  else
+    log "No cu process found or failed to stop for /dev/${CONSOLE}B."
+  fi
+
+  # Only kill tail -f process if it's not the global log file and is not empty
+  if [ -n "$LOG_FILE" ] && [ "$LOG_FILE" != "$GLOBAL_LOG_FILE" ]; then
+    log "Attempting to stop associated tail -f process for $LOG_FILE..."
+    pkill -f "tail -f $LOG_FILE"
+    if pgrep -f "tail -f $LOG_FILE" > /dev/null; then
+      log "tail -f process for $LOG_FILE stopped."
+    else
+      log "No tail -f process found or failed to stop for $LOG_FILE."
+    fi
+  else
+    log "Skipping termination of tail -f for global log file or empty log path: $LOG_FILE."
+  fi
+
+  # === Always attempt to destroy the VM from the kernel ===
+  # This is crucial for bhyveload and for cleaning up zombie VMs
+  local BHYVECTL_DESTROY_CMD="$BHYVECTL --vm=\"$VMNAME\" --destroy"
+  log "Executing: $BHYVECTL_DESTROY_CMD"
+  if $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1; then
+    log "VM '$VMNAME' successfully destroyed from kernel memory."
+  else
+    log "VM '$VMNAME' was not found in kernel memory (already destroyed or never started)."
+  fi
+
+  # Clean up network interfaces after stopping
+  cleanup_vm_network_interfaces "$VMNAME"
+
+  # Remove vm.pid file
+  # Clean up the vm.pid file
+    # Clean up the vm.pid file
+    delete_vm_pid "$VMNAME"
+    log "vm.pid file removed."
+
+  stop_spinner
+  display_and_log "INFO" "VM '$VMNAME' stopped successfully."
+  log "Exiting cmd_stop function for VM: $VMNAME"
+}
+
+# === Subcommand: stopall ===
+cmd_stopall() {
+  log "Entering cmd_stopall function."
+  local FORCEFUL_SHUTDOWN=false
+
+  if [ "$1" = "--force" ]; then
+    FORCEFUL_SHUTDOWN=true
+  fi
+
+  display_and_log "INFO" "Attempting to stop all running VMs..."
+
+  for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
+    [ -f "$VMCONF" ] || continue
+    local VMNAME=$(basename "$(dirname "$VMCONF")")
+    if is_vm_running "$VMNAME"; then
+      display_and_log "INFO" "Stopping VM '$VMNAME'..."
+      if [ "$FORCEFUL_SHUTDOWN" = true ]; then
+        "$0" stop "$VMNAME" --force > /dev/null 2>&1
+      else
+        "$0" stop "$VMNAME" > /dev/null 2>&1
+      fi
+    else
+      display_and_log "INFO" "VM '$VMNAME' is not running. Skipping."
+    fi
+  done
+  display_and_log "INFO" "Attempt to stop all VMs complete."
+  log "Exiting cmd_stopall function."
+}
+
+
+
+
+
+
+
+
+# === Subcommand: console ===
+cmd_console() {
+  if [ -z "$1" ]; then
+    cmd_console_usage
+    exit 1
+  fi
+
+  VMNAME="$1"
+  load_vm_config "$VMNAME"
+
+  # === Check console device ===
+  DEVICE_B="/dev/${CONSOLE}B"
+
+  if [ ! -e "$DEVICE_B" ]; then
+    display_and_log "ERROR" "Console device '$DEVICE_B' not found."
+    display_and_log "INFO" "Ensure the VM has been run at least once, or the device has been created."
+    exit 1
+  fi
+
+  echo_message ">>> Accessing VM '$VMNAME' console"
+  echo_message ">>> Exit with ~."
+
+  # === Enter console ===
+  cu -l "$DEVICE_B"
+}
+
+# === Subcommand: logs ===
+cmd_logs() {
+  if [ -z "$1" ]; then
+    cmd_logs_usage
+    exit 1
+  fi
+
+  VMNAME="$1"
+  load_vm_config "$VMNAME"
+
+  if [ ! -f "$LOG_FILE" ]; then
+    display_and_log "ERROR" "Log file for VM '$VMNAME' not found: $LOG_FILE"
+    exit 1
+  fi
+
+      echo_message ">>> Displaying logs for VM '$VMNAME' (Press Ctrl+C to exit)"
+  tail -f "$LOG_FILE"
+}
+
+# === Subcommand: status ===
+cmd_status() {
+  local header_format="%-20s %-10s %-12s %-12s %-12s %-12s %-10s %-15s %-15s %-15s %-12s %-10s\n"
+  local header_line
+  printf "$header_format" \
+    "VM NAME" \
+    "STATUS" \
+    "CPU (Set)" \
+    "RAM (Set)" \
+    "CPU Usage" \
+    "RAM Usage" \
+    "PID" \
+    "UPTIME" \
+    "RES MEM" \
+    "VM EXITS" \
+    "BOOTLOADER" \
+    "AUTOSTART"
+  
+  # === Generate dynamic separator line ===
+  header_line="-------------------- ---------- ------------ ------------ ------------ ------------ ---------- --------------- --------------- --------------- ------------ ----------"
+  echo_message "${header_line// /}" # Remove spaces to make it a continuous line
+
+  for VMCONF in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
+    [ -f "$VMCONF" ] || continue
+    
+    local current_vmname
+    current_vmname=$(basename "$(dirname "$VMCONF")")
+    load_vm_config "$current_vmname" # This will set VMNAME, VM_DIR, and LOG_FILE correctly.
+    
+    local VMNAME="${VMNAME:-N/A}"
+    local CPUS="${CPUS:-N/A}"
+    local MEMORY="${MEMORY:-N/A}"
+   
+    local PID=$(get_vm_pid "$VMNAME")
+
+    local BHYVECTL_GET_ALL
+    BHYVECTL_GET_ALL=$($BHYVECTL --vm="$VMNAME" --get-all 2>/dev/null)
+    local BHYVECTL_GET_STATS
+    BHYVECTL_GET_STATS=$($BHYVECTL --vm="$VMNAME" --get-stats 2>/dev/null)
+
+    local STATUS="STOPPED"
+    local CPU_USAGE="N/A"
+    local RAM_USAGE="N/A"
+    local UPTIME="N/A"
+    local RES_MEM="N/A"
+    local VM_EXITS="N/A"
+
+    # Determine overall status
+    if [ -n "$PID" ]; then
+        STATUS="RUNNING"
+    fi
+
+    # Calculate CPU/RAM usage only if a valid PID is found
+    if [ -n "$PID" ]; then
+      local PS_INFO
+      PS_INFO=$(ps -p "$PID" -o %cpu,rss= | tail -n 1)
+      if [ -n "$PS_INFO" ]; then
+        CPU_USAGE=$(echo "$PS_INFO" | awk '{print $1 "%"}')
+        local RAM_RSS_KB
+        RAM_RSS_KB=$(echo "$PS_INFO" | awk '{print $2}')
+        if command -v bc >/dev/null 2>&1; then
+          RAM_USAGE=$(echo "scale=0; $RAM_RSS_KB / 1024" | bc)
+          RAM_USAGE="${RAM_USAGE}MB"
+        else
+          RAM_USAGE="${RAM_RSS_KB}KB (bc not found)"
+        fi
+      fi
+    fi
+
+    # Extract additional metrics from bhyvectl
+    if [ "$STATUS" = "RUNNING" ]; then
+      # Uptime from process elapsed time (consistent with cmd_info)
+      if [ -n "$PID" ]; then
+        UPTIME=$(ps -o etime -p "$PID" | tail -n 1 | awk '{print $1}')
+      fi
+
+        # Resident Memory
+        local RESIDENT_MEMORY_BYTES=$(echo "$BHYVECTL_GET_STATS" | grep "Resident memory" | awk '{print $NF}')
+        log "Extracted RESIDENT_MEMORY_BYTES for $VMNAME: $RESIDENT_MEMORY_BYTES"
+        if [ -n "$RESIDENT_MEMORY_BYTES" ]; then
+          if command -v bc >/dev/null 2>&1; then
+            RES_MEM="$(echo "scale=1; $RESIDENT_MEMORY_BYTES / (1024 * 1024)" | bc)MB"
+          else
+            RES_MEM="$((RESIDENT_MEMORY_BYTES / (1024 * 1024)))MB"
+          fi
+        fi
+
+        # VM Exits
+        local TOTAL_VM_EXITS=$(echo "$BHYVECTL_GET_STATS" | grep "total number of vm exits" | awk '{print $NF}')
+        log "Extracted TOTAL_VM_EXITS for $VMNAME: $TOTAL_VM_EXITS"
+        if [ -n "$TOTAL_VM_EXITS" ]; then
+          VM_EXITS="$TOTAL_VM_EXITS"
+        fi
+    fi
+
+    printf "$header_format" "$VMNAME" "$STATUS" "$CPUS" "$MEMORY" "$CPU_USAGE" "$RAM_USAGE" "$PID" "$UPTIME" "$RES_MEM" "$VM_EXITS" "${BOOTLOADER_TYPE:-N/A}" "${AUTOSTART:-N/A}"
+  done
+}
+
+# === Subcommand: autostart ===
+cmd_autostart() {
+  if [ -z "$1" ] || { [ "$2" != "enable" ] && [ "$2" != "disable" ]; }; then
+    cmd_autostart_usage
+    exit 1
+  fi
+
+  VMNAME="$1"
+  ACTION="$2"
+  load_vm_config "$VMNAME"
+
+  local CONF_FILE="$VM_DIR/vm.conf"
+
+  if [ "$ACTION" = "enable" ]; then
+    log "Enabling autostart for VM '$VMNAME'..."
+    sed -i '' 's/^AUTOSTART=.*/AUTOSTART=yes/' "$CONF_FILE"
+    display_and_log "INFO" "Autostart enabled for VM '$VMNAME'."
+  elif [ "$ACTION" = "disable" ]; then
+    log "Disabling autostart for VM '$VMNAME'..."
+    sed -i '' 's/^AUTOSTART=.*/AUTOSTART=no/' "$CONF_FILE"
+    display_and_log "INFO" "Autostart disabled for VM '$VMNAME'."
+  fi
+}
+
+
+
+
+
+
+# === Subcommand: modify ===
+cmd_modify() {
+  log "Entering cmd_modify function for VM: $1"
+  if [ -z "$1" ]; then
+    cmd_modify_usage
+    exit 1
+  fi
+
+  VMNAME="$1"
+  shift
+  load_vm_config "$VMNAME"
+
+  local CONF_FILE="$VM_DIR/vm.conf"
+  local MODIFIED=false
+
+  local NEW_CPU=""
+  local NEW_RAM=""
+  local NIC_INDEX=""
+  local NEW_TAP=""
+  local NEW_MAC=""
+  local NEW_BRIDGE=""
+  local ADD_DISK_SIZE=""
+  local ADD_NIC_BRIDGE="" # New variable for --add-nic
+  local REMOVE_NIC_INDEX=""
+  local REMOVE_DISK_INDEX=""
+
+  # === Check if VM is running ===
+  if is_vm_running "$VMNAME"; then
+    display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before modifying its configuration."
+    exit 1
+  fi
+
+  while (("$#")); do
+    case "$1" in
+      --cpu)
+        shift
+        NEW_CPU="$1"
+        ;;
+      --ram)
+        shift
+        NEW_RAM="$1"
+        ;;
+      --nic)
+        shift
+        NIC_INDEX="$1"
+        ;;
+      --tap)
+        shift
+        NEW_TAP="$1"
+        ;;
+      --mac)
+        shift
+        NEW_MAC="$1"
+        ;;
+      --bridge)
+        shift
+        NEW_BRIDGE="$1"
+        ;;
+      --add-nic) # New option
+        shift
+        ADD_NIC_BRIDGE="$1"
+        ;;
+      --add-disk)
+        shift
+        ADD_DISK_SIZE="$1"
+        ;;
+      --remove-nic)
+        shift
+        REMOVE_NIC_INDEX="$1"
+        ;;
+      --remove-disk)
+        shift
+        REMOVE_DISK_INDEX="$1"
+        ;;
+      *)
+        display_and_log "ERROR" "Invalid option: $1"
+        cmd_modify_usage # Use the updated usage function
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  # --- Modify CPU ---
+  if [ -n "$NEW_CPU" ]; then
+    display_and_log "INFO" "Modifying CPU for VM '$VMNAME' to $NEW_CPU..."
+    sed -i '' "s/^CPUS=.*/CPUS=$NEW_CPU/" "$CONF_FILE"
+    MODIFIED=true
+    display_and_log "INFO" "CPU for VM '$VMNAME' updated to $NEW_CPU."
+  fi
+
+  # --- Modify RAM ---
+  if [ -n "$NEW_RAM" ]; then
+    display_and_log "INFO" "Modifying RAM for VM '$VMNAME' to $NEW_RAM..."
+    sed -i '' "s/^MEMORY=.*/MEMORY=$NEW_RAM/" "$CONF_FILE"
+    MODIFIED=true
+    display_and_log "INFO" "RAM for VM '$VMNAME' updated to $NEW_RAM."
+  fi
+
+  # --- Modify Network Interface ---
+  if [ -n "$NIC_INDEX" ]; then
+    if [ -z "$NEW_TAP" ] && [ -z "$NEW_MAC" ] && [ -z "$NEW_BRIDGE" ]; then
+      display_and_log "ERROR" "--nic requires at least one of --tap, --mac, or --bridge to be specified."
+      cmd_modify_usage
+      exit 1
+    fi # Added missing fi for --nic check
+
+    local CURRENT_TAP_VAR="TAP_${NIC_INDEX}"
+    local CURRENT_MAC_VAR="MAC_${NIC_INDEX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_INDEX}"
+
+    # Check if the NIC index exists
+    if ! grep -q "^${CURRENT_TAP_VAR}=" "$CONF_FILE"; then
+      display_and_log "ERROR" "Network interface with index $NIC_INDEX does not exist for VM '$VMNAME'."
+      exit 1
+    fi
+
+    display_and_log "INFO" "Modifying network interface NIC_${NIC_INDEX} for VM '$VMNAME'..."
+
+    if [ -n "$NEW_TAP" ]; then
+      sed -i '' "s/^${CURRENT_TAP_VAR}=.*/${CURRENT_TAP_VAR}=$NEW_TAP/" "$CONF_FILE"
+      MODIFIED=true
+      display_and_log "INFO" "NIC_${NIC_INDEX} TAP updated to $NEW_TAP."
+    fi
+    if [ -n "$NEW_MAC" ]; then
+      sed -i '' "s/^${CURRENT_MAC_VAR}=.*/${CURRENT_MAC_VAR}=$NEW_MAC/" "$CONF_FILE"
+      MODIFIED=true
+      display_and_log "INFO" "NIC_${NIC_INDEX} MAC updated to $NEW_MAC."
+    fi
+    if [ -n "$NEW_BRIDGE" ]; then
+      sed -i '' "s/^${CURRENT_BRIDGE_VAR}=.*/${CURRENT_BRIDGE_VAR}=$NEW_BRIDGE/" "$CONF_FILE"
+      MODIFIED=true
+      display_and_log "INFO" "NIC_${NIC_INDEX} Bridge updated to $NEW_BRIDGE."
+    fi
+  fi # Added missing fi for NIC_INDEX block
+
+  # --- Add Disk ---
+  if [ -n "$ADD_DISK_SIZE" ]; then
+    display_and_log "INFO" "Adding new disk to VM '$VMNAME' with size ${ADD_DISK_SIZE}GB..."
+
+    # Find the next available disk index
+    local DISK_IDX=0
+    while true; do
+      local DISK_VAR_NAME="DISK"
+      local DISKSIZE_VAR_NAME="DISKSIZE"
+      if [ "$DISK_IDX" -gt 0 ]; then
+        DISK_VAR_NAME="DISK_${DISK_IDX}"
+        DISKSIZE_VAR_NAME="DISKSIZE_${DISK_IDX}"
+      fi
+
+      if ! grep -q "^${DISK_VAR_NAME}=" "$CONF_FILE"; then
+        break
+      fi
+      DISK_IDX=$((DISK_IDX + 1))
+    done
+
+    local NEW_DISK_FILENAME="disk"
+    if [ "$DISK_IDX" -gt 0 ]; then
+      NEW_DISK_FILENAME="disk_${DISK_IDX}"
+    fi
+    NEW_DISK_FILENAME="${NEW_DISK_FILENAME}.img"
+    local NEW_DISK_PATH="$VM_DIR/$NEW_DISK_FILENAME"
+
+    display_and_log "INFO" "Creating new disk image: $NEW_DISK_PATH with size ${ADD_DISK_SIZE}GB..."
+    local TRUNCATE_CMD="truncate -s \"${ADD_DISK_SIZE}G\" \"$NEW_DISK_PATH\""
+    log "Executing: $TRUNCATE_CMD"
+    truncate -s "${ADD_DISK_SIZE}G" "$NEW_DISK_PATH" || { display_and_log "ERROR" "Failed to create new disk image at '$NEW_DISK_PATH'. Command: '$TRUNCATE_CMD'"; exit 1; }
+    display_and_log "INFO" "New disk image '$NEW_DISK_PATH' \(${ADD_DISK_SIZE}GB\) created successfully."
+
+    # Append new disk entry to vm.conf
+    cat <<EOF >> "$CONF_FILE"
+${DISK_VAR_NAME}=${NEW_DISK_FILENAME}
+${DISKSIZE_VAR_NAME}=${ADD_DISK_SIZE}
+EOF
+    MODIFIED=true
+    display_and_log "INFO" "New disk '$NEW_DISK_FILENAME' added to VM '$VMNAME' configuration."
+  fi
+
+  # --- Remove Disk ---
+  if [ -n "$REMOVE_DISK_INDEX" ]; then
+    display_and_log "INFO" "Attempting to remove disk with index ${REMOVE_DISK_INDEX} from VM '$VMNAME'..."
+
+    # Validate REMOVE_DISK_INDEX
+    if ! [[ "$REMOVE_DISK_INDEX" =~ ^[0-9]+$ ]]; then
+      display_and_log "ERROR" "Invalid disk index '$REMOVE_DISK_INDEX'. Please provide a non-negative integer."
+      exit 1
+    fi
+
+    local DISK_VAR_PREFIX="DISK"
+    local DISKSIZE_VAR_PREFIX="DISKSIZE"
+
+    local DISK_TO_REMOVE_VAR_NAME="${DISK_VAR_PREFIX}"
+    local DISKSIZE_TO_REMOVE_VAR_NAME="${DISKSIZE_VAR_PREFIX}"
+
+    if [ "$REMOVE_DISK_INDEX" -gt 0 ]; then
+      DISK_TO_REMOVE_VAR_NAME="${DISK_VAR_PREFIX}_${REMOVE_DISK_INDEX}"
+      DISKSIZE_TO_REMOVE_VAR_NAME="${DISKSIZE_VAR_PREFIX}_${REMOVE_DISK_INDEX}"
+    fi
+
+    local DISK_TO_REMOVE_FILENAME=$(grep "^${DISK_TO_REMOVE_VAR_NAME}=" "$CONF_FILE" | cut -d'=' -f2)
+
+    if [ -z "$DISK_TO_REMOVE_FILENAME" ]; then
+      display_and_log "ERROR" "Disk with index $REMOVE_DISK_INDEX does not exist for VM '$VMNAME'."
+      exit 1
+    fi
+
+    local DISK_TO_REMOVE_PATH="$VM_DIR/$DISK_TO_REMOVE_FILENAME"
+
+    display_and_log "INFO" "Found disk to remove: '$DISK_TO_REMOVE_PATH' (Index: $REMOVE_DISK_INDEX)"
+
+    # --- Collect all existing disk configurations ---
+    declare -a DISK_FILENAMES
+    declare -a DISK_SIZES
+    local current_disk_idx=0
+    while true; do
+      local disk_var_name="DISK"
+      local disksize_var_name="DISKSIZE"
+      if [ "$current_disk_idx" -gt 0 ]; then
+        disk_var_name="DISK_${current_disk_idx}"
+        disksize_var_name="DISKSIZE_${current_disk_idx}"
+      fi
+
+      local disk_val=$(grep "^${disk_var_name}=" "$CONF_FILE" | cut -d'=' -f2)
+      if [ -z "$disk_val" ]; then
+        break
+      fi
+      DISK_FILENAMES+=("$disk_val")
+      DISK_SIZES+=($(grep "^${disksize_var_name}=" "$CONF_FILE" | cut -d'=' -f2))
+      current_disk_idx=$((current_disk_idx + 1))
+    done
+
+    # --- Remove the specified disk from arrays ---
+    if [ "$REMOVE_DISK_INDEX" -ge "${#DISK_FILENAMES[@]}" ]; then
+      display_and_log "ERROR" "Disk index $REMOVE_DISK_INDEX is out of bounds. Max index is $(( ${#DISK_FILENAMES[@]} - 1 ))."
+      exit 1
+    fi
+
+    unset 'DISK_FILENAMES[REMOVE_DISK_INDEX]'
+    unset 'DISK_SIZES[REMOVE_DISK_INDEX]'
+
+    # Re-index arrays
+    DISK_FILENAMES=("${DISK_FILENAMES[@]}")
+    DISK_SIZES=("${DISK_SIZES[@]}")
+
+    # --- Remove old disk entries from vm.conf ---
+    local TEMP_CONF_FILE="${CONF_FILE}.tmp"
+    grep -v "^DISK=" "$CONF_FILE" | grep -v "^DISK_[0-9]=" | grep -v "^DISKSIZE=" | grep -v "^DISKSIZE_[0-9]=" > "$TEMP_CONF_FILE"
+    mv "$TEMP_CONF_FILE" "$CONF_FILE"
+
+    # --- Write re-indexed disk configurations back to vm.conf ---
+    for (( i=0; i<${#DISK_FILENAMES[@]}; i++ )); do
+      local current_disk_var_name="DISK"
+      local current_disksize_var_name="DISKSIZE"
+      if [ "$i" -gt 0 ]; then
+        current_disk_var_name="DISK_${i}"
+        current_disksize_var_name="DISKSIZE_${i}"
+      fi
+      cat <<EOF >> "$CONF_FILE"
+${current_disk_var_name}=${DISK_FILENAMES[i]}
+${current_disksize_var_name}=${DISK_SIZES[i]}
+EOF
+    done
+
+    # --- Delete the actual disk image file ---
+    if [ -f "$DISK_TO_REMOVE_PATH" ]; then
+      display_and_log "INFO" "Deleting disk image file: '$DISK_TO_REMOVE_PATH'..."
+      if ! rm "$DISK_TO_REMOVE_PATH"; then
+        display_and_log "WARNING" "Failed to delete disk image file '$DISK_TO_REMOVE_PATH'. Manual deletion may be required."
+      fi
+    else
+      display_and_log "INFO" "Disk image file '$DISK_TO_REMOVE_PATH' not found. Skipping deletion."
+    fi
+
+    MODIFIED=true
+    display_and_log "INFO" "Disk with index ${REMOVE_DISK_INDEX} successfully removed from VM '$VMNAME'."
+  fi
+
+  # --- Add new Network Interface (NIC) ---
+  if [ -n "$ADD_NIC_BRIDGE" ]; then
+    display_and_log "INFO" "Adding new network interface to VM '$VMNAME' connected to bridge '$ADD_NIC_BRIDGE'..."
+
+    # Find the next available NIC index
+    local NEXT_NIC_IDX=0
+    while grep -q "^TAP_${NEXT_NIC_IDX}=" "$CONF_FILE"; do
+      NEXT_NIC_IDX=$((NEXT_NIC_IDX + 1))
+    done
+
+    # Safely detect next available TAP on the system
+    local SYSTEM_NEXT_TAP_NUM=$(get_next_available_tap_num)
+    local NEW_TAP_NAME="tap${SYSTEM_NEXT_TAP_NUM}"
+    local NEW_MAC_ADDR="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+
+    display_and_log "INFO" "Generated new TAP: $NEW_TAP_NAME, MAC: $NEW_MAC_ADDR for NIC_${NEXT_NIC_IDX}."
+
+    # Create and configure the TAP interface
+    if ! create_and_configure_tap_interface "$NEW_TAP_NAME" "$NEW_MAC_ADDR" "$ADD_NIC_BRIDGE" "$VMNAME" "$NEXT_NIC_IDX"; then
+      display_and_log "ERROR" "Failed to create and configure new TAP interface."
+      exit 1
+    fi
+
+    # Append new NIC entry to vm.conf
+    cat <<EOF >> "$CONF_FILE"
+TAP_${NEXT_NIC_IDX}=$NEW_TAP_NAME
+MAC_${NEXT_NIC_IDX}=$NEW_MAC_ADDR
+BRIDGE_${NEXT_NIC_IDX}=$ADD_NIC_BRIDGE
+EOF
+    MODIFIED=true
+    display_and_log "INFO" "New network interface NIC_${NEXT_NIC_IDX} added to VM '$VMNAME' configuration."
+  fi
+
+  # --- Remove Network Interface (NIC) ---
+  if [ -n "$REMOVE_NIC_INDEX" ]; then
+    display_and_log "INFO" "Attempting to remove network interface NIC_${REMOVE_NIC_INDEX} from VM '$VMNAME'..."
+
+    # Validate REMOVE_NIC_INDEX
+    if ! [[ "$REMOVE_NIC_INDEX" =~ ^[0-9]+$ ]]; then
+      display_and_log "ERROR" "Invalid NIC index '$REMOVE_NIC_INDEX'. Please provide a non-negative integer."
+      exit 1
+    fi
+
+    local NIC_TO_REMOVE_TAP_VAR="TAP_${REMOVE_NIC_INDEX}"
+    local NIC_TO_REMOVE_MAC_VAR="MAC_${REMOVE_NIC_INDEX}"
+    local NIC_TO_REMOVE_BRIDGE_VAR="BRIDGE_${REMOVE_NIC_INDEX}"
+
+    local NIC_TO_REMOVE_TAP=""
+    local NIC_TO_REMOVE_MAC=""
+    local NIC_TO_REMOVE_BRIDGE=""
+
+    # Read the current NIC configuration to be removed
+    NIC_TO_REMOVE_TAP=$(grep "^${NIC_TO_REMOVE_TAP_VAR}=" "$CONF_FILE" | cut -d'=' -f2)
+    NIC_TO_REMOVE_MAC=$(grep "^${NIC_TO_REMOVE_MAC_VAR}=" "$CONF_FILE" | cut -d'=' -f2)
+    NIC_TO_REMOVE_BRIDGE=$(grep "^${NIC_TO_REMOVE_BRIDGE_VAR}=" "$CONF_FILE" | cut -d'=' -f2)
+
+    if [ -z "$NIC_TO_REMOVE_TAP" ]; then
+      display_and_log "ERROR" "Network interface with index $REMOVE_NIC_INDEX does not exist for VM '$VMNAME'."
+      exit 1
+    fi
+
+    display_and_log "INFO" "Found NIC to remove: TAP=$NIC_TO_REMOVE_TAP, MAC=$NIC_TO_REMOVE_MAC, BRIDGE=$NIC_TO_REMOVE_BRIDGE"
+
+    # --- Collect all existing NIC configurations ---
+    declare -a TAPS
+    declare -a MACS
+    declare -a BRIDGES
+    local current_nic_idx=0
+    while true; do
+      local tap_val=$(grep "^TAP_${current_nic_idx}=" "$CONF_FILE" | cut -d'=' -f2)
+      if [ -z "$tap_val" ]; then
+        break
+      fi
+      TAPS+=("$tap_val")
+      MACS+=($(grep "^MAC_${current_nic_idx}=" "$CONF_FILE" | cut -d'=' -f2))
+      BRIDGES+=($(grep "^BRIDGE_${current_nic_idx}=" "$CONF_FILE" | cut -d'=' -f2))
+      current_nic_idx=$((current_nic_idx + 1))
+    done
+
+    # --- Remove the specified NIC from arrays ---
+    if [ "$REMOVE_NIC_INDEX" -ge "${#TAPS[@]}" ]; then
+      display_and_log "ERROR" "NIC index $REMOVE_NIC_INDEX is out of bounds. Max index is $(( ${#TAPS[@]} - 1 ))."
+      exit 1
+    fi
+
+    unset 'TAPS[REMOVE_NIC_INDEX]'
+    unset 'MACS[REMOVE_NIC_INDEX]'
+    unset 'BRIDGES[REMOVE_NIC_INDEX]'
+
+    # Re-index arrays (important for bash arrays after unset)
+    TAPS=("${TAPS[@]}")
+    MACS=("${MACS[@]}")
+    BRIDGES=("${BRIDGES[@]}")
+
+    # --- Remove old NIC entries from vm.conf ---
+    # Use a temporary file to avoid issues with sed -i on some systems
+    local TEMP_CONF_FILE="${CONF_FILE}.tmp"
+    grep -v "^TAP_[0-9]=" "$CONF_FILE" | grep -v "^MAC_[0-9]=" | grep -v "^BRIDGE_[0-9]=" > "$TEMP_CONF_FILE"
+    mv "$TEMP_CONF_FILE" "$CONF_FILE"
+
+    # --- Write re-indexed NIC configurations back to vm.conf ---
+    for (( i=0; i<${#TAPS[@]}; i++ )); do
+      cat <<EOF >> "$CONF_FILE"
+TAP_${i}=${TAPS[i]}
+MAC_${i}=${MACS[i]}
+BRIDGE_${i}=${BRIDGES[i]}
+EOF
+    done
+
+    # --- Clean up the associated TAP interface ---
+    if ifconfig "$NIC_TO_REMOVE_TAP" > /dev/null 2>&1; then
+      display_and_log "INFO" "Destroying TAP interface '$NIC_TO_REMOVE_TAP'..."
+      if ! ifconfig "$NIC_TO_REMOVE_TAP" destroy; then
+        display_and_log "WARNING" "Failed to destroy TAP interface '$NIC_TO_REMOVE_TAP'. Manual cleanup may be required."
+      fi
+    else
+      display_and_log "INFO" "TAP interface '$NIC_TO_REMOVE_TAP' not found or already destroyed."
+    fi
+
+    MODIFIED=true
+    display_and_log "INFO" "Network interface NIC_${REMOVE_NIC_INDEX} successfully removed from VM '$VMNAME'."
+  fi
+
+  if [ "$MODIFIED" = true ]; then
+    display_and_log "INFO" "VM '$VMNAME' configuration updated successfully."
+  else
+    display_and_log "INFO" "No modifications specified for VM '$VMNAME'."
+  fi
+  log "Exiting cmd_modify function for VM: $VMNAME"
+}
+
+# === Subcommand: clone ===
+cmd_clone() {
+  log "Entering cmd_clone function for VM: $1 to $2"
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    cmd_clone_usage
+    exit 1
+  fi
+
+
+  local SOURCE_VMNAME="$1"
+  local NEW_VMNAME="$2"
+
+  local SOURCE_VM_DIR="$VM_CONFIG_BASE_DIR/$SOURCE_VMNAME"
+  local NEW_VM_DIR="$VM_CONFIG_BASE_DIR/$NEW_VMNAME"
+  local SOURCE_CONF_FILE="$SOURCE_VM_DIR/vm.conf"
+  local NEW_CONF_FILE="$NEW_VM_DIR/vm.conf"
+
+  # === Check if source VM exists ===
+  if [ ! -d "$SOURCE_VM_DIR" ]; then
+    display_and_log "ERROR" "Source VM '$SOURCE_VMNAME' not found."
+    exit 1
+  fi
+
+  # === Check if new VM already exists ===
+  if [ -d "$NEW_VM_DIR" ]; then
+    display_and_log "ERROR" "Destination VM '$NEW_VMNAME' already exists."
+    exit 1
+  fi
+
+  # === Load source VM config to get its status ===
+  load_vm_config "$SOURCE_VMNAME"
+
+  # === Check if source VM is running ===
+  if pgrep -f "bhyve.*$SOURCE_VMNAME" > /dev/null; then
+    display_and_log "ERROR" "Source VM '$SOURCE_VMNAME' is currently running. Please stop the VM before cloning."
+    exit 1
+  fi
+
+  start_spinner "Cloning VM '$SOURCE_VMNAME' to '$NEW_VMNAME'..."
+  log "INFO" "Cloning VM '$SOURCE_VMNAME' to '$NEW_VMNAME'..."
+
+  # === Create new VM directory ===
+  mkdir -p "$NEW_VM_DIR"
+  log "Created new VM directory: $NEW_VM_DIR"
+
+  # === Copy disk image ===
+  local SOURCE_DISK_PATH="$SOURCE_VM_DIR/$DISK"
+  local NEW_DISK_PATH="$NEW_VM_DIR/$DISK"
+  log "INFO" "Copying disk image from $SOURCE_DISK_PATH to $NEW_DISK_PATH..."
+  if ! cp "$SOURCE_DISK_PATH" "$NEW_DISK_PATH"; then
+    display_and_log "ERROR" "Failed to copy disk image."
+    rm -rf "$NEW_VM_DIR"
+    exit 1
+  fi
+  log "Disk image copied."
+
+  # === Copy config file ===
+  cp "$SOURCE_CONF_FILE" "$NEW_CONF_FILE"
+  log "Copied configuration file to $NEW_CONF_FILE"
+
+  # === Generate new unique values ===
+  local NEW_UUID=$(uuidgen)
+  local NEW_CONSOLE="nmdm-${NEW_VMNAME}.1"
+  local NEW_LOG_FILE="$NEW_VM_DIR/vm.log"
+
+  # === Update new config file ===
+  log "Updating configuration for new VM '$NEW_VMNAME'..."
+  sed -i '' "s/^VMNAME=.*/VMNAME=$NEW_VMNAME/" "$NEW_CONF_FILE"
+  sed -i '' "s/^UUID=.*/UUID=$NEW_UUID/" "$NEW_CONF_FILE"
+  sed -i '' "s/^CONSOLE=.*/CONSOLE=$NEW_CONSOLE/" "$NEW_CONF_FILE"
+  sed -i '' "s#^LOG=.*#LOG=$NEW_LOG_FILE#" "$NEW_CONF_FILE"
+  sed -i '' "s/^AUTOSTART=.*/AUTOSTART=no/" "$NEW_CONF_FILE" # Cloned VMs should not autostart by default
+
+  # === Update network interfaces ===
+  local NIC_IDX=0
+  while true; do
+    # Check if TAP_ and MAC_ variables exist for the current index in the source config
+    if ! grep -q "^TAP_${NIC_IDX}=" "$NEW_CONF_FILE"; then
+      break # No more NICs
+    fi
+
+    log "Updating NIC_${NIC_IDX} for clone..."
+
+    # Generate new TAP
+    local NEXT_TAP_NUM=$(get_next_available_tap_num)
+    local NEW_TAP="tap${NEXT_TAP_NUM}"
+    log "Generated new TAP for NIC_${NIC_IDX}: $NEW_TAP"
+
+    # Generate new MAC
+    local NEW_MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+    log "Generated new MAC for NIC_${NIC_IDX}: $NEW_MAC"
+
+    # Update the new config file
+    sed -i '' "s/^TAP_${NIC_IDX}=.*/TAP_${NIC_IDX}=$NEW_TAP/" "$NEW_CONF_FILE"
+    sed -i '' "s/^MAC_${NIC_IDX}=.*/MAC_${NIC_IDX}=$NEW_MAC/" "$NEW_CONF_FILE"
+
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+
+  echo " "
+  display_and_log "INFO" "VM '$NEW_VMNAME' cloned successfully."
+  display_and_log "INFO" "You can now start it with: $0 start $NEW_VMNAME"
+ 
+  stop_spinner
+}
+
+# === Subcommand: info ===
+cmd_info() {
+  if [ -z "$1" ]; then
+    cmd_info_usage
+    exit 1
+  fi
+
+  VMNAME="$1"
+  load_vm_config "$VMNAME"
+
+  # Get running status and stats
+  local STATUS="STOPPED"
+  local PID="N/A"
+  local CPU_USAGE="N/A"
+  local RAM_USAGE="N/A"
+  local UPTIME="N/A"
+  local RES_MEM="N/A"
+  local VM_EXITS="N/A"
+
+  local PID=$(get_vm_pid "$VMNAME")
+
+  if [ -n "$PID" ] && [ "$PID" != "N/A" ]; then
+    local PID_COUNT
+    PID_COUNT=$(echo "$PID" | wc -l | awk '{print $1}')
+    if [ "$PID_COUNT" -gt 1 ]; then
+        STATUS="RUNNING (PIDs: $PID_COUNT)"
+    else
+        STATUS="RUNNING (PID: $PID)"
+    fi
+
+    # Use ps to get stats - this will sum up for multiple processes if they exist
+    local PS_STATS
+    PS_STATS=$(ps -o %cpu,rss,etime -p "$PID" | tail -n +2 | awk '{cpu+=$1; rss+=$2} END {print cpu, rss}')
+    CPU_USAGE="$(echo "$PS_STATS" | awk '{print $1}')%"
+    RAM_USAGE="$(echo "$PS_STATS" | awk '{print $2/1024}')MB"
+
+    # For uptime, we'll take the etime from the first PID
+    UPTIME=$(ps -o etime -p "$(echo "$PID" | head -n1)" | tail -n 1 | awk '{print $1}')
+
+    # Use bhyvectl for more detailed stats
+    if command -v bhyvectl >/dev/null 2>&1; then
+      local BHYVECTL_STATS
+      BHYVECTL_STATS=$($BHYVECTL --vm="$VMNAME" --get-stats 2>/dev/null)
+      if [ -n "$BHYVECTL_STATS" ]; then
+        RES_MEM=$(echo "$BHYVECTL_STATS" | grep "Resident memory" | awk '{print $(NF)}')
+        VM_EXITS=$(echo "$BHYVECTL_STATS" | grep "total number of vm exits" | awk '{print $(NF)}')
+      fi
+    fi
+  fi
+
+  echo_message "----------------------------------------"
+  echo_message "VM Information for '$VMNAME':"
+  echo_message "----------------------------------------"
+  echo_message "  Name           : $VMNAME"
+  echo_message "  Status         : $STATUS"
+  echo_message "  CPUs           : $CPUS"
+  echo_message "  Memory         : $MEMORY"
+  echo_message "  Bootloader     : $BOOTLOADER_TYPE"
+  echo_message "  Autostart      : $AUTOSTART"
+  echo_message "  CPU Usage      : $CPU_USAGE"
+  echo_message "  RAM Usage      : $RAM_USAGE"
+  echo_message "  Uptime         : $UPTIME"
+  echo_message "  Res Mem        : ${RES_MEM:-N/A}"
+  echo_message "  VM Exits       : ${VM_EXITS:-N/A}"
+
+  # Disk Info
+  echo_message "  ----------------------------------------"
+  echo_message "  Disk Information:"
+  local DISK_IDX=0
+  while true; do
+    local CURRENT_DISK_VAR="DISK"
+    if [ "$DISK_IDX" -gt 0 ]; then
+      CURRENT_DISK_VAR="DISK_${DISK_IDX}"
+    fi
+    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+    if [ -z "$CURRENT_DISK_FILENAME" ]; then
+      break
+    fi
+    local CURRENT_DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
+    local DISK_USED="N/A"
+    local DISK_SET="N/A"
+    if [ -f "$CURRENT_DISK_PATH" ]; then
+      DISK_USED=$(du -h "$CURRENT_DISK_PATH" | awk '{print $1}')
+      DISK_SET=$(ls -lh "$CURRENT_DISK_PATH" | awk '{print $5}')
+    fi
+    echo_message "  Disk $DISK_IDX:"
+    echo_message "      Path       : $CURRENT_DISK_PATH"
+    echo_message "      Used       : $DISK_USED"
+    echo_message "      Set        : $DISK_SET"
+    DISK_IDX=$((DISK_IDX + 1))
+  done
+
+  # Network Info
+  echo_message "  ----------------------------------------"
+  echo_message "  Network Interfaces:"
+  local NIC_IDX=0
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+    if [ -z "$CURRENT_TAP" ]; then
+      break
+    fi
+    echo_message "  Interface $NIC_IDX:"
+    echo_message "      ${CURRENT_TAP_VAR}      : $CURRENT_TAP"
+    echo_message "      ${CURRENT_MAC_VAR}      : $CURRENT_MAC"
+    echo_message "      ${CURRENT_BRIDGE_VAR}   : $CURRENT_BRIDGE"
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+  echo_message "----------------------------------------"
+}
+
+
+
+
+
+
+
+# === Subcommand: resize-disk ===
+cmd_resize_disk() {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    cmd_resize_disk_usage
+    exit 1
+  fi
+
+  VMNAME="$1"
+  NEW_SIZE_GB="$2"
+  load_vm_config "$VMNAME"
+
+  local DISK_PATH="$VM_DIR/$DISK"
+
+  # === Check if VM is running ===
+  if is_vm_running "$VMNAME"; then
+    display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before resizing its disk."
+    exit 1
+  fi
+
+  if [ ! -f "$DISK_PATH" ]; then
+    display_and_log "ERROR" "Disk image for VM '$VMNAME' not found: $DISK_PATH"
+    exit 1
+  fi
+
+  # === Get current disk size in GB ===
+  CURRENT_SIZE_BYTES=$(stat -f %z "$DISK_PATH")
+  CURRENT_SIZE_GB=$((CURRENT_SIZE_BYTES / 1024 / 1024 / 1024))
+
+  if (( NEW_SIZE_GB <= CURRENT_SIZE_GB )); then
+    display_and_log "ERROR" "New size ($NEW_SIZE_GB GB) must be greater than current size ($CURRENT_SIZE_GB GB)."
+    exit 1
+  fi
+
+  log "Resizing disk for VM '$VMNAME' from ${CURRENT_SIZE_GB}GB to ${NEW_SIZE_GB}GB..."
+  truncate -s "${NEW_SIZE_GB}G" "$DISK_PATH"
+  if [ $? -ne 0 ]; then
+    display_and_log "ERROR" "Failed to resize disk image."
+    exit 1
+  fi
+  # === Update DISKSIZE in vm.conf ===
+  sed -i '' "s/^DISKSIZE=.*/DISKSIZE=${NEW_SIZE_GB}/" "$CONF_FILE"
+  log "Disk resized successfully and vm.conf updated."
+  display_and_log "INFO" "Disk for VM '$VMNAME' has been resized to ${NEW_SIZE_GB}GB."
+  display_and_log "INFO" "Note: You may need to extend the partition inside the VM operating system."
+}
+
+
+# === Subcommand: export ===
+cmd_export() {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    cmd_export_usage
+    exit 1
+  fi
+
+  VMNAME="$1"
+  DEST_PATH="$2"
+  VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
+
+  if [ ! -d "$VM_DIR" ]; then
+    display_and_log "ERROR" "VM '$VMNAME' not found: $VM_DIR"
+    exit 1
+  fi
+
+  # === Check if VM is running ===
+  if ps -ax | grep -v grep | grep -c "[b]hyve .* -s .* $VMNAME$" > /dev/null; then
+    display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before exporting."
+    exit 1
+  fi
+
+  log "Exporting VM '$VMNAME' to '$DEST_PATH'..."
+  display_and_log "INFO" "Exporting VM '$VMNAME' to '$DEST_PATH'..."
+
+  start_spinner "Creating archive..."
+  # Create a tar archive of the VM directory
+  if ! tar -czf "$DEST_PATH" -C "$(dirname "$VM_DIR")" "$(basename "$VM_DIR")"; then
+    stop_spinner
+    display_and_log "ERROR" "Failed to create archive for VM '$VMNAME'."
+    exit 1
+  fi
+  stop_spinner
+
+  display_and_log "INFO" "VM '$VMNAME' successfully exported to '$DEST_PATH'."
+}
+
+# === Subcommand: import ===
+cmd_import() {
+  if [ -z "$1" ]; then
+    cmd_import_usage
+    exit 1
+  fi
+
+  local ARCHIVE_PATH="$1"
+
+  if [ ! -f "$ARCHIVE_PATH" ]; then
+    display_and_log "ERROR" "Archive file not found: '$ARCHIVE_PATH'"
+    exit 1
+  fi
+
+
+  # === Extract VM name from archive path to avoid collisions ===
+  start_spinner "Importing VM from '$ARCHIVE_PATH'..."
+  local EXTRACTED_DIR_NAME
+  EXTRACTED_DIR_NAME=$(tar -tf "$ARCHIVE_PATH" | head -n 1 | cut -d'/' -f1)
+  if [ -z "$EXTRACTED_DIR_NAME" ]; then
+      display_and_log "ERROR" "Could not determine VM name from archive."
+      stop_spinner
+      exit 1
+  fi
+
+  local NEW_VM_DIR="$VM_CONFIG_BASE_DIR/$EXTRACTED_DIR_NAME"
+
+  if [ -d "$NEW_VM_DIR" ]; then
+    display_and_log "ERROR" "A VM named '$EXTRACTED_DIR_NAME' already exists. Please remove it or rename the directory in the archive."
+    stop_spinner
+    exit 1
+  fi
+
+  log "INFO" "Importing VM from '$ARCHIVE_PATH'..."
+
+  # === Extract the archive ===
+  if ! tar -xzf "$ARCHIVE_PATH" -C "$VM_CONFIG_BASE_DIR"; then
+    display_and_log "ERROR" "Failed to extract VM archive."
+    rm -rf "$NEW_VM_DIR" # Clean up partial extraction
+    stop_spinner
+    exit 1
+  fi
+
+  local IMPORTED_VMNAME="$EXTRACTED_DIR_NAME"
+  load_vm_config "$IMPORTED_VMNAME"
+
+  # === Generate new UUID, MAC, TAP, CONSOLE for the imported VM to avoid conflicts ===
+  local NEW_UUID
+  NEW_UUID=$(uuidgen)
+  local NEW_CONSOLE="nmdm-${IMPORTED_VMNAME}.1"
+  local NEW_LOG_FILE="$NEW_VM_DIR/vm.log"
+
+  local CONF_FILE="$NEW_VM_DIR/vm.conf"
+  sed -i '' "s/^UUID=.*/UUID=$NEW_UUID/" "$CONF_FILE"
+  sed -i '' "s/^CONSOLE=.*/CONSOLE=$NEW_CONSOLE/" "$CONF_FILE"
+  sed -i '' "s#^LOG=.*#LOG=$NEW_LOG_FILE#" "$CONF_FILE"
+
+  # === Update network interfaces ===
+  local NIC_IDX=0
+  while true; do
+    if ! grep -q "^TAP_${NIC_IDX}=" "$CONF_FILE"; then
+      break # No more NICs
+    fi
+
+    local NEXT_TAP_NUM=$(get_next_available_tap_num)
+    local NEW_TAP="tap${NEXT_TAP_NUM}"
+    local NEW_MAC="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+
+    sed -i '' "s/^TAP_${NIC_IDX}=.*/TAP_${NIC_IDX}=$NEW_TAP/" "$CONF_FILE"
+    sed -i '' "s/^MAC_${NIC_IDX}=.*/MAC_${NIC_IDX}=$NEW_MAC/" "$CONF_FILE"
+
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+
+  echo " "
+  display_and_log "INFO" "VM '$IMPORTED_VMNAME' successfully imported."
+  display_and_log "INFO" "You may need to review the configuration with '$0 modify $IMPORTED_VMNAME' if the host environment has changed."
+  stop_spinner
+}
+
+
+
+
+
+# === Subcommand: network add ===
+cmd_network_add() {
+  local VMNAME=""
+  local BRIDGE_NAME=""
+  local MAC_ADDRESS=""
+
+  # === Parse named arguments ===
+  while (( "$#" )); do
+    case "$1" in
+      --vm)
+        shift
+        VMNAME="$1"
+        ;;
+      --switch)
+        shift
+        BRIDGE_NAME="$1"
+        ;;
+      --mac)
+        shift
+        MAC_ADDRESS="$1"
+        ;;
+      *)
+        display_and_log "ERROR" "Invalid option: $1"
+        cmd_network_add_usage
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  # === Validate required arguments ===
+  if [ -z "$VMNAME" ] || [ -z "$BRIDGE_NAME" ]; then
+    cmd_network_add_usage
+    exit 1
+  fi
+
+  load_vm_config "$VMNAME"
+
+  # === Check if VM is running ===
+  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before adding a network interface."
+    exit 1
+  fi
+
+  local NIC_IDX=0
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    if [ -z "$CURRENT_TAP" ]; then
+      break # Found next available index
+    fi
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+
+  local NEW_TAP
+  NEXT_TAP_NUM=0
+  while ifconfig | grep -q "^tap${NEXT_TAP_NUM}:"; do
+    NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
+  done
+  NEW_TAP="tap${NEXT_TAP_NUM}"
+
+  local NEW_MAC="${MAC_ADDRESS:-58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)}"
+
+  local CONF_FILE="$VM_DIR/vm.conf"
+  cat <<EOF >> "$CONF_FILE"
+TAP_${NIC_IDX}=$NEW_TAP
+MAC_${NIC_IDX}=$NEW_MAC
+BRIDGE_${NIC_IDX}=$BRIDGE_NAME
+EOF
+
+  # === Create and configure the TAP interface immediately ===
+  log "Creating TAP interface '$NEW_TAP'..."
+  if ! ifconfig "$NEW_TAP" create; then
+    display_and_log "ERROR" "Failed to create TAP interface '$NEW_TAP'."
+    exit 1
+  fi
+  ifconfig "$NEW_TAP" description "vm-$VMNAME-nic${NIC_IDX}"
+  ifconfig "$NEW_TAP" up
+  log "TAP interface '$NEW_TAP' created and activated."
+
+  # === Add TAP to bridge ===
+  if ! ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
+    log "Bridge interface '$BRIDGE_NAME' does not exist. Creating..."
+    ifconfig bridge create name "$BRIDGE_NAME"
+    log "Bridge interface '$BRIDGE_NAME' successfully created."
+    display_and_log "INFO" "Switch bridge '$BRIDGE_NAME' successfully created."
+  else
+    log "Bridge interface '$BRIDGE_NAME' already exists."
+  fi
+
+  if ! ifconfig "$BRIDGE_NAME" addm "$NEW_TAP"; then
+    display_and_log "ERROR" "Failed to add TAP '$NEW_TAP' to bridge '$BRIDGE_NAME'."
+    exit 1
+  fi
+  log "TAP '$NEW_TAP' added to bridge '$BRIDGE_NAME'."
+
+  log "Added network interface TAP '$NEW_TAP' (MAC: $NEW_MAC) on bridge '$BRIDGE_NAME' to VM '$VMNAME'."
+  display_and_log "INFO" "Network interface added to VM '$VMNAME'. Please restart the VM for changes to take effect."
+}
+
+# === Subcommand: network remove ===
+cmd_network_remove() {
+  if [ -z "$1" ] || [ -z "$2" ]; then
+    cmd_network_remove_usage
+    exit 1
+  fi
+
+  VMNAME="$1"
+  TAP_TO_REMOVE="$2"
+
+  load_vm_config "$VMNAME"
+
+  # === Check if VM is running ===
+  if pgrep -f "bhyve.*$VMNAME" > /dev/null; then
+    display_and_log "ERROR" "VM '$VMNAME' is currently running. Please stop the VM before removing a network interface."
+    exit 1
+  fi
+
+  local CONF_FILE="$VM_DIR/vm.conf"
+  local FOUND_NIC_IDX=-1
+  local NIC_COUNT=0
+  local CURRENT_BRIDGE_OF_TAP_TO_REMOVE=""
+
+  # === Find the index and bridge of the NIC to remove ===
+  local NIC_IDX=0
+  while true; do
+    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
+    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+
+    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+
+    if [ -z "$CURRENT_TAP" ]; then
+      break
+    fi
+    if [ "$CURRENT_TAP" = "$TAP_TO_REMOVE" ]; then
+      FOUND_NIC_IDX=$NIC_IDX
+      CURRENT_BRIDGE_OF_TAP_TO_REMOVE="$CURRENT_BRIDGE"
+    fi
+    NIC_COUNT=$((NIC_COUNT + 1))
+    NIC_IDX=$((NIC_IDX + 1))
+  done
+
+  if [ "$FOUND_NIC_IDX" -eq -1 ]; then
+    display_and_log "ERROR" "Network interface '$TAP_TO_REMOVE' not found for VM '$VMNAME'."
+    exit 1
+  fi
+
+  # === Remove the lines from vm.conf ===
+  sed -i '' "/^TAP_${FOUND_NIC_IDX}=/d" "$CONF_FILE"
+  sed -i '' "/^MAC_${FOUND_NIC_IDX}=/d" "$CONF_FILE"
+  sed -i '' "/^BRIDGE_${FOUND_NIC_IDX}=/d" "$CONF_FILE"
+
+  # === Remove TAP from bridge and destroy TAP interface immediately ===
+  if [ -n "$CURRENT_BRIDGE_OF_TAP_TO_REMOVE" ] && ifconfig "$CURRENT_BRIDGE_OF_TAP_TO_REMOVE" | grep -qw "$TAP_TO_REMOVE"; then
+    log "Removing TAP '$TAP_TO_REMOVE' from bridge '$CURRENT_BRIDGE_OF_TAP_TO_REMOVE'..."
+    ifconfig "$CURRENT_BRIDGE_OF_TAP_TO_REMOVE" deletem "$TAP_TO_REMOVE"
+  fi
+
+  if ifconfig "$TAP_TO_REMOVE" > /dev/null 2>&1; then
+    log "Destroying TAP interface '$TAP_TO_REMOVE'..."
+    ifconfig "$TAP_TO_REMOVE" destroy
+  fi
+
+  # === Re-index remaining NICs if necessary ===
+  if [ "$FOUND_NIC_IDX" -lt "$((NIC_COUNT - 1))" ]; then
+    log "Re-indexing network interfaces..."
+    for (( i = FOUND_NIC_IDX; i < NIC_COUNT - 1; i++ )); do
+      local NEXT_NIC_IDX=$((i + 1))
+
+      local OLD_TAP_VAL
+      OLD_TAP_VAL=$(grep "^TAP_${NEXT_NIC_IDX}=" "$CONF_FILE" | cut -d'=' -f2)
+      local OLD_MAC_VAL
+      OLD_MAC_VAL=$(grep "^MAC_${NEXT_NIC_IDX}=" "$CONF_FILE" | cut -d'=' -f2)
+      local OLD_BRIDGE_VAL
+      OLD_BRIDGE_VAL=$(grep "^BRIDGE_${NEXT_NIC_IDX}=" "$CONF_FILE" | cut -d'=' -f2)
+
+      sed -i '' "s/^TAP_${NEXT_NIC_IDX}=.*/TAP_${i}=${OLD_TAP_VAL}/" "$CONF_FILE"
+      sed -i '' "s/^MAC_${NEXT_NIC_IDX}=.*/MAC_${i}=${OLD_MAC_VAL}/" "$CONF_FILE"
+      sed -i '' "s/^BRIDGE_${NEXT_NIC_IDX}=.*/BRIDGE_${i}=${OLD_BRIDGE_VAL}/" "$CONF_FILE"
+    done
+    # Remove the last (now duplicate) entries
+    sed -i '' "/^TAP_${NIC_COUNT-1}=/d" "$CONF_FILE"
+    sed -i '' "/^MAC_${NIC_COUNT-1}=/d" "$CONF_FILE"
+    sed -i '' "/^BRIDGE_${NIC_COUNT-1}=/d" "$CONF_FILE"
+  fi
+
+  log "Removed network interface '$TAP_TO_REMOVE' from VM '$VMNAME'."
+  display_and_log "INFO" "Network interface removed from VM '$VMNAME'. Please restart the VM for changes to take effect."
+}
+
+# === Main Logic ===
+check_root
+check_kld vmm
+check_kld nmdm
+
+check_initialization "$1"
+load_config
+
+case "$1" in
+  init)
+    cmd_init
+    exit 0
+    ;;
+  switch)
+    shift
+    cmd_switch "$@"
+    exit 0
+    ;;
+  --version)
+    echo_message "bhyve-cli.sh version $VERSION"
+    exit 0
+    ;;
+  --help)
+    main_usage
+    exit 0
+    ;;
+  create)
+    shift
+    cmd_create "$@"
+    ;;
+  delete)
+    shift
+    cmd_delete "$@"
+    ;;
+  install)
+    shift
+    cmd_install "$@"
+    ;;
+  start)
+    shift
+    cmd_start "$@"
+    ;;
+  stop)
+    shift
+    cmd_stop "$@"
+    ;;
+  console)
+    shift
+    cmd_console "$@"
+    ;;
+  logs)
+    shift
+    cmd_logs "$@"
+    ;;
+  status)
+    shift
+    cmd_status "$@"
+    ;;
+  autostart)
+    shift
+    cmd_autostart "$@"
+    ;;
+  modify)
+    shift
+    cmd_modify "$@"
+    ;;
+  clone)
+    shift
+    cmd_clone "$@"
+    ;;
+  info)
+    shift
+    cmd_info "$@"
+    ;;
+  resize-disk)
+    shift
+    cmd_resize_disk "$@"
+    ;;
+  export)
+    shift
+    cmd_export "$@"
+    ;;
+  import)
+    shift
+    cmd_import "$@"
+    ;;
+  restart)
+    shift
+    cmd_restart "$@"
+    ;;
+  stopall)
+    shift
+    cmd_stopall "$@"
+    ;;
+  startall)
+    shift
+    cmd_startall "$@"
+    ;;
+  iso)
+    shift
+    cmd_iso "$@"
+    ;;
+  *)
+    main_usage
+    exit 1
+    ;;
+esac
