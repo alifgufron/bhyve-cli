@@ -166,15 +166,43 @@ cmd_modify() {
         if [ "$REMOVE_DISK_INDEX" -gt 0 ]; then
           DISK_VAR_TO_REMOVE="DISK_${REMOVE_DISK_INDEX}"
         fi
-        local DISK_FILENAME_TO_REMOVE=$(grep "^${DISK_VAR_TO_REMOVE}=" "$CONF_FILE" | cut -d'=' -f2)
-        local DISK_PATH_TO_REMOVE="$VM_DIR/$DISK_FILENAME_TO_REMOVE"
+        local DISK_FILENAME_FROM_CONF=$(grep "^${DISK_VAR_TO_REMOVE}=" "$CONF_FILE" | cut -d'=' -f2)
+        
+        local ACTUAL_DISK_PATH=""
+        local IS_EXTERNAL_DISK=false
+
+        # Determine if it's an internal or external disk
+        if [[ "$DISK_FILENAME_FROM_CONF" =~ ^/ ]]; then
+          # It's an absolute path, so it's an external disk
+          ACTUAL_DISK_PATH="$DISK_FILENAME_FROM_CONF"
+          IS_EXTERNAL_DISK=true
+        else
+          # It's a relative path, so it's an internal disk within VM_DIR
+          ACTUAL_DISK_PATH="$VM_DIR/$DISK_FILENAME_FROM_CONF"
+        fi
 
         log "Removing disk (index $REMOVE_DISK_INDEX) from VM '$VMNAME'..."
+        
+        # Always remove config entries first
         sed -i '' "/^${DISK_VAR_TO_REMOVE}=/d" "$CONF_FILE"
         sed -i '' "/^${DISK_VAR_TO_REMOVE}_TYPE=/d" "$CONF_FILE" # Also remove type
-        if [ -f "$DISK_PATH_TO_REMOVE" ]; then
-          rm "$DISK_PATH_TO_REMOVE"
-          display_and_log "INFO" "Disk file '$DISK_FILENAME_TO_REMOVE' removed."
+
+        if [ -f "$ACTUAL_DISK_PATH" ]; then
+          if [ "$IS_EXTERNAL_DISK" = true ]; then
+            read -rp "This is an external disk file: '$ACTUAL_DISK_PATH'. Do you want to delete the file as well? (y/N) " CONFIRM_DELETE_FILE
+            if [[ "$CONFIRM_DELETE_FILE" =~ ^[Yy]$ ]]; then
+              rm "$ACTUAL_DISK_PATH"
+              display_and_log "INFO" "External disk file '$ACTUAL_DISK_PATH' removed."
+            else
+              display_and_log "INFO" "External disk file '$ACTUAL_DISK_PATH' kept."
+            fi
+          else
+            # It's an internal disk created by bhyve-cli, delete automatically
+            rm "$ACTUAL_DISK_PATH"
+            display_and_log "INFO" "Internal disk file '$ACTUAL_DISK_PATH' removed."
+          fi
+        else
+          display_and_log "INFO" "Disk file '$ACTUAL_DISK_PATH' not found on filesystem. Only configuration removed."
         fi
         display_and_log "INFO" "Disk $REMOVE_DISK_INDEX removed from configuration."
         VM_MODIFIED=true
