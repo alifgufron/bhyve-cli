@@ -46,7 +46,7 @@ cmd_install() {
   # === Stop bhyve if still active ===
   if is_vm_running "$VMNAME"; then
     log "VM '$VMNAME' is still running. Stopped..."
-    pkill -f "bhyve: $VMNAME"
+    pkill -f "bhyve.*$VMNAME"
     sleep 1
   fi
 
@@ -121,11 +121,43 @@ cmd_install() {
   fi
 
   # === Installation Logic ===
-  clear # Clear screen
-  local BHYVE_LOADER_CLI_ARG=""
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
     run_bhyveload "$ISO_PATH" || exit 1
+
+    display_and_log "INFO" "Starting VM with nmdm console for installation..."
+    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s ${NEXT_DISK_DEV_NUM}:0,ahci-cd,\"$ISO_PATH\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc \"$VMNAME\""
+    log "Executing bhyve command: $BHYVE_CMD"
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1
+    VM_PID=$(pgrep -f "bhyve: $VMNAME") # Get PID after bhyve exits
+    save_vm_pid "$VMNAME" "$VM_PID"
+    log "Bhyve VM started in foreground with PID $VM_PID"
+
+    echo_message ""
+    echo_message ">\>\> Entering VM '$VMNAME' installation console \(exit with ~.\)"
+    echo_message ">\>\> IMPORTANT: After shutting down the VM from within, you MUST type '~.' \(tilde then dot\) to exit this console and allow the script to continue cleanup."
+    cu -l /dev/"${CONSOLE}B"
+
+    log "cu session ended. Initiating cleanup..."
+
+    cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
+
+    # Check the exit status of the bhyve process
+    wait "$VM_PID"
+    local BHYVE_EXIT_STATUS=$?
+
+    if [ "$BHYVE_EXIT_STATUS" -eq 3 ] || [ "$BHYVE_EXIT_STATUS" -eq 4 ]; then
+        display_and_log "ERROR" "Virtual machine '$VMNAME' installer exited with an error \(exit code: $BHYVE_EXIT_STATUS\). Check VM logs for details."
+        exit 1
+    else
+        log "Bhyve process $VM_PID exited cleanly \(status: $BHYVE_EXIT_STATUS\)."
+    fi
+    display_and_log "INFO" "Installation finished. You can now start the VM with: $0 start $VMNAME"
+
   else
+    # --- uefi/GRUB INSTALL ---
+    log "Preparing for non-bhyveload installation..."
+    log "Bootloader type for installation: $BOOTLOADER_TYPE"
+    local BHYVE_LOADER_CLI_ARG=""
     case "$BOOTLOADER_TYPE" in
       uefi|bootrom)
         local UEFI_FIRMWARE_FOUND=false
@@ -134,15 +166,21 @@ cmd_install() {
           BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
           log "Using uefi firmware from configured path: $UEFI_FIRMWARE_PATH"
           UEFI_FIRMWARE_FOUND=true
-        elif [ -f "/usr/local/share/uefi-firmware/BHYVE_UEFI.fd" ]; then
+        else
+          log "UEFI firmware not found in configured path. Checking default system path."
+        fi
+
+        if [ "$UEFI_FIRMWARE_FOUND" = false ] && [ -f "/usr/local/share/uefi-firmware/BHYVE_UEFI.fd" ]; then
           BHYVE_LOADER_CLI_ARG="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
           log "Using uefi firmware from default system path: /usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
           UEFI_FIRMWARE_FOUND=true
+        elif [ "$UEFI_FIRMWARE_FOUND" = false ]; then
+          log "UEFI firmware not found in default system path either."
         fi
 
         if [ "$UEFI_FIRMWARE_FOUND" = false ]; then
           display_and_log "ERROR" "UEFI firmware not found."
-          echo_message "Please ensure 'edk2-bhyve' is installed (pkg install edk2-bhyve) or copy a compatible UEFI firmware file to $UEFI_FIRMWARE_PATH."
+          echo_message "Please ensure 'edk2-bhyve' is installed \(pkg install edk2-bhyve\) or copy a compatible UEFI firmware file to $UEFI_FIRMWARE_PATH."
           exit 1
         fi
         ;;
@@ -160,48 +198,48 @@ cmd_install() {
         exit 1
         ;;
     esac
+
+    clear # Clear screen before console
+
+    local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s ${NEXT_DISK_DEV_NUM}:0,ahci-cd,\"$ISO_PATH\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
+    log "Constructed bhyve command: $BHYVE_CMD"
+
+    echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
+    echo_message ">>> IMPORTANT: After shutting down the VM from within, you MUST type '~.' (tilde then dot) to exit this console and allow the script to continue cleanup."
+
+    # Execute bhyve in the background
+    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    VM_PID=$!
+    save_vm_pid "$VMNAME" "$VM_PID"
+
+    for i in $(seq 1 5); do
+        printf "\x1b" > /dev/${CONSOLE}B
+        sleep 0.05 # Small delay between key presses
+    done
+
+    # Give the VM a moment to initialize before connecting the console
+    sleep 1
+    cu -l /dev/"${CONSOLE}B" -s 115200
+
+
+    log "cu session ended. Initiating cleanup..."
+
+    cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
+
+    # Wait for the bhyve process to exit.
+    # Capture its exit status.
+    wait "$VM_PID"
+    local BHYVE_EXIT_STATUS=$?
+
+    # Check the exit status of the bhyve process
+    if [ "$BHYVE_EXIT_STATUS" -eq 3 ] || [ "$BHYVE_EXIT_STATUS" -eq 4 ]; then
+        # If bhyve exited due to a fault or error, then display error message
+        display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error (exit code: $BHYVE_EXIT_STATUS). Check VM logs for details."
+        exit 1
+    else
+        log "Bhyve process $VM_PID exited cleanly (status: $BHYVE_EXIT_STATUS)."
+    fi
+    log "Bhyve process $VM_PID exited."
   fi
-
-  clear # Clear screen
-
-  display_and_log "INFO" "Starting VM with nmdm console for installation..."
-  local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s ${NEXT_DISK_DEV_NUM}:0,ahci-cd,\"$ISO_PATH\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
-  log "Constructed bhyve command: $BHYVE_CMD"
-
-  # Execute bhyve in the background
-  eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
-  VM_PID=$!
-  save_vm_pid "$VMNAME" "$VM_PID"
-  log "Bhyve VM started in background with PID $VM_PID"
-
-  echo_message ""
-  echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
-  if [[ "$BOOTLOADER_TYPE" == "uefi" || "$BOOTLOADER_TYPE" == "bootrom" ]]; then
-    echo_message "\e[1;33m>>> UEFI BOOT: To enter the boot menu, start pressing [ESC] repeatedly NOW.\e[0m"
-  fi
-  echo_message ">>> IMPORTANT: After shutting down the VM from within, you MUST type '~.' (tilde then dot) to exit this console and allow the script to continue cleanup."
-
-  # A minimal sleep is needed for the nmdm device to be ready before cu connects.
-  sleep 1
-
-  cu -l /dev/"${CONSOLE}B" -s 115200
-
-  log "cu session ended. Initiating cleanup..."
-
-  cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
-
-  # Wait for the bhyve process to exit and capture its exit status.
-  wait "$VM_PID"
-  local BHYVE_EXIT_STATUS=$?
-
-  # Check the exit status of the bhyve process
-  if [ "$BHYVE_EXIT_STATUS" -eq 3 ] || [ "$BHYVE_EXIT_STATUS" -eq 4 ]; then
-      # If bhyve exited due to a fault or error, then display error message
-      display_and_log "ERROR" "Virtual machine '$VMNAME' failed to boot or installer exited with an error (exit code: $BHYVE_EXIT_STATUS). Check VM logs for details."
-      exit 1
-  else
-      log "Bhyve process $VM_PID exited cleanly (status: $BHYVE_EXIT_STATUS)."
-  fi
-  display_and_log "INFO" "Installation finished. You can now start the VM with: $0 start $VMNAME"
   log "Exiting cmd_install function for VM: $VMNAME"
 }

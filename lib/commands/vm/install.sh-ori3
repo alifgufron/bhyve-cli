@@ -121,7 +121,6 @@ cmd_install() {
   fi
 
   # === Installation Logic ===
-  clear # Clear screen
   local BHYVE_LOADER_CLI_ARG=""
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
     run_bhyveload "$ISO_PATH" || exit 1
@@ -162,8 +161,6 @@ cmd_install() {
     esac
   fi
 
-  clear # Clear screen
-
   display_and_log "INFO" "Starting VM with nmdm console for installation..."
   local BHYVE_CMD="$BHYVE -c \"$CPUS\" -m \"$MEMORY\" -AHP -s 0,hostbridge $DISK_ARGS -s ${NEXT_DISK_DEV_NUM}:0,ahci-cd,\"$ISO_PATH\" $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
   log "Constructed bhyve command: $BHYVE_CMD"
@@ -176,14 +173,25 @@ cmd_install() {
 
   echo_message ""
   echo_message ">>> Entering VM '$VMNAME' console (exit with ~.)"
-  if [[ "$BOOTLOADER_TYPE" == "uefi" || "$BOOTLOADER_TYPE" == "bootrom" ]]; then
-    echo_message "\e[1;33m>>> UEFI BOOT: To enter the boot menu, start pressing [ESC] repeatedly NOW.\e[0m"
-  fi
   echo_message ">>> IMPORTANT: After shutting down the VM from within, you MUST type '~.' (tilde then dot) to exit this console and allow the script to continue cleanup."
 
-  # A minimal sleep is needed for the nmdm device to be ready before cu connects.
-  sleep 1
+  # If using UEFI, send ESC keys in the background to trigger the boot menu.
+  # This runs in a subshell to not block the main script.
+  if [[ "$BOOTLOADER_TYPE" == "uefi" || "$BOOTLOADER_TYPE" == "bootrom" ]]; then
+    (
+      # Wait a moment for the firmware to start initializing.
+      sleep 0.5
+      log "UEFI boot detected. Sending ESC key to trigger boot manager..."
+      for i in $(seq 1 3); do
+         printf "\x1b" > "/dev/${CONSOLE}B"
+         sleep 0.3
+      done
+      log "ESC sequence sent."
+    ) &
+  fi
 
+  # Connect to the console immediately. A minimal sleep is needed for the nmdm device.
+  sleep 0.2
   cu -l /dev/"${CONSOLE}B" -s 115200
 
   log "cu session ended. Initiating cleanup..."
