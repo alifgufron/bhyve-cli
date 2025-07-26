@@ -96,6 +96,8 @@ cmd_start() {
     log "VNC arguments: $VNC_ARGS"
   fi
 
+  local BHYVE_CMD_COMMON_ARGS="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS ${VNC_ARGS}"
+
   # === Start Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
     log "Preparing for bhyveload start..."
