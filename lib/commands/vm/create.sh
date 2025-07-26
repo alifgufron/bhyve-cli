@@ -31,6 +31,13 @@ cmd_create() {
         shift
         FROM_TEMPLATE="$1"
         ;;
+      --vnc-port)
+        shift
+        local VNC_PORT="$1"
+        ;;
+      --vnc-wait)
+        local VNC_WAIT="true"
+        ;;
       *)
         display_and_log "ERROR" "Invalid option: $1"
         cmd_create_usage
@@ -210,6 +217,14 @@ cmd_create() {
       echo "AUTOSTART=no" >> "$CONF"
     fi
 
+    # Add VNC configuration if provided
+    if [ -n "$VNC_PORT" ]; then
+      echo "VNC_PORT=$VNC_PORT" >> "$CONF"
+      if [ -n "$VNC_WAIT" ]; then
+        echo "VNC_WAIT=yes" >> "$CONF"
+      fi
+    fi
+
   else
     # For non-template creation, create vm.conf from scratch
     cat > "$CONF" <<EOF
@@ -227,6 +242,13 @@ LOG=$LOG_FILE
 AUTOSTART=no
 BOOTLOADER_TYPE=$BOOTLOADER_TYPE
 EOF
+    # Add VNC configuration if provided
+    if [ -n "$VNC_PORT" ]; then
+      echo "VNC_PORT=$VNC_PORT" >> "$CONF"
+      if [ -n "$VNC_WAIT" ]; then
+        echo "VNC_WAIT=yes" >> "$CONF"
+      fi
+    fi
   fi
 
   log "Configuration file created: $CONF"
