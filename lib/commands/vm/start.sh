@@ -237,7 +237,9 @@ cmd_start() {
         cu -l /dev/"${CONSOLE}B"
         log "cu session ended."
       else
-        echo_message "Please connect to the console using: $0 console $VMNAME"
+        if [ "$SUPPRESS_CONSOLE_MESSAGE" = false ]; then
+          echo_message "Please connect to the console using: $0 console $VMNAME"
+        fi
       fi
     else
       if [ "$SUPPRESS_CONSOLE_MESSAGE" = false ]; then

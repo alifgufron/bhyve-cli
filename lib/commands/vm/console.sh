@@ -21,7 +21,9 @@ cmd_console() {
     display_and_log "WARNING" "VM '$VMNAME' is suspended and cannot be accessed via console. Please resume it first."
     exit 1
   fi
+  
 
+  clear
   echo_message ">>> Connecting to console for VM '$VMNAME'. Type ~. to exit."
   cu -l /dev/"${CONSOLE}B" -s 115200
   
