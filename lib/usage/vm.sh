@@ -25,9 +25,10 @@ cmd_delete_usage() {
 
 # === Usage function for install ===
 cmd_install_usage() {
-  echo_message "Usage: $0 install <vmname> [--bootloader <type>]"
+  echo_message "Usage: $0 install <vmname> [--bootloader <type>] [--bootmenu]"
   echo_message "\nOptions:"
   echo_message "  --bootloader <type>          - Optional. Override the bootloader type for this installation (bhyveload, uefi)."
+  echo_message "  --bootmenu                   - Optional. For UEFI bootloader, attempts to send ESC key to trigger boot menu."
 }
 
 # === Usage function for start ===
