@@ -3,24 +3,56 @@
 # === Subcommand: startall ===
 cmd_startall() {
   log "Entering cmd_startall function."
-  display_and_log "INFO" "Attempting to start all configured VMs..."
+  start_spinner "Checking VM statuses and starting any stopped VMs..."
 
   if [ ! -d "$VM_CONFIG_BASE_DIR" ] || [ -z "$(ls -A "$VM_CONFIG_BASE_DIR")" ]; then
-    display_and_log "INFO" "No virtual machines configured to start."
+    stop_spinner "No virtual machines configured to start."
     exit 0
   fi
 
+  local started_vms=0
+  local already_running_vms=0
+  local failed_vms=0
+  local total_vms=0
+
   for VM_DIR_PATH in "$VM_CONFIG_BASE_DIR"/*/; do
     if [ -d "$VM_DIR_PATH" ]; then
+      total_vms=$((total_vms + 1))
       local VMNAME=$(basename "$VM_DIR_PATH")
-      if ! is_vm_running "$VMNAME"; then
-        log "Starting VM '$VMNAME'..."
-        cmd_start "$VMNAME" --suppress-console-message
-      else
+      if is_vm_running "$VMNAME"; then
         log "VM '$VMNAME' is already running. Skipping."
+        already_running_vms=$((already_running_vms + 1))
+      else
+        log "Starting VM '$VMNAME'..."
+        # Call cmd_start with --suppress-console-message to avoid extra output
+        if cmd_start "$VMNAME" --suppress-console-message; then
+          started_vms=$((started_vms + 1))
+        else
+          failed_vms=$((failed_vms + 1))
+          log "Failed to start VM '$VMNAME'."
+        fi
       fi
     fi
   done
-  display_and_log "INFO" "Attempt to start all VMs complete."
+
+  local final_message=""
+  if [ "$started_vms" -gt 0 ]; then
+    final_message+="Successfully started $started_vms VM(s). "
+  fi
+  if [ "$already_running_vms" -gt 0 ]; then
+    final_message+="$already_running_vms VM(s) already running. "
+  fi
+  if [ "$failed_vms" -gt 0 ]; then
+    final_message+="Failed to start $failed_vms VM(s). "
+  fi
+
+  if [ "$total_vms" -eq 0 ]; then
+    stop_spinner "No virtual machines found."
+  elif [ -n "$final_message" ]; then
+    stop_spinner "Attempt to start all VMs complete. $final_message"
+  else
+    stop_spinner "Attempt to start all VMs complete."
+  fi
+
   log "Exiting cmd_startall function."
 }

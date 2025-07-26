@@ -62,9 +62,13 @@ start_spinner() {
 }
 
 stop_spinner() {
+  local message="$1"
   if [[ -n "$_spinner_pid" ]]; then
     kill "$_spinner_pid" >/dev/null 2>&1
     wait "$_spinner_pid" 2>/dev/null
-    echo -ne "\n"
+    echo -ne "\r\033[K"
+  fi
+  if [[ -n "$message" ]]; then
+    echo_message "$message"
   fi
 }
