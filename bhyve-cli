@@ -1,0 +1,49 @@
+#!/bin/sh
+
+# PROVIDE: bhyve-cli
+# REQUIRE: LOGIN DAEMON network
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="bhyve-cli"
+rcvar="${name}_enable"
+
+# Set the path to the bhyve-cli.sh script
+# The default is /usr/local/sbin/bhyve-cli.sh, a standard location for system utilities.
+# You can override this by setting bhyve_cli_command="/path/to/your/script" in /etc/rc.conf
+: "${bhyve_cli_command:=/usr/local/sbin/bhyve-cli.sh}"
+
+command="${bhyve_cli_command}"
+command_interpreter="/usr/local/bin/bash" # The main script requires bash
+
+start_cmd()
+{
+    echo "Initializing bhyve network switches..."
+    ${command_interpreter} ${command} switch init
+    echo "Starting autostart-enabled bhyve VMs..."
+    ${command_interpreter} ${command} startall
+}
+
+stop_cmd()
+{
+    echo "Stopping all running bhyve VMs..."
+    ${command_interpreter} ${command} stopall
+}
+
+status_cmd()
+{
+    echo "Displaying status of bhyve VMs:"
+    ${command_interpreter} ${command} list
+}
+
+# Define extra commands
+extra_commands="status"
+
+# Load rc.conf variables
+load_rc_config "$name"
+
+# Set defaults
+: "${bhyve_cli_enable:=NO}"
+
+run_rc_command "$1"

@@ -1,101 +1,98 @@
-# bhyve-cli.sh - Simple bhyve VM Management
+# bhyve-cli - Advanced Bhyve VM Management
 
-`bhyve-cli.sh` is a straightforward Bash script for managing bhyve virtual machines on FreeBSD. It provides a command-line interface for common VM operations, network setup, and system initialization.
+`bhyve-cli` is a powerful, modular shell script for managing bhyve virtual machines on FreeBSD. It provides a structured command-line interface for the entire VM lifecycle, from creation and network setup to daily operations and system integration.
 
 ## Features
 
--   **VM Management:** Create, delete, start, stop, restart, install, clone, export, import, and resize VM disks.
--   **Network Configuration:** Manage bhyve network bridges, add/remove interfaces, and configure VLANs.
--   **Console & Logs:** Access VM consoles and view logs.
--   **Autostart:** Configure VMs to start automatically on boot.
--   **ISO Management:** List and download ISO images.
-
-## Compatibility
-
-This script is designed to be compatible with **FreeBSD versions 11.x, 12.x, 13.x, and 14.x**.
-
-While the core functionality is expected to work across these versions, please be aware that the behavior of `bhyve` and its associated tools can vary slightly between major releases. This script aims to use common, stable flags, but if you encounter an issue, please check the official `bhyve(8)` man page for your specific FreeBSD version.
+-   **Full VM Lifecycle:** Create, delete, start, stop, restart, install, clone, export, import, and resize VM disks.
+-   **Modular Codebase:** A clean, maintainable structure with commands, functions, and usage messages separated into individual files.
+-   **Network Management:** Easily manage virtual switches (bridges), add physical interfaces, and handle VLANs.
+-   **Autostart Service (rc.d):** Includes a system `rc.d` script to initialize the network and autostart designated VMs on boot.
+-   **Console & Logs:** Instantly access VM consoles and view real-time logs.
+-   **ISO Management:** List, download, and manage ISO installation images.
 
 ## Prerequisites
 
-Before using `bhyve-cli.sh`, ensure the following requirements are met:
-
-**Required Packages:**
--   `bash`: For running the script.
--   `uuidgen`: For generating unique VM identifiers.
--   `fetch`: For downloading ISOs.
--   `cu`: For accessing the VM console.
--   `bc`: For basic calculations (e.g., ISO size).
-
-**Optional but Recommended Packages:**
--   `edk2-bhyve`: Required for creating and running UEFI-based virtual machines (e.g., Windows, modern Linux distributions).
-
-**System Configuration:**
--   The `vmm` and `nmdm` kernel modules must be loaded. You can load them by running:
-    ```bash
-    kldload vmm
-    kldload nmdm
-    ```
-    To load them automatically on boot, add them to `/boot/loader.conf`:
+-   **OS:** FreeBSD 12.x, 13.x, 14.x
+-   **Packages:** `bash`, `uuidgen`, `fetch`, `cu`, `bc`
+-   **Kernel Modules:** `vmm` and `nmdm` must be loaded. Add to `/boot/loader.conf` to load on boot:
     ```
     vmm_load="YES"
     nmdm_load="YES"
     ```
 
-## Installation and Setup
+## Installation
 
-1.  **Download the script:**
+1.  **Clone the repository:**
     ```bash
     git clone https://github.com/alifgufron/bhyve-cli.git
-    cd bhyve-cli.sh_directory
-    chmod +x bhyve-cli.sh
+    cd bhyve-cli
     ```
-2.  **Initialize:**
+
+2.  **Install the scripts:**
+    Copy the main script and the rc.d service script to their standard locations.
     ```bash
-    ./bhyve-cli.sh init
+    sudo cp bhyve-cli.sh /usr/local/sbin/
+    sudo cp bhyve-cli /usr/local/etc/rc.d/
+    sudo chmod +x /usr/local/etc/rc.d/bhyve-cli
     ```
-    Follow the prompts to set up configuration directories.
+
+3.  **Initialize `bhyve-cli`:**
+    Run the `init` command to create the necessary configuration files and directories.
+    ```bash
+    sudo bhyve-cli.sh init
+    ```
+
+## Autostart on Boot
+
+To have VMs start automatically when your system boots:
+
+1.  **Enable the `bhyve-cli` service:**
+    ```bash
+    sudo sysrc bhyve_cli_enable="YES"
+    ```
+
+2.  **Configure a VM for autostart:**
+    Edit the VM's configuration file (e.g., `/usr/local/etc/bhyve-cli/vm.d/my-vm/vm.conf`) and set `AUTOSTART=yes`.
+
+On boot, the service will first initialize all network switches (`switch init`) and then start all VMs marked for autostart (`startall`).
 
 ## Usage
 
+The general command structure is:
+`sudo bhyve-cli.sh <command> [sub-command] [options]`
+
+**Examples:**
+
 ```bash
-./bhyve-cli.sh <command> [options/arguments]
+# Create a new VM
+$ sudo bhyve-cli.sh vm create --name my-bsd --disk-size 20 --switch bridge0
+
+# Start the VM
+$ sudo bhyve-cli.sh vm start my-bsd
+
+# List all VMs and their status
+$ sudo bhyve-cli.sh list
+
+# Access the VM's console
+$ sudo bhyve-cli.sh vm console my-bsd
+
+# List all network switches
+$ sudo bhyve-cli.sh switch list
 ```
 
-For detailed usage of any command:
+## Main Commands
 
-```bash
-./bhyve-cli.sh <command> --help
-```
+-   `init`: Initializes the configuration for `bhyve-cli`.
+-   `list`: Lists all created VMs and their current status (running, stopped).
+-   `vm`: The primary command for all VM-specific actions.
+    -   `vm create`, `vm delete`, `vm install`, `vm start`, `vm stop`, `vm restart`, `vm console`, `vm info`
+-   `switch`: Manages virtual network switches (bridges).
+    -   `switch add`, `switch list`, `switch destroy`
+-   `iso`: Manages installation ISO images.
+    -   `iso list`, `iso download`, `iso delete`
+-   `startall`: Starts all VMs that have `AUTOSTART=yes` in their config.
+-   `stopall`: Stops all currently running VMs.
 
-## Commands
-
--   `init`: Initialize bhyve-cli configuration.
--   `create`: Create a new virtual machine.
--   `delete`: Delete an existing virtual machine.
--   `install`: Install an operating system on a VM.
--   `start`: Start a virtual machine.
--   `stop`: Stop a running virtual machine.
--   `restart`: Restart a virtual machine.
--   `console`: Access the console of a VM.
--   `logs`: Display real-time logs for a VM.
--   `status`: Show the status of all virtual machines.
--   `autostart`: Enable or disable VM autostart on boot.
--   `modify`: Modify VM configuration (CPU, RAM, network, etc.).
--   `clone`: Create a clone of an existing VM.
--   `info`: Display detailed information about a VM.
--   `resize-disk`: Resize a VM's disk image.
--   `export`: Export a VM to an archive file.
--   `import`: Import a VM from an archive file.
--   `iso`: Manage ISO images (list and download).
--   `switch`: Manage network bridges and physical interfaces.
--   `stopall`: Stop all running virtual machines.
--   `startall`: Start all configured virtual machines.
-
-## Logging
-
-Logs are stored in VM-specific files (`VM_CONFIG_BASE_DIR/<vmname>/vm.log`) and a global log file (`/var/log/bhyve-cli.log`).
-
-## Troubleshooting
-
-Refer to the script's output for error messages and check the log files for detailed information. Common issues include missing kernel modules, uninitialized configuration, or VMs already running/stopped.
+For detailed usage of any command, use the `--help` flag:
+`sudo bhyve-cli.sh <command> --help`
