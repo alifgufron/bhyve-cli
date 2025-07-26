@@ -12,6 +12,8 @@ cmd_modify() {
   load_vm_config "$VMNAME"
 
   local VM_MODIFIED=false
+  local PENDING_DISK_TYPE="" # To store type for --add-disk or --add-disk-path
+  local PENDING_NIC_TYPE=""  # To store type for --add-nic
 
   while (( "$#" )); do
     case "$1" in
@@ -81,7 +83,13 @@ cmd_modify() {
         echo "TAP_${NEXT_NIC_INDEX}=${NEW_TAP_NAME}" >> "$CONF_FILE"
         echo "MAC_${NEXT_NIC_INDEX}=${NEW_MAC_ADDRESS}" >> "$CONF_FILE"
         echo "BRIDGE_${NEXT_NIC_INDEX}=${NEW_NIC_BRIDGE}" >> "$CONF_FILE"
-        display_and_log "INFO" "New NIC added: TAP=${NEW_TAP_NAME}, MAC=${NEW_MAC_ADDRESS}, Bridge=${NEW_NIC_BRIDGE}."
+        if [ -n "$PENDING_NIC_TYPE" ]; then
+          echo "NIC_${NEXT_NIC_INDEX}_TYPE=${PENDING_NIC_TYPE}" >> "$CONF_FILE"
+          display_and_log "INFO" "New NIC added: TAP=${NEW_TAP_NAME}, MAC=${NEW_MAC_ADDRESS}, Bridge=${NEW_NIC_BRIDGE}, Type=${PENDING_NIC_TYPE}."
+          PENDING_NIC_TYPE="" # Reset for next operation
+        else
+          display_and_log "INFO" "New NIC added: TAP=${NEW_TAP_NAME}, MAC=${NEW_MAC_ADDRESS}, Bridge=${NEW_NIC_BRIDGE}."
+        fi
         VM_MODIFIED=true
         ;;
       --remove-nic)
@@ -91,6 +99,7 @@ cmd_modify() {
         sed -i '' "/^TAP_${REMOVE_NIC_INDEX}=/d" "$CONF_FILE"
         sed -i '' "/^MAC_${REMOVE_NIC_INDEX}=/d" "$CONF_FILE"
         sed -i '' "/^BRIDGE_${REMOVE_NIC_INDEX}=/d" "$CONF_FILE"
+        sed -i '' "/^NIC_${REMOVE_NIC_INDEX}_TYPE=/d" "$CONF_FILE" # Also remove type
         display_and_log "INFO" "NIC $REMOVE_NIC_INDEX removed."
         VM_MODIFIED=true
         ;;
@@ -110,8 +119,45 @@ cmd_modify() {
           exit 1
         }
         echo "DISK_${NEXT_DISK_INDEX}=${NEW_DISK_FILENAME}" >> "$CONF_FILE"
-        display_and_log "INFO" "New disk added: ${NEW_DISK_FILENAME} (${NEW_DISK_SIZE_GB}GB)."
+        if [ -n "$PENDING_DISK_TYPE" ]; then
+          echo "DISK_${NEXT_DISK_INDEX}_TYPE=${PENDING_DISK_TYPE}" >> "$CONF_FILE"
+          display_and_log "INFO" "New disk added: ${NEW_DISK_FILENAME} (${NEW_DISK_SIZE_GB}GB) with type ${PENDING_DISK_TYPE}."
+          PENDING_DISK_TYPE="" # Reset for next operation
+        else
+          display_and_log "INFO" "New disk added: ${NEW_DISK_FILENAME} (${NEW_DISK_SIZE_GB}GB)."
+        fi
         VM_MODIFIED=true
+        ;;
+      --add-disk-path)
+        shift
+        local EXISTING_DISK_PATH="$1"
+        # Resolve the absolute path of the existing disk file
+        EXISTING_DISK_PATH=$(readlink -f "$EXISTING_DISK_PATH")
+        if [ ! -f "$EXISTING_DISK_PATH" ]; then
+          display_and_log "ERROR" "Existing disk path '$EXISTING_DISK_PATH' not found or is not a regular file."
+          exit 1
+        fi
+
+        local NEXT_DISK_INDEX=1 # Start from DISK_1, DISK is 0
+        while grep -q "^DISK_${NEXT_DISK_INDEX}=" "$CONF_FILE"; do
+          NEXT_DISK_INDEX=$((NEXT_DISK_INDEX + 1))
+        done
+        
+        log "Attaching existing disk (index $NEXT_DISK_INDEX) to VM '$VMNAME' from '$EXISTING_DISK_PATH'..."
+        echo "DISK_${NEXT_DISK_INDEX}=${EXISTING_DISK_PATH}" >> "$CONF_FILE"
+        if [ -n "$PENDING_DISK_TYPE" ]; then
+          echo "DISK_${NEXT_DISK_INDEX}_TYPE=${PENDING_DISK_TYPE}" >> "$CONF_FILE"
+          display_and_log "INFO" "Existing disk attached: ${EXISTING_DISK_PATH} with type ${PENDING_DISK_TYPE}."
+          PENDING_DISK_TYPE="" # Reset for next operation
+        else
+          display_and_log "INFO" "Existing disk attached: ${EXISTING_DISK_PATH}."
+        fi
+        VM_MODIFIED=true
+        ;;
+      --add-disk-type)
+        shift
+        PENDING_DISK_TYPE="$1"
+        log "Pending disk type set to: $PENDING_DISK_TYPE"
         ;;
       --remove-disk)
         shift
@@ -125,12 +171,18 @@ cmd_modify() {
 
         log "Removing disk (index $REMOVE_DISK_INDEX) from VM '$VMNAME'..."
         sed -i '' "/^${DISK_VAR_TO_REMOVE}=/d" "$CONF_FILE"
+        sed -i '' "/^${DISK_VAR_TO_REMOVE}_TYPE=/d" "$CONF_FILE" # Also remove type
         if [ -f "$DISK_PATH_TO_REMOVE" ]; then
           rm "$DISK_PATH_TO_REMOVE"
           display_and_log "INFO" "Disk file '$DISK_FILENAME_TO_REMOVE' removed."
         fi
         display_and_log "INFO" "Disk $REMOVE_DISK_INDEX removed from configuration."
         VM_MODIFIED=true
+        ;;
+      --nic-type)
+        shift
+        PENDING_NIC_TYPE="$1"
+        log "Pending NIC type set to: $PENDING_NIC_TYPE"
         ;;
       *)
         display_and_log "ERROR" "Invalid option: $1"

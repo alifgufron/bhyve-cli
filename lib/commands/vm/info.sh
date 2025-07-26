@@ -66,9 +66,13 @@ cmd_info() {
       break
     fi
     
-    local DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
+    local DISK_PATH="$CURRENT_DISK_FILENAME"
+    # If the disk path is not absolute, prepend VM_DIR
+    if [[ ! "$DISK_PATH" =~ ^/ ]]; then
+      DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
+    fi
 
-    echo_message "Disk :"
+    echo_message "Disk ${DISK_IDX} :"
     printf "    %-10s: %s\n" "Path" "$DISK_PATH"
     
     local DISK_SIZE_BYTES=$(stat -f %z "$DISK_PATH")
