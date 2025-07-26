@@ -2,11 +2,12 @@
 
 # === Usage function for create ===
 cmd_create_usage() {
-  echo_message "Usage: $0 create --name <vmname> --disk-size <disksize in GB> --switch <bridge_name> [--bootloader <type>] [--vnc-port <port>] [--vnc-wait] [--nic-type <type>]"
+  echo_message "Usage: $0 create --name <vmname> --switch <bridge_name> [--disk-size <disksize in GB>] [--from-template <template_name>] [--bootloader <type>] [--vnc-port <port>] [--vnc-wait] [--nic-type <type>]"
   echo_message "\nOptions:"
   echo_message "  --name <vmname>              - Name of the virtual machine."
-  echo_message "  --disk-size <size in GB>     - Size of the virtual disk in GB."
   echo_message "  --switch <bridge_name>       - Name of the network bridge to connect the VM to."
+  echo_message "  --disk-size <size in GB>     - Optional. Size of the virtual disk in GB. Required if --from-template is not used."
+  echo_message "  --from-template <template_name> - Optional. Create VM from an existing template. If used, --disk-size is optional."
   echo_message "  --bootloader <type>          - Optional. Type of bootloader (bhyveload, uefi). Default: bhyveload."
   echo_message "  --vnc-port <port>            - Optional. Enable VNC console on specified port (e.g., 5900)."
   echo_message "  --vnc-wait                   - Optional. Wait for VNC client connection before booting VM."
@@ -14,6 +15,7 @@ cmd_create_usage() {
   echo_message "\nExample:"
   echo_message "  $0 create --name vm-bsd --disk-size 40 --switch bridge100"
   echo_message "  $0 create --name vm-uefi --disk-size 60 --switch bridge101 --bootloader uefi --vnc-port 5900 --vnc-wait --nic-type e1000"
+  echo_message "  $0 create --name myvm-from-template --from-template mytemplate --switch bridge0"
 }
 
 # === Usage function for delete ===
