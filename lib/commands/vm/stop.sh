@@ -59,7 +59,7 @@ cmd_stop() {
     if [ -n "$PID_TO_KILL" ]; then
       kill "$PID_TO_KILL" > /dev/null 2>&1
       log "Sent TERM signal to PID $PID_TO_KILL."
-      sleep 5 # Give VM time to shut down gracefully
+      sleep 15 # Give VM time to shut down gracefully (increased from 5s)
       if is_vm_running "$VMNAME"; then
         display_and_log "WARNING" "VM '$VMNAME' did not shut down gracefully. Force stopping..."
         if $BHYVECTL --vm="$VMNAME" --force-reset > /dev/null 2>&1; then
@@ -83,7 +83,7 @@ cmd_stop() {
   cleanup_vm_network_interfaces "$VMNAME"
   set_vm_status "$VMNAME" "stopped"
 
-  if [ "$SILENT" = "false" ]; then
+  if [ "$SILENT_MODE" = "false" ]; then
     display_and_log "INFO" "VM '$VMNAME' stopped successfully."
   fi
   log "Exiting cmd_stop function for VM: $VMNAME"
