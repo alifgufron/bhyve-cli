@@ -87,6 +87,14 @@ cmd_start() {
     exit 1
   fi
 
+  local VNC_ARGS=""
+  if [ -n "$VNC_PORT" ]; then
+    VNC_ARGS="-s ${NEXT_DISK_DEV_NUM},vnc=${VNC_PORT}"
+    if [ "$VNC_WAIT" = "yes" ]; then
+      VNC_ARGS+=",wait"
+    fi
+    log "VNC arguments: $VNC_ARGS"
+  fi
 
   # === Start Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
@@ -116,7 +124,8 @@ cmd_start() {
       exit 1
     }
 
-    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
+    local BHYVE_CMD_COMMON_ARGS="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS ${VNC_ARGS}"
+    local BHYVE_CMD="${BHYVE_CMD_COMMON_ARGS} -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     log_to_global_file "INFO" "Starting bhyve VM with command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
@@ -205,7 +214,7 @@ cmd_start() {
     esac
 
     log "Starting VM '$VMNAME'..."
-    local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
+    local BHYVE_CMD="${BHYVE_CMD_COMMON_ARGS} -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
     # Give bhyve a moment to start and register its process

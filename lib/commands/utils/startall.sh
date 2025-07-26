@@ -16,9 +16,14 @@ cmd_startall() {
   local total_vms=0
 
   for VM_DIR_PATH in "$VM_CONFIG_BASE_DIR"/*/; do
+    local VMNAME=$(basename "$VM_DIR_PATH")
+    if [ "$VMNAME" = "templates" ]; then
+      log "Skipping templates directory."
+      continue
+    fi
+
     if [ -d "$VM_DIR_PATH" ]; then
       total_vms=$((total_vms + 1))
-      local VMNAME=$(basename "$VM_DIR_PATH")
       if is_vm_running "$VMNAME"; then
         log "VM '$VMNAME' is already running. Skipping."
         already_running_vms=$((already_running_vms + 1))

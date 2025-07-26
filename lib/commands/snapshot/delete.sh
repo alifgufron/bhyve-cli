@@ -32,5 +32,5 @@ cmd_snapshot_delete() {
     exit 1
   fi
   stop_spinner
-  display_and_log "INFO" "Template '$TEMPLATE_NAME' deleted successfully."
+  display_and_log "INFO" "Snapshot '$SNAPSHOT_NAME' deleted successfully."
 }
