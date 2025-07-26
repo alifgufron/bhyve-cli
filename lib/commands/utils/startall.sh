@@ -24,6 +24,14 @@ cmd_startall() {
 
     if [ -d "$VM_DIR_PATH" ]; then
       total_vms=$((total_vms + 1))
+      # Clean up previous VM's config variables from the environment
+      unset UUID CPUS MEMORY TAP_0 MAC_0 BRIDGE_0 NIC_0_TYPE DISK DISKSIZE CONSOLE LOG AUTOSTART BOOTLOADER_TYPE VNC_PORT VNC_WAIT
+      for i in $(seq 1 10); do # Unset up to DISK_10, TAP_10, etc.
+        unset DISK_${i} DISK_${i}_TYPE TAP_${i} MAC_${i} BRIDGE_${i} NIC_${i}_TYPE
+      done
+
+      load_vm_config "$VMNAME"
+
       if is_vm_running "$VMNAME"; then
         log "VM '$VMNAME' is already running. Skipping."
         already_running_vms=$((already_running_vms + 1))
@@ -53,6 +61,8 @@ cmd_startall() {
 
   if [ "$total_vms" -eq 0 ]; then
     stop_spinner "No virtual machines found."
+  elif [ "$started_vms" -eq 0 ] && [ "$failed_vms" -eq 0 ] && [ "$already_running_vms" -gt 0 ]; then
+    stop_spinner "All configured VMs are already running."
   elif [ -n "$final_message" ]; then
     stop_spinner "Attempt to start all VMs complete. $final_message"
   else
