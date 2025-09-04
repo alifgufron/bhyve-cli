@@ -2,6 +2,7 @@
 
 # === Subcommand: verify ===
 cmd_verify() {
+  local TARGET_VMNAME="$1" # Capture the optional VM name argument
   start_spinner "Starting VM configuration verification..."
 
   local VERIFY_STATUS="SUCCESS"
@@ -13,7 +14,30 @@ cmd_verify() {
     exit 0
   fi
 
-  for VM_DIR_PATH_RAW in "$VM_CONFIG_BASE_DIR"/*/; do
+  # Determine which VMs to verify
+  local VMS_TO_VERIFY=()
+  if [ -n "$TARGET_VMNAME" ]; then
+    # Verify a specific VM
+    local SPECIFIC_VM_DIR="$VM_CONFIG_BASE_DIR/$TARGET_VMNAME"
+    if [ ! -d "$SPECIFIC_VM_DIR" ]; then
+      stop_spinner "Error: VM '$TARGET_VMNAME' not found."
+      exit 1
+    fi
+    VMS_TO_VERIFY+=("$SPECIFIC_VM_DIR")
+  else
+    # Verify all VMs
+    for VM_DIR_PATH_RAW in "$VM_CONFIG_BASE_DIR"/*/; do
+      VMS_TO_VERIFY+=("$VM_DIR_PATH_RAW")
+    done
+  fi
+
+  for VM_DIR_PATH_RAW in "${VMS_TO_VERIFY[@]}"; do
+    local VMNAME_CHECK=$(basename "$VM_DIR_PATH_RAW")
+    if [ "$VMNAME_CHECK" = "templates" ]; then
+      log "Skipping verification for 'templates' directory."
+      continue
+    fi
+
     if [ -d "$VM_DIR_PATH_RAW" ]; then
       VM_COUNT=$((VM_COUNT + 1))
       local VM_DIR_PATH=$(readlink -f "$VM_DIR_PATH_RAW") # Resolve symlinks
