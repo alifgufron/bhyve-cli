@@ -1,5 +1,15 @@
 #!/usr/local/bin/bash
 
+# === Main usage function for vm ===
+cmd_vm_usage() {
+  echo_message "Usage: $0 vm <subcommand> [options]"
+  echo_message "\nDescription:"
+  echo_message "  Main command for managing virtual machines."
+  echo_message "\nAvailable Subcommands:"
+  echo_message "  create, delete, install, start, stop, restart, console, autostart, modify, clone, info, resize-disk, export, import, suspend, resume, vnc, list, stopall, startall, verify"
+  echo_message "\nFor detailed usage of each subcommand, use: $0 vm <subcommand> --help"
+}
+
 # === Usage function for create ===
 cmd_create_usage() {
   echo_message "Usage: $0 create --name <vmname> --switch <bridge_name> [--disk-size <disksize in GB>] [--from-template <template_name>] [--bootloader <type>] [--vnc-port <port>] [--vnc-wait] [--nic-type <type>]"
@@ -68,18 +78,11 @@ cmd_autostart_usage() {
   echo_message "  <action>    - 'enable' to set the VM to autostart on boot, or 'disable' to prevent it."
 }
 
-# === Usage function for status ===
-cmd_status_usage() {
-  echo_message "Usage: $0 status"
-  echo_message "\nDescription:"
-  echo_message "  Displays the live resource usage (CPU, RAM) and status for all virtual machines."
-}
-
 # === Usage function for list ===
 cmd_list_usage() {
-  echo_message "Usage: $0 list"
+  echo_message "Usage: $0 vm list"
   echo_message "\nDescription:"
-  echo_message "  Lists all configured virtual machines and their static configuration details (UUID, CPU, RAM, etc.)."
+  echo_message "  Lists all configured virtual machines, their static configuration, and live status."
 }
 
 # === Usage function for info ===
@@ -162,13 +165,16 @@ cmd_restart_usage() {
 
 # === Usage function for stopall ===
 cmd_stopall_usage() {
-  echo_message "Usage: $0 stopall [--force]\nOptions:"
+  echo_message "Usage: $0 vm stopall [--force]"
+  echo_message "\nOptions:"
   echo_message "  --force     - Forcefully stop all VMs without attempting graceful shutdown."
 }
 
 # === Usage function for startall ===
 cmd_startall_usage() {
-  echo_message "Usage: $0 startall"
+  echo_message "Usage: $0 vm startall"
+  echo_message "\nDescription:"
+  echo_message "  Start all configured virtual machines."
 }
 
 # === Usage function for suspend ===
@@ -187,4 +193,11 @@ cmd_resume_usage() {
   echo_message "  <vmname>    - The name of the virtual machine to resume."
   echo_message "\nDescription:"
   echo_message "  Resumes a previously suspended virtual machine from its saved state."
+}
+
+# === Usage function for verify ===
+cmd_verify_usage() {
+  echo_message "Usage: $0 vm verify"
+  echo_message "\nDescription:"
+  echo_message "  Verify the consistency and integrity of VM configurations."
 }

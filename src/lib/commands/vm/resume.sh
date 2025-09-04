@@ -17,7 +17,7 @@ cmd_resume() {
   fi
 
   local current_status
-  current_status=$(get_vm_status "$VMNAME")
+  current_status=$(get_vm_status "$pid")
 
   if [ "$current_status" != "suspended" ]; then
       display_and_log "ERROR" "VM '$VMNAME' is not suspended. Current status: $current_status."
