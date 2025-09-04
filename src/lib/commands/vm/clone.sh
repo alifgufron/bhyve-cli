@@ -20,10 +20,37 @@ cmd_clone() {
     exit 1
   fi
 
-  # Check if the source VM is running
+  local SHOULD_RESUME_AFTER_CLONE=false
+  local ORIGINAL_VM_STATE="stopped" # To track if VM was running/suspended before clone
   if is_vm_running "$SOURCE_VMNAME"; then
-    display_and_log "ERROR" "Source VM '$SOURCE_VMNAME' is running. Please stop it first."
-    exit 1
+    ORIGINAL_VM_STATE=$(get_vm_status "$(get_vm_pid "$SOURCE_VMNAME")")
+    display_and_log "WARNING" "Source VM '$SOURCE_VMNAME' is $ORIGINAL_VM_STATE."
+    echo_message "Do you want to:"
+    echo_message "  1) Stop VM and proceed with clone"
+    echo_message "  2) Suspend VM and proceed with clone (will resume after clone)"
+    echo_message "  3) Abort clone operation"
+    read -rp "Enter your choice [1-3]: " CLONE_CHOICE
+
+    case "$CLONE_CHOICE" in
+      1)
+        display_and_log "INFO" "Stopping VM '$SOURCE_VMNAME' before cloning..."
+        cmd_stop "$SOURCE_VMNAME" --silent || { display_and_log "ERROR" "Failed to stop VM '$SOURCE_VMNAME'. Aborting clone."; exit 1; }
+        sleep 2 # Give it a moment to ensure it's stopped
+        ;;
+      2)
+        display_and_log "INFO" "Suspending VM '$SOURCE_VMNAME' before cloning..."
+        cmd_suspend "$SOURCE_VMNAME" || { display_and_log "ERROR" "Failed to suspend VM '$SOURCE_VMNAME'. Aborting clone."; exit 1; }
+        SHOULD_RESUME_AFTER_CLONE=true # Set flag to resume later
+        ;;
+      3)
+        display_and_log "INFO" "Clone operation aborted by user."
+        exit 0
+        ;;
+      *)
+        display_and_log "ERROR" "Invalid choice. Aborting clone operation."
+        exit 1
+        ;;
+    esac
   fi
 
   if [ -d "$NEW_VM_DIR" ]; then
@@ -43,6 +70,8 @@ cmd_clone() {
     rm -rf "$NEW_VM_DIR"
     exit 1
   }
+  rm -f "$NEW_VM_DIR/vm.pid" # Ensure vm.pid is not copied
+  rm -f "$NEW_VM_DIR/vm.log" # Ensure vm.log is not copied
   stop_spinner
 
   # Load source VM config to get details for new config
@@ -95,4 +124,9 @@ cmd_clone() {
   LOG_FILE="$ORIGINAL_LOG_FILE"
 
   display_and_log "INFO" "VM '$SOURCE_VMNAME' successfully cloned to '$NEW_VMNAME'."
+  # Resume VM if it was suspended before cloning
+  if [ "$SHOULD_RESUME_AFTER_CLONE" = true ]; then
+    display_and_log "INFO" "Resuming VM '$SOURCE_VMNAME' after cloning..."
+    cmd_resume "$SOURCE_VMNAME" || display_and_log "WARNING" "Failed to resume VM '$SOURCE_VMNAME'. Please resume manually."
+  fi
 }

@@ -66,6 +66,14 @@ cmd_start() {
   if [ "$SUPPRESS_CONSOLE_MESSAGE" = false ]; then
     start_spinner "Starting VM '$VMNAME'..."
   fi
+  # Ensure VM is destroyed from kernel memory before attempting to start
+  log "Attempting to destroy VM '$VMNAME' from kernel memory before start..."
+  $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
+  if [ $? -eq 0 ]; then
+    log "VM '$VMNAME' successfully destroyed from kernel memory (if it existed)."
+  else
+    log "VM '$VMNAME' was not found in kernel memory or destroy failed (this might be normal if it was already stopped)."
+  fi
   log "Loading VM configuration for '$VMNAME'...";
   log "VM Name: $VMNAME"
   log "CPUs: $CPUS"
@@ -130,11 +138,17 @@ cmd_start() {
     local BHYVE_CMD="${BHYVE_CMD_COMMON_ARGS} -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     log_to_global_file "INFO" "Starting bhyve VM with command: $BHYVE_CMD"
-    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    # Execute bhyve command and capture its output and exit code
+    local BHYVE_EXEC_OUTPUT
+    local BHYVE_EXEC_EXIT_CODE
+    BHYVE_EXEC_OUTPUT=$(eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 & echo $!)
+    BHYVE_EXEC_EXIT_CODE=$?
+    log "Bhyve command executed. PID: $BHYVE_EXEC_OUTPUT, Exit Code: $BHYVE_EXEC_EXIT_CODE"
+    log_to_global_file "INFO" "Bhyve command execution result: PID=$BHYVE_EXEC_OUTPUT, ExitCode=$BHYVE_EXEC_EXIT_CODE"
     # Give bhyve a moment to start and register its process
     sleep 0.5
     # Find the actual bhyve process PID
-    BHYVE_PID=$(pgrep -f "bhyve: $VMNAME")
+    BHYVE_PID=$(pgrep -f "bhyve: [[:<:]]$VMNAME.*")
     if [ -z "$BHYVE_PID" ]; then
         log_to_global_file "ERROR" "Could not find bhyve PID for $VMNAME after start attempt."
         if [ "$SUPPRESS_CONSOLE_MESSAGE" = false ]; then
@@ -172,17 +186,19 @@ cmd_start() {
     fi
   else
     log "Preparing for non-bhyveload start..."
+    ensure_nmdm_device_nodes "$CONSOLE"
+    sleep 1 # Give nmdm devices a moment to be ready
     local BHYVE_LOADER_CLI_ARG=""
     case "$BOOTLOADER_TYPE" in
       uefi|bootrom)
         local UEFI_FIRMWARE_FOUND=false
-        if [ -f "$UEFI_FIRMWARE_PATH" ]; then
-          BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
-          log "Using uefi firmware from configured path: $UEFI_FIRMWARE_PATH"
-          UEFI_FIRMWARE_FOUND=true
-        elif [ -f "/usr/local/share/uefi-firmware/BHYVE_UEFI.fd" ]; then
+        if [ -f "/usr/local/share/uefi-firmware/BHYVE_UEFI.fd" ]; then
           BHYVE_LOADER_CLI_ARG="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
           log "Using uefi firmware from default system path: /usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
+          UEFI_FIRMWARE_FOUND=true
+        elif [ -f "$UEFI_FIRMWARE_PATH/BHYVE_UEFI.fd" ]; then
+          BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH/BHYVE_UEFI.fd"
+          log "Using uefi firmware from configured path: $UEFI_FIRMWARE_PATH/BHYVE_UEFI.fd"
           UEFI_FIRMWARE_FOUND=true
         fi
 
@@ -218,11 +234,17 @@ cmd_start() {
     log "Starting VM '$VMNAME'..."
     local BHYVE_CMD="${BHYVE_CMD_COMMON_ARGS} -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
-    eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
+    # Execute bhyve command and capture its output and exit code
+    local BHYVE_EXEC_OUTPUT
+    local BHYVE_EXEC_EXIT_CODE
+    BHYVE_EXEC_OUTPUT=$(eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 & echo $!)
+    BHYVE_EXEC_EXIT_CODE=$?
+    log "Bhyve command executed. PID: $BHYVE_EXEC_OUTPUT, Exit Code: $BHYVE_EXEC_EXIT_CODE"
+    log_to_global_file "INFO" "Bhyve command execution result: PID=$BHYVE_EXEC_OUTPUT, ExitCode=$BHYVE_EXEC_EXIT_CODE"
     # Give bhyve a moment to start and register its process
     sleep 0.5
     # Find the actual bhyve process PID
-    BHYVE_PID=$(pgrep -f "bhyve: $VMNAME")
+    BHYVE_PID=$(pgrep -f "bhyve: [[:<:]]$VMNAME.*")
     if [ -z "$BHYVE_PID" ]; then
         log_to_global_file "ERROR" "Could not find bhyve PID for $VMNAME after start attempt."
         if [ "$SUPPRESS_CONSOLE_MESSAGE" = false ]; then

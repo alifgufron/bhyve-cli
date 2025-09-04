@@ -9,10 +9,10 @@
 name="bhyve-cli"
 rcvar="${name}_enable"
 
-# Set the path to the bhyve-cli.sh script
-# The default is /usr/local/sbin/bhyve-cli.sh, a standard location for system utilities.
+# Set the path to the bhyve-cli script
+# The default is /usr/local/sbin/bhyve-cli, a standard location for system utilities.
 # You can override this by setting bhyve_cli_command="/path/to/your/script" in /etc/rc.conf
-: "${bhyve_cli_command:=/usr/local/sbin/bhyve-cli.sh}"
+: "${bhyve_cli_command:=/usr/local/sbin/bhyve-cli}"
 
 command="${bhyve_cli_command}"
 command_interpreter="/usr/local/bin/bash" # The main script requires bash

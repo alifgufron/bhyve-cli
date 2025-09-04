@@ -129,14 +129,13 @@ cmd_install() {
     case "$BOOTLOADER_TYPE" in
       uefi|bootrom)
         local UEFI_FIRMWARE_FOUND=false
-        log "Checking for UEFI firmware in configured path: $UEFI_FIRMWARE_PATH"
-        if [ -f "$UEFI_FIRMWARE_PATH" ]; then
-          BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH"
-          log "Using uefi firmware from configured path: $UEFI_FIRMWARE_PATH"
-          UEFI_FIRMWARE_FOUND=true
-        elif [ -f "/usr/local/share/uefi-firmware/BHYVE_UEFI.fd" ]; then
+        if [ -f "/usr/local/share/uefi-firmware/BHYVE_UEFI.fd" ]; then
           BHYVE_LOADER_CLI_ARG="-l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
           log "Using uefi firmware from default system path: /usr/local/share/uefi-firmware/BHYVE_UEFI.fd"
+          UEFI_FIRMWARE_FOUND=true
+        elif [ -f "$UEFI_FIRMWARE_PATH/BHYVE_UEFI.fd" ]; then
+          BHYVE_LOADER_CLI_ARG="-l bootrom,$UEFI_FIRMWARE_PATH/BHYVE_UEFI.fd"
+          log "Using uefi firmware from configured path: $UEFI_FIRMWARE_PATH/BHYVE_UEFI.fd"
           UEFI_FIRMWARE_FOUND=true
         fi
 

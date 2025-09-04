@@ -101,33 +101,3 @@ ensure_nmdm_device_nodes() {
   fi
 }
 
-# Function to get the status of a VM from its status file
-get_vm_status() {
-    local vm_name="$1"
-    local status_file="$VM_CONFIG_BASE_DIR/$vm_name/status"
-    if [ -f "$status_file" ]; then
-        cat "$status_file"
-    else
-        # If status file doesn't exist, check if the process is running
-        if is_vm_running "$vm_name"; then
-            echo "running"
-        else
-            echo "stopped"
-        fi
-    fi
-}
-
-# Function to set the status of a VM in its status file
-set_vm_status() {
-    local vm_name="$1"
-    local status="$2"
-    local vm_dir="$VM_CONFIG_BASE_DIR/$vm_name"
-    
-    # Create the directory if it doesn't exist
-    if [ ! -d "$vm_dir" ]; then
-        mkdir -p "$vm_dir"
-    fi
-    
-    local status_file="$vm_dir/status"
-    echo "$status" > "$status_file"
-}
