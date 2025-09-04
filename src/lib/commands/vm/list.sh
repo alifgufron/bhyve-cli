@@ -20,25 +20,24 @@ cmd_list() {
         # Source the config in a subshell to avoid polluting the main script's scope
         (
           . "$CONF_FILE"
+          local PID=$(get_vm_pid "$VMNAME")
           local STATUS="stopped"
-          local PID="-"
-          local CPU_USAGE="-"
-          local MEM_USAGE="-"
-          local UPTIME="-"
 
-          STATUS=$(get_vm_status "$VMNAME")
-          if [ "$STATUS" = "running" ] || [ "$STATUS" = "suspended" ]; then
-            PID=$(get_vm_pid "$VMNAME")
-            if [ -n "$PID" ]; then
-              # Get stats using ps
-              local STATS=$(ps -o %cpu,%mem,etime -p "$PID" | tail -n 1)
-              CPU_USAGE=$(echo "$STATS" | awk '{print $1}')
-              MEM_USAGE=$(echo "$STATS" | awk '{print $2}')
-              
-              # Format uptime
-              local ETIME=$(echo "$STATS" | awk '{print $3}')
-              UPTIME=$(format_etime "$ETIME")
-            fi
+          if [ -n "$PID" ]; then
+            STATUS=$(get_vm_status "$PID")
+            # Get stats using ps
+            local STATS=$(ps -o %cpu,%mem,etime -p "$PID" | tail -n 1)
+            CPU_USAGE=$(echo "$STATS" | awk '{print $1}')
+            MEM_USAGE=$(echo "$STATS" | awk '{print $2}')
+            
+            # Format uptime
+            local ETIME=$(echo "$STATS" | awk '{print $3}')
+            UPTIME=$(format_etime "$ETIME")
+          else
+            PID="-"
+            CPU_USAGE="-"
+            MEM_USAGE="-"
+            UPTIME="-"
           fi
 
           printf "%-20s %-38s %-12s %-10s %-8s %-10s %-10s %-15s %-10s %-10s %-12s\n" \

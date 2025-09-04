@@ -20,7 +20,7 @@ get_vm_pid() {
     fi
   fi
   # Fallback to pgrep if vm.pid is not found or invalid
-  PID=$(pgrep -f "bhyve: $VMNAME_GET_PID")
+  PID=$(pgrep -f "bhyve: [[:<:]]$VMNAME_GET_PID.*")
   if [ -n "$PID" ] && ps -p "$PID" > /dev/null 2>&1; then
     echo "$PID"
     return 0
@@ -57,11 +57,18 @@ get_vm_status() {
     # -o state= -> get only the state column, with no header
     process_status=$(ps -p "$pid" -o state= 2>/dev/null)
 
-    if [[ "$process_status" == "T" ]]; then
+    if [[ "$process_status" == "T" || "$process_status" == "TC" ]]; then
         echo "suspended"
     elif [ -n "$process_status" ]; then
         echo "running"
     else
         echo "stopped"
     fi
+}
+
+# Function to set the VM status (currently a placeholder)
+set_vm_status() {
+  local VMNAME_SET_STATUS="$1"
+  local STATUS_TO_SET="$2"
+  log "Attempted to set VM '$VMNAME_SET_STATUS' status to '$STATUS_TO_SET'. (Function is a placeholder)"
 }
