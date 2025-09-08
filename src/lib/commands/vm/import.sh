@@ -31,6 +31,17 @@ cmd_import() {
       exit 0
     fi
     display_and_log "INFO" "Overwriting existing VM '$VMNAME_IN_ARCHIVE'..."
+
+    # If overwriting, check if the VM is running and stop it first.
+    if is_vm_running "$VMNAME_IN_ARCHIVE"; then
+      display_and_log "INFO" "Stopping running VM '$VMNAME_IN_ARCHIVE' before overwrite..."
+      cmd_stop "$VMNAME_IN_ARCHIVE" --silent
+      if is_vm_running "$VMNAME_IN_ARCHIVE"; then
+        display_and_log "ERROR" "Failed to stop running VM '$VMNAME_IN_ARCHIVE'. Aborting import."
+        exit 1
+      fi
+      display_and_log "INFO" "VM stopped successfully."
+    fi
   fi
 
   start_spinner "Importing VM from '$ARCHIVE_PATH'..."

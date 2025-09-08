@@ -150,43 +150,47 @@ build_network_args() {
 cleanup_vm_network_interfaces() {
   log "Entering cleanup_vm_network_interfaces function for VM: $1"
   local VMNAME_CLEANUP="$1"
-  local VM_DIR_CLEANUP="$VM_CONFIG_BASE_DIR/$VMNAME_CLEANUP"
-  local CONF_FILE_CLEANUP="$VM_DIR_CLEANUP/vm.conf"
 
-  if [ ! -f "$CONF_FILE_CLEANUP" ]; then
-    log "VM config file not found for $VMNAME_CLEANUP. Skipping network cleanup."
-    return
+  if [ -z "$VMNAME_CLEANUP" ]; then
+    log "No VM name provided to cleanup_vm_network_interfaces. Aborting."
+    return 1
   fi
 
-  log "Cleaning up network interfaces for VM '$VMNAME_CLEANUP'..."
+  log "Cleaning up all network interfaces for VM '$VMNAME_CLEANUP' based on description..."
 
-  local NIC_IDX=0
-  while true; do
-    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
-    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+  # Get a list of all tap interfaces on the system
+  local ALL_TAPS
+  ALL_TAPS=$(ifconfig -l | tr ' ' '\n' | grep '^tap')
 
-    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
-    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+  for tap_if in $ALL_TAPS;
+  do
+    # For each tap, get its description
+    local TAP_DESC
+    TAP_DESC=$(ifconfig "$tap_if" | grep 'description:' | sed 's/^[[:space:]]*description: //')
 
-    if [ -z "$CURRENT_TAP" ]; then
-      break # No more network interfaces configured
-    fi
+    # Check if the description matches our VM name (e.g., starts with vmnet/vm-1/)
+    if [[ "$TAP_DESC" == "vmnet/${VMNAME_CLEANUP}/"* ]]; then
+      log "Found matching tap: [$tap_if] with description [$TAP_DESC]"
 
-    if ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
-      log "Removing TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'..."
-      if ! ifconfig "$CURRENT_BRIDGE" deletem "$CURRENT_TAP"; then
-        log "WARNING: Failed to remove TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'."
+      # Find which bridge it's a member of
+      local bridge_if
+      bridge_if=$(ifconfig -a | grep -B 5 "member: ${tap_if}" | grep '^bridge' | cut -d':' -f1)
+
+      if [ -n "$bridge_if" ]; then
+        log "Removing TAP '$tap_if' from bridge '$bridge_if'…"
+        if ! ifconfig "$bridge_if" deletem "$tap_if"; then
+          log "WARNING: Failed to remove TAP '$tap_if' from bridge '$bridge_if'."
+        fi
+      fi
+
+      log "Destroying TAP interface '$tap_if'…"
+      if ! ifconfig "$tap_if" destroy; then
+        log "WARNING: Failed to destroy TAP interface '$tap_if'."
       fi
     fi
-
-    if ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
-      log "Destroying TAP interface '$CURRENT_TAP'..."
-      if ! ifconfig "$CURRENT_TAP" destroy; then
-        log "WARNING: Failed to destroy TAP interface '$CURRENT_TAP'."
-      fi
-    fi
-    NIC_IDX=$((NIC_IDX + 1))
   done
+
   log "Network interface cleanup for '$VMNAME_CLEANUP' complete."
   log "Exiting cleanup_vm_network_interfaces function for VM: $VMNAME_CLEANUP"
 }
+

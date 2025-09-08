@@ -10,6 +10,34 @@ cmd_vm() {
   local SUBCOMMAND="$1"
   shift
 
+  # Check for --help flag on subcommands
+  if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    case "$SUBCOMMAND" in
+      create)       cmd_create_usage; exit 0 ;;
+      delete)       cmd_delete_usage; exit 0 ;;
+      install)      cmd_install_usage; exit 0 ;;
+      start)        cmd_start_usage; exit 0 ;;
+      stop)         cmd_stop_usage; exit 0 ;;
+      restart)      cmd_restart_usage; exit 0 ;;
+      console)      cmd_console_usage; exit 0 ;;
+      autostart)    cmd_autostart_usage; exit 0 ;;
+      modify)       cmd_modify_usage; exit 0 ;;
+      clone)        cmd_clone_usage; exit 0 ;;
+      info)         cmd_info_usage; exit 0 ;;
+      resize-disk)  cmd_resize_disk_usage; exit 0 ;;
+      export)       cmd_export_usage; exit 0 ;;
+      import)       cmd_import_usage; exit 0 ;;
+      suspend)      cmd_suspend_usage; exit 0 ;;
+      resume)       cmd_resume_usage; exit 0 ;;
+      vnc)          cmd_vnc_usage; exit 0 ;;
+      list)         cmd_list_usage; exit 0 ;;
+      stopall)      cmd_stopall_usage; exit 0 ;;
+      startall)     cmd_startall_usage; exit 0 ;;
+      verify)       cmd_verify_usage; exit 0 ;;
+      *)            cmd_vm_usage; exit 0 ;;
+    esac
+  fi
+
   case "$SUBCOMMAND" in
     create)
       cmd_create "$@"
