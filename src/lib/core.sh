@@ -426,58 +426,7 @@ run_bhyveload() {
 
 
 
-# === Function to clean up VM network interfaces ===
-cleanup_vm_network_interfaces() {
-  log "Entering cleanup_vm_network_interfaces function for VM: $1"
-  local VMNAME_CLEANUP="$1"
-  local VM_DIR_CLEANUP="$VM_CONFIG_BASE_DIR/$VMNAME_CLEANUP"
-  local CONF_FILE_CLEANUP="$VM_DIR_CLEANUP/vm.conf"
 
-  if [ ! -f "$CONF_FILE_CLEANUP" ]; then
-    log "VM config file not found for $VMNAME_CLEANUP. Skipping network cleanup."
-    return
-  fi
-
-  log "Cleaning up network interfaces for VM '$VMNAME_CLEANUP'..."
-
-  local NIC_IDX=0
-  while true; do
-    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
-    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
-
-    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
-    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
-
-    if [ -z "$CURRENT_TAP" ]; then
-      break # No more network interfaces configured
-    fi
-
-    if ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
-      log "Attempting to remove TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'..."
-      if ifconfig "$CURRENT_BRIDGE" deletem "$CURRENT_TAP"; then
-        log "Successfully removed TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'."
-      else
-        log "ERROR: Failed to remove TAP '$CURRENT_TAP' from bridge '$CURRENT_BRIDGE'."
-      fi
-    else
-      log "TAP '$CURRENT_TAP' is not a member of bridge '$CURRENT_BRIDGE' or bridge does not exist. Skipping bridge detachment."
-    fi
-
-    if ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
-      log "Attempting to destroy TAP interface '$CURRENT_TAP'..."
-      if ifconfig "$CURRENT_TAP" destroy; then
-        log "Successfully destroyed TAP interface '$CURRENT_TAP'."
-      else
-        log "ERROR: Failed to destroy TAP interface '$CURRENT_TAP'."
-      fi
-    else
-      log "TAP interface '$CURRENT_TAP' does not exist. Skipping destruction."
-    fi
-    NIC_IDX=$((NIC_IDX + 1))
-  done
-  log "Network interface cleanup for '$VMNAME_CLEANUP' complete."
-  log "Exiting cleanup_vm_network_interfaces function for VM: $VMNAME_CLEANUP"
-}
 
 # === Helper function to format bytes into human-readable format ===
 format_bytes() {

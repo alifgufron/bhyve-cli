@@ -201,3 +201,12 @@ cmd_verify_usage() {
   echo_message "\nDescription:"
   echo_message "  Verify the consistency and integrity of VM configurations."
 }
+
+# === Usage function for vnc ===
+cmd_vnc_usage() {
+  echo_message "Usage: $0 vnc <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the VM to get VNC connection info for."
+  echo_message "\nDescription:"
+  echo_message "  Displays the VNC connection port for a running VM and attempts to launch a VNC client."
+}
