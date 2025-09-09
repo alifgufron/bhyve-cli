@@ -216,14 +216,19 @@ cmd_modify() {
         shift
         local NEW_VNC_PORT="$1"
         log "Modifying VNC port for VM '$VMNAME' to $NEW_VNC_PORT..."
-        sed -i '' "s/^VNC_PORT=.*/VNC_PORT=${NEW_VNC_PORT}/" "$CONF_FILE"
+        if grep -q "^VNC_PORT=" "$CONF_FILE"; then
+          sed -i '' "s/^VNC_PORT=.*/VNC_PORT=${NEW_VNC_PORT}/" "$CONF_FILE"
+        else
+          echo "VNC_PORT=${NEW_VNC_PORT}" >> "$CONF_FILE"
+        fi
         display_and_log "INFO" "VNC port set to $NEW_VNC_PORT."
         VM_MODIFIED=true
         ;;
       --vnc-wait)
         log "Enabling VNC wait for VM '$VMNAME'..."
-        sed -i '' "s/^VNC_WAIT=.*/VNC_WAIT=yes/" "$CONF_FILE"
-        if ! grep -q "^VNC_WAIT=" "$CONF_FILE"; then
+        if grep -q "^VNC_WAIT=" "$CONF_FILE"; then
+          sed -i '' "s/^VNC_WAIT=.*/VNC_WAIT=yes/" "$CONF_FILE"
+        else
           echo "VNC_WAIT=yes" >> "$CONF_FILE"
         fi
         display_and_log "INFO" "VNC wait enabled."

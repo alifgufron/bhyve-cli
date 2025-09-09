@@ -18,7 +18,7 @@ cmd_info() {
   fi
 
   printf -- "----------------------------------------\n"
-  printf " VM Information for '%s'\n" "$VMNAME"
+  printf " VM Information for '%s'\n"
   printf -- "----------------------------------------\n"
   printf "% -15s: %s\n" "Name" "$VMNAME"
   if [ -n "$PID_STR" ]; then
@@ -32,6 +32,14 @@ cmd_info() {
   printf "% -15s: %s\n" "Autostart" "$AUTOSTART"
   printf "% -15s: /dev/%sB\n" "Console" "$CONSOLE"
   printf "% -15s: %s\n" "Log File" "$LOG_FILE"
+
+  # VNC Information
+  if [ -n "$VNC_PORT" ]; then
+    printf "% -15s: %s\n" "VNC Port" "$VNC_PORT"
+    if [ -n "$VNC_WAIT" ]; then
+      printf "% -15s: %s\n" "VNC Wait" "yes"
+    fi
+  fi
 
   local NIC_IDX=0
   while true; do
@@ -51,7 +59,7 @@ cmd_info() {
     local CURRENT_NIC_TYPE="${!CURRENT_NIC_TYPE_VAR:-virtio-net}"
 
     printf "\n"
-    printf " Interface %d\n" "$NIC_IDX"
+    printf " Interface %d\n"
     printf "    %-10s: %s\n" "TAP" "$CURRENT_TAP"
     printf "    %-10s: %s\n" "MAC" "$CURRENT_MAC"
     printf "    %-10s: %s\n" "Bridge" "$CURRENT_BRIDGE"
@@ -80,7 +88,7 @@ cmd_info() {
     fi
 
     printf "\n"
-    printf " Disk %d\n" "$DISK_IDX"
+    printf " Disk %d\n"
     printf "    %-10s: %s\n" "Path" "$DISK_PATH"
     
     if [ -f "$DISK_PATH" ]; then
