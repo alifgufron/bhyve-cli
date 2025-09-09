@@ -7,7 +7,7 @@ main_dispatcher() {
 
   # Initialize network environment for commands that need it
   case "$command" in
-    create|delete|install|start|restart|modify|clone|import|suspend|resume|vnc|switch|vmnet|stopall|startall)
+    create|delete|install|start|restart|modify|clone|import|suspend|resume|vnc|stopall|startall)
       cmd_vmnet_init
       ;;
   esac

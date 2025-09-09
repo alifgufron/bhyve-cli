@@ -38,6 +38,9 @@ cmd_start() {
 
   load_vm_config "$VMNAME"
 
+  # Clean up any lingering network interfaces from previous sessions
+  cleanup_vm_network_interfaces "$VMNAME"
+
   # Check if VM is installed (disk size check)
   local DISK_PATH="$VM_DIR/$DISK"
   if [ ! -f "$DISK_PATH" ]; then
@@ -97,7 +100,7 @@ cmd_start() {
 
   local VNC_ARGS=""
   if [ -n "$VNC_PORT" ]; then
-    VNC_ARGS="-s ${NEXT_DISK_DEV_NUM},vnc=${VNC_PORT}"
+    VNC_ARGS="-s 29,fbuf,tcp=0.0.0.0:${VNC_PORT},w=800,h=600"
     if [ "$VNC_WAIT" = "yes" ]; then
       VNC_ARGS+=",wait"
     fi

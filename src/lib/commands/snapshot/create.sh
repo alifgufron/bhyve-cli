@@ -26,13 +26,15 @@ cmd_snapshot_create() {
 
   display_and_log "INFO" "Creating snapshot '$SNAPSHOT_NAME' for VM '$VMNAME'..."
 
+  local VM_WAS_RUNNING=false
   if is_vm_running "$VMNAME"; then
-    display_and_log "INFO" "VM '$VMNAME' is running. Pausing VM for consistent snapshot..."
-    if ! $BHYVECTL --vm="$VMNAME" --pause; then
-      display_and_log "ERROR" "Failed to pause VM '$VMNAME'. Aborting snapshot."
+    VM_WAS_RUNNING=true
+    display_and_log "INFO" "VM '$VMNAME' is running. Suspending VM for consistent snapshot..."
+    if ! cmd_suspend "$VMNAME"; then
+      display_and_log "ERROR" "Failed to suspend VM '$VMNAME'. Aborting snapshot."
       exit 1
     fi
-    log "VM '$VMNAME' paused."
+    log "VM '$VMNAME' suspended."
   fi
 
   start_spinner "Copying disk image for snapshot..."
@@ -52,9 +54,9 @@ cmd_snapshot_create() {
   cp "$VM_DIR/vm.conf" "$SNAPSHOT_PATH/vm.conf"
   log "VM configuration copied."
 
-  if is_vm_running "$VMNAME"; then
+  if $VM_WAS_RUNNING; then
     display_and_log "INFO" "Resuming VM '$VMNAME' ..."
-    if ! $BHYVECTL --vm="$VMNAME" --resume; then
+    if ! cmd_resume "$VMNAME"; then
       display_and_log "ERROR" "Failed to resume VM '$VMNAME'. Manual intervention may be required."
       exit 1
     fi
