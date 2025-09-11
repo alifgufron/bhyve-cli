@@ -58,6 +58,28 @@ To have VMs start automatically when your system boots:
 
 On boot, the service will first initialize all network switches (`switch init`) and then start all VMs marked for autostart (`startall`).
 
+## Interoperability with vm-bhyve
+
+`bhyve-cli` offers some integration with VMs managed by the standard `vm-bhyve` tool, allowing `bhyve-cli` to list, start, stop, suspend, resume, and export `vm-bhyve` VMs. However, direct interoperability for exported/imported VM configurations requires manual intervention due to differences in their configuration formats.
+
+### Exporting and Importing VMs between `bhyve-cli` and `vm-bhyve`
+
+When you export a VM using `bhyve-cli`, the archive preserves the original VM's configuration format:
+*   **`bhyve-cli` native VMs:** The archive contains `vm.conf` (bhyve-cli's format).
+*   **`vm-bhyve` VMs:** The archive contains `<vmname>.conf` (vm-bhyve's format).
+
+**Compatibility Notes:**
+
+*   **Exported `vm-bhyve` VM imported into `bhyve-cli`:**
+    *   The VM will be extracted into `bhyve-cli`'s VM directory.
+    *   However, `bhyve-cli` expects a `vm.conf` file. Since the imported archive contains `<vmname>.conf`, `bhyve-cli`'s native commands will **not** automatically recognize or manage this VM.
+    *   **Manual conversion is required:** To manage such a VM with `bhyve-cli`, you must manually rename `<vmname>.conf` to `vm.conf` and adjust its contents to match `bhyve-cli`'s configuration format.
+*   **Exported `bhyve-cli` VM imported into `vm-bhyve`:**
+    *   This is **not directly supported** by `bhyve-cli`'s `import` command. `vm-bhyve` has its own import mechanisms and expects its specific configuration format (`<vmname>.conf`).
+    *   You would need to manually convert `bhyve-cli`'s `vm.conf` to `vm-bhyve`'s `<vmname>.conf` format and adjust the directory structure before attempting to import it into `vm-bhyve`.
+
+In essence, while `bhyve-cli` can interact with `vm-bhyve` VMs, seamless configuration exchange via export/import requires manual adaptation due to differing internal formats.
+
 ## Usage
 
 The general command structure is:
