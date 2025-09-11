@@ -46,7 +46,9 @@ cmd_import() {
 
   start_spinner "Importing VM from '$ARCHIVE_PATH'..."
 
-  tar -xzf "$ARCHIVE_PATH" -C "$VM_CONFIG_BASE_DIR"
+  local ARCHIVE_EXTENSION="${ARCHIVE_PATH##*.}"
+  local TAR_DECOMPRESSION_FLAGS=$(get_tar_compression_flags "$ARCHIVE_EXTENSION")
+  tar -x "$TAR_DECOMPRESSION_FLAGS" -f "$ARCHIVE_PATH" -C "$VM_CONFIG_BASE_DIR"
 
   stop_spinner
   display_and_log "INFO" "VM '$VMNAME_IN_ARCHIVE' imported successfully."
