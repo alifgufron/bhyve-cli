@@ -58,6 +58,14 @@ uninstall:
 	@rm -rf $(DESTDIR)$(ETC_APP_DIR)
 	@rm -f $(DESTDIR)$(RC_DIR)/$(APP_NAME)
 	@echo "Uninstallation complete."
+	@echo "--------------------------------------------------"
+	@echo "NOTE: User data (VMs, disks, ISOs) is NOT deleted."
+	@echo "If you wish to remove them, delete them manually from:"
+	@echo "  - VMs & Disks: /var/bhyve/vm.d"
+	@echo "  - ISOs: /var/bhyve/iso"
+	@echo "  - Templates: /var/bhyve/vm.d/templates"
+	@echo "(These are default paths and may be different if you configured them manually.)"
+	@echo "--------------------------------------------------"
 
 clean:
 	@echo "Cleaning up..."
