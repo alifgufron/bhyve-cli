@@ -8,7 +8,44 @@ cmd_info() {
   fi
 
   VMNAME="$1"
-  load_vm_config "$VMNAME"
+  local vm_source=""
+  local vm_dir=""
+
+  # Check bhyve-cli directory first
+  if [ -d "$VM_CONFIG_BASE_DIR/$VMNAME" ]; then
+    vm_source="bhyve-cli"
+    vm_dir="$VM_CONFIG_BASE_DIR/$VMNAME"
+    load_vm_config "$VMNAME"
+  else
+    # Check vm-bhyve directory
+    local vm_bhyve_base_dir
+    vm_bhyve_base_dir=$(get_vm_bhyve_dir)
+    if [ -n "$vm_bhyve_base_dir" ] && [ -d "$vm_bhyve_base_dir/$VMNAME" ]; then
+      vm_source="vm-bhyve"
+      vm_dir="$vm_bhyve_base_dir/$VMNAME"
+      local conf_file="$vm_dir/$VMNAME.conf"
+      if [ -f "$conf_file" ]; then
+        # Source the config to get variables
+        . "$conf_file"
+        # Map vm-bhyve variables to our internal variables
+        CPUS=${cpu:-N/A}
+        MEMORY=${memory:-N/A}
+        BOOTLOADER_TYPE=${loader:-bhyveload}
+        AUTOSTART=${autostart:-no}
+        LOG_FILE="$vm_dir/vm-bhyve.log"
+        CONSOLE=${console:-nmdm1}
+      else
+        display_and_log "ERROR" "VM configuration for '$VMNAME' not found in vm-bhyve directory: $conf_file"
+        exit 1
+      fi
+    fi
+  fi
+
+  # If vm_source is still empty, VM not found
+  if [ -z "$vm_source" ]; then
+    display_and_log "ERROR" "VM '$VMNAME' not found in bhyve-cli or vm-bhyve directories."
+    exit 1
+  fi
 
   local PID_STR=$(get_vm_pid "$VMNAME")
   local STATUS_STR="Stopped" # Default status
@@ -18,7 +55,7 @@ cmd_info() {
   fi
 
   printf -- "----------------------------------------\n"
-  printf " VM Information for '%s'\n"
+  printf " VM Information for '%s'\n" "$VMNAME"
   printf -- "----------------------------------------\n"
   printf "% -15s: %s\n" "Name" "$VMNAME"
   if [ -n "$PID_STR" ]; then
@@ -41,71 +78,103 @@ cmd_info() {
     fi
   fi
 
-  local NIC_IDX=0
-  while true; do
-    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
-    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
-    local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
-    local CURRENT_NIC_TYPE_VAR="NIC_${NIC_IDX}_TYPE"
+  # --- Display Network Info ---
+  if [ "$vm_source" == "bhyve-cli" ]; then
+    local NIC_IDX=0
+    while true; do
+      local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
+      local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
+      local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+      local CURRENT_NIC_TYPE_VAR="NIC_${NIC_IDX}_TYPE"
+      local CURRENT_TAP="${!CURRENT_TAP_VAR}"
+      if [ -z "$CURRENT_TAP" ]; then break; fi
+      local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+      local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+      local CURRENT_NIC_TYPE="${!CURRENT_NIC_TYPE_VAR:-virtio-net}"
+      printf "\n"
+      printf " Interface %d\n" "$NIC_IDX"
+      printf "    %-10s: %s\n" "TAP" "$CURRENT_TAP"
+      printf "    %-10s: %s\n" "MAC" "$CURRENT_MAC"
+      printf "    %-10s: %s\n" "Bridge" "$CURRENT_BRIDGE"
+      printf "    %-10s: %s\n" "Type" "$CURRENT_NIC_TYPE"
+      NIC_IDX=$((NIC_IDX + 1))
+    done
+  else # vm-bhyve network info
+    local NIC_IDX=0
+    while true; do
+      local type_var="network${NIC_IDX}_type"
+      local switch_var="network${NIC_IDX}_switch"
+      local mac_var="network${NIC_IDX}_mac"
+      local NIC_TYPE="${!type_var}"
+      if [ -z "$NIC_TYPE" ]; then break; fi
+      local NIC_SWITCH="${!switch_var}"
+      local NIC_MAC="${!mac_var}"
+      printf "\n"
+      printf " Interface %d\n" "$NIC_IDX"
+      printf "    %-10s: %s\n" "Type" "$NIC_TYPE"
+      printf "    %-10s: %s\n" "Switch" "$NIC_SWITCH"
+      printf "    %-10s: %s\n" "MAC" "$NIC_MAC"
+      NIC_IDX=$((NIC_IDX + 1))
+    done
+  fi
 
-    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
-    
-    if [ -z "$CURRENT_TAP" ]; then
-      break
-    fi
-    
-    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
-    local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
-    local CURRENT_NIC_TYPE="${!CURRENT_NIC_TYPE_VAR:-virtio-net}"
-
-    printf "\n"
-    printf " Interface %d\n"
-    printf "    %-10s: %s\n" "TAP" "$CURRENT_TAP"
-    printf "    %-10s: %s\n" "MAC" "$CURRENT_MAC"
-    printf "    %-10s: %s\n" "Bridge" "$CURRENT_BRIDGE"
-    printf "    %-10s: %s\n" "Type" "$CURRENT_NIC_TYPE"
-    NIC_IDX=$((NIC_IDX + 1))
-  done
-
-  local DISK_IDX=0
-  while true; do
-    local CURRENT_DISK_VAR="DISK"
-    if [ "$DISK_IDX" -gt 0 ]; then
-      CURRENT_DISK_VAR="DISK_${DISK_IDX}"
-    fi
-    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
-    
-    if [ -z "$CURRENT_DISK_FILENAME" ]; then
-      break
-    fi
-
-    local CURRENT_DISK_TYPE_VAR="DISK_${DISK_IDX}_TYPE"
-    local DISK_TYPE="${!CURRENT_DISK_TYPE_VAR:-virtio-blk}"
-    
-    local DISK_PATH="$CURRENT_DISK_FILENAME"
-    if [[ ! "$DISK_PATH" =~ ^/ ]]; then
-      DISK_PATH="$VM_DIR/$CURRENT_DISK_FILENAME"
-    fi
-
-    printf "\n"
-    printf " Disk %d\n"
-    printf "    %-10s: %s\n" "Path" "$DISK_PATH"
-    
-    if [ -f "$DISK_PATH" ]; then
-      local DISK_SIZE_BYTES=$(stat -f %z "$DISK_PATH")
-      local DISK_SIZE_HUMAN=$(format_bytes "$DISK_SIZE_BYTES")
-      printf "    %-10s: %s\n" "Set" "$DISK_SIZE_HUMAN"
-
-      local ACTUAL_DISK_USAGE_KILOBYTES=$(du -k "$DISK_PATH" 2>/dev/null | awk '{print $1}')
-      local ACTUAL_DISK_USAGE_BYTES=$((ACTUAL_DISK_USAGE_KILOBYTES * 1024))
-      local ACTUAL_DISK_USAGE_HUMAN=$(format_bytes "$ACTUAL_DISK_USAGE_BYTES")
-      printf "    %-10s: %s\n" "Used" "$ACTUAL_DISK_USAGE_HUMAN"
-    else
-      printf "    %-10s: %s\n" "Set" "(File not found)"
-      printf "    %-10s: %s\n" "Used" "(File not found)"
-    fi
-    printf "    %-10s: %s\n" "Type" "$DISK_TYPE"
-    DISK_IDX=$((DISK_IDX + 1))
-  done
+  # --- Display Disk Info ---
+  if [ "$vm_source" == "bhyve-cli" ]; then
+    local DISK_IDX=0
+    while true; do
+      local CURRENT_DISK_VAR="DISK"
+      if [ "$DISK_IDX" -gt 0 ]; then CURRENT_DISK_VAR="DISK_${DISK_IDX}"; fi
+      local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+      if [ -z "$CURRENT_DISK_FILENAME" ]; then break; fi
+      local CURRENT_DISK_TYPE_VAR="DISK_${DISK_IDX}_TYPE"
+      local DISK_TYPE="${!CURRENT_DISK_TYPE_VAR:-virtio-blk}"
+      local DISK_PATH="$CURRENT_DISK_FILENAME"
+      if [[ ! "$DISK_PATH" =~ ^/ ]]; then DISK_PATH="$vm_dir/$CURRENT_DISK_FILENAME"; fi
+      printf "\n"
+      printf " Disk %d\n" "$DISK_IDX"
+      printf "    %-10s: %s\n" "Path" "$DISK_PATH"
+      if [ -f "$DISK_PATH" ]; then
+        local DISK_SIZE_BYTES=$(stat -f %z "$DISK_PATH")
+        local DISK_SIZE_HUMAN=$(format_bytes "$DISK_SIZE_BYTES")
+        printf "    %-10s: %s\n" "Set" "$DISK_SIZE_HUMAN"
+        local ACTUAL_DISK_USAGE_KILOBYTES=$(du -k "$DISK_PATH" 2>/dev/null | awk '{print $1}')
+        local ACTUAL_DISK_USAGE_BYTES=$((ACTUAL_DISK_USAGE_KILOBYTES * 1024))
+        local ACTUAL_DISK_USAGE_HUMAN=$(format_bytes "$ACTUAL_DISK_USAGE_BYTES")
+        printf "    %-10s: %s\n" "Used" "$ACTUAL_DISK_USAGE_HUMAN"
+      else
+        printf "    %-10s: %s\n" "Set" "(File not found)"
+        printf "    %-10s: %s\n" "Used" "(File not found)"
+      fi
+      printf "    %-10s: %s\n" "Type" "$DISK_TYPE"
+      DISK_IDX=$((DISK_IDX + 1))
+    done
+  else # vm-bhyve disk info
+    local DISK_IDX=0
+    while true; do
+      local type_var="disk${DISK_IDX}_type"
+      local name_var="disk${DISK_IDX}_name"
+      local DISK_TYPE="${!type_var}"
+      if [ -z "$DISK_TYPE" ]; then break; fi
+      local DISK_NAME="${!name_var}"
+      local DISK_PATH="$vm_dir/$DISK_NAME"
+      printf "\n"
+      printf " Disk %d\n" "$DISK_IDX"
+      printf "    %-10s: %s\n" "Path" "$DISK_PATH"
+      if [ -f "$DISK_PATH" ]; then
+        local DISK_SIZE_BYTES=$(stat -f %z "$DISK_PATH")
+        local DISK_SIZE_HUMAN=$(format_bytes "$DISK_SIZE_BYTES")
+        printf "    %-10s: %s\n" "Set" "$DISK_SIZE_HUMAN"
+        local ACTUAL_DISK_USAGE_KILOBYTES=$(du -k "$DISK_PATH" 2>/dev/null | awk '{print $1}')
+        local ACTUAL_DISK_USAGE_BYTES=$((ACTUAL_DISK_USAGE_KILOBYTES * 1024))
+        local ACTUAL_DISK_USAGE_HUMAN=$(format_bytes "$ACTUAL_DISK_USAGE_BYTES")
+        printf "    %-10s: %s\n" "Used" "$ACTUAL_DISK_USAGE_HUMAN"
+      else
+        printf "    %-10s: %s\n" "Set" "(File not found)"
+        printf "    %-10s: %s\n" "Used" "(File not found)"
+      fi
+      printf "    %-10s: %s\n" "Type" "$DISK_TYPE"
+      DISK_IDX=$((DISK_IDX + 1))
+    done
+  fi
   printf -- "----------------------------------------\n"
 }
