@@ -8,6 +8,33 @@ cmd_stop() {
     exit 1
   fi
 
+  local VMNAME_ARG=$1
+
+  # Detect VM source
+  local vm_source=""
+  if [ -d "$VM_CONFIG_BASE_DIR/$VMNAME_ARG" ]; then
+    vm_source="bhyve-cli"
+  else
+    local vm_bhyve_base_dir
+    vm_bhyve_base_dir=$(get_vm_bhyve_dir)
+    if [ -n "$vm_bhyve_base_dir" ] && [ -d "$vm_bhyve_base_dir/$VMNAME_ARG" ]; then
+      vm_source="vm-bhyve"
+    fi
+  fi
+
+  # Delegate to vm-bhyve if applicable
+  if [ "$vm_source" == "vm-bhyve" ]; then
+    if ! command -v vm >/dev/null 2>&1; then
+      display_and_log "ERROR" "'vm-bhyve' command not found. Please ensure it is installed and in your PATH."
+      exit 1
+    fi
+    display_and_log "INFO" "Delegating stop command to vm-bhyve for VM '$VMNAME_ARG'..."
+    vm stop "$VMNAME_ARG"
+    exit $?
+  fi
+
+  # If we are here, it's a bhyve-cli VM. Proceed with original logic.
+
   local VMNAME="$1"
   local FORCE_STOP=false
   local SILENT_MODE=false
