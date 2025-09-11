@@ -13,7 +13,7 @@ shopt -s globstar
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 # Check if running from source (development mode) vs installed
 
-VERSION_BASE="1.0.0"
+VERSION_BASE="1.1.0"
 if [ -d "$SCRIPT_DIR/lib" ]; then
   # Development mode: use local lib directory
   LIB_DIR="$SCRIPT_DIR/lib"
