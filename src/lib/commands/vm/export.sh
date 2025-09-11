@@ -6,6 +6,10 @@ cmd_export() {
   local DEST_DIR="" # Renamed from DEST_PATH
   local COMPRESSION_FORMAT="gz" # Default compression
   local ORIGINAL_VM_STATE="stopped" # Default state
+  local FORCE_EXPORT=false
+  local SUSPEND_EXPORT=false
+  local STOP_EXPORT=false
+  local EXPORT_ACTION_SET=false # To ensure only one action is specified
 
   # Parse arguments
   while [ "$#" -gt 0 ]; do
@@ -18,6 +22,36 @@ cmd_export() {
         fi
         COMPRESSION_FORMAT="$2"
         shift 2
+        ;;
+      --force-export)
+        if [ "$EXPORT_ACTION_SET" = true ]; then
+          display_and_log "ERROR" "Only one export action (--force-export, --suspend-export, --stop-export) can be specified."
+          cmd_export_usage
+          exit 1
+        fi
+        FORCE_EXPORT=true
+        EXPORT_ACTION_SET=true
+        shift 1
+        ;;
+      --suspend-export)
+        if [ "$EXPORT_ACTION_SET" = true ]; then
+          display_and_log "ERROR" "Only one export action (--force-export, --suspend-export, --stop-export) can be specified."
+          cmd_export_usage
+          exit 1
+        fi
+        SUSPEND_EXPORT=true
+        EXPORT_ACTION_SET=true
+        shift 1
+        ;;
+      --stop-export)
+        if [ "$EXPORT_ACTION_SET" = true ]; then
+          display_and_log "ERROR" "Only one export action (--force-export, --suspend-export, --stop-export) can be specified."
+          cmd_export_usage
+          exit 1
+        fi
+        STOP_EXPORT=true
+        EXPORT_ACTION_SET=true
+        shift 1
         ;;
       *)
         if [ -z "$VMNAME" ]; then
@@ -43,7 +77,8 @@ cmd_export() {
   mkdir -p "$DEST_DIR" || { display_and_log "ERROR" "Failed to create destination directory: $DEST_DIR"; exit 1; }
 
   # Construct the final archive path
-  local ARCHIVE_PATH="${DEST_DIR}/${VMNAME}.tar.$(get_compression_extension_suffix "$COMPRESSION_FORMAT")"
+  local CURRENT_DATE=$(date +%Y_%m_%d)
+  local ARCHIVE_PATH="${DEST_DIR}/${VMNAME}_${CURRENT_DATE}.tar.$(get_compression_extension_suffix "$COMPRESSION_FORMAT")"
 
   # Detect VM source
   local vm_source=""
@@ -69,35 +104,63 @@ cmd_export() {
   # Check if the VM is running
   if is_vm_running "$VMNAME"; then
     ORIGINAL_VM_STATE="running"
-    echo "[WARNING] VM '$VMNAME' is currently running."
-    echo "Exporting a running VM may result in an inconsistent state."
-    echo "Choose an option:"
-    echo "  1) Proceed with live export (not recommended)"
-    echo "  2) Stop the VM, export, and restart it"
-    echo "  3) Suspend the VM, export, and resume it"
-    echo "  4) Abort the export"
-    read -p "Enter your choice [1-4]: " choice
+    local choice="" # Initialize choice variable
+
+    if [ "$FORCE_EXPORT" = true ]; then
+      choice=1
+      display_and_log "INFO" "Proceeding with live export as requested by --force-export."
+    elif [ "$STOP_EXPORT" = true ]; then
+      choice=2
+      display_and_log "INFO" "Stopping VM for a consistent export as requested by --stop-export..."
+      cmd_stop "$VMNAME" --silent
+      if ! wait_for_vm_status "$VMNAME" "stopped"; then
+        display_and_log "ERROR" "Failed to stop VM '$VMNAME'. Aborting export."
+        exit 1
+      fi
+    elif [ "$SUSPEND_EXPORT" = true ]; then
+      choice=3
+      display_and_log "INFO" "Suspending VM for a consistent export as requested by --suspend-export..."
+      cmd_suspend "$VMNAME"
+      if ! wait_for_vm_status "$VMNAME" "suspended"; then
+        display_and_log "ERROR" "Failed to suspend VM '$VMNAME'. Aborting export."
+        exit 1
+      fi
+    else
+      # Interactive prompt if no non-interactive option is provided
+      echo "[WARNING] VM '$VMNAME' is currently running."
+      echo "Exporting a running VM may result in an inconsistent state."
+      echo "Choose an option:"
+      echo "  1) Proceed with live export (not recommended)"
+      echo "  2) Stop the VM, export, and restart it"
+      echo "  3) Suspend the VM, export, and resume it"
+      echo "  4) Abort the export"
+      read -p "Enter your choice [1-4]: " choice
+    fi
 
     case $choice in
       1)
-        # Proceed with live export
-        display_and_log "INFO" "Proceeding with live export as requested."
+        # Proceed with live export (already handled if --force-export)
         ;;
       2)
         # Stop, export, restart
-        display_and_log "INFO" "Stopping VM for a consistent export..."
-        cmd_stop "$VMNAME" --silent
-        if is_vm_running "$VMNAME"; then
+        if [ "$STOP_EXPORT" != true ]; then # Only if not already handled by --stop-export flag
+          cmd_stop "$VMNAME" --silent
+          if ! wait_for_vm_status "$VMNAME" "stopped"; then
             display_and_log "ERROR" "Failed to stop VM '$VMNAME'. Aborting export."
             exit 1
+          fi
         fi
         ;;
       3)
-        # Suspend, export, resume
-        display_and_log "INFO" "Suspending VM for a consistent export..."
-        cmd_suspend "$VMNAME"
-        # We need to check if suspend was successful. Assuming it is for now.
-        # A better check would be to see if the bhyve process is paused.
+        # Suspend, export, resume (already handled if --suspend-export)
+        # For interactive choice, we need to add it here.
+        if [ "$SUSPEND_EXPORT" != true ]; then # Only if not already handled by --suspend-export flag
+          cmd_suspend "$VMNAME"
+          if ! wait_for_vm_status "$VMNAME" "suspended"; then
+            display_and_log "ERROR" "Failed to suspend VM '$VMNAME'. Aborting export."
+            exit 1
+          fi
+        fi
         ;;
       4)
         # Abort
@@ -116,7 +179,7 @@ cmd_export() {
   local EXPORT_SUCCESS=false
 
   if [ "$vm_source" == "bhyve-cli" ]; then
-    if tar $(get_tar_compression_flags "$COMPRESSION_FORMAT") -f "$ARCHIVE_PATH" -C "$VM_CONFIG_BASE_DIR" "$VMNAME"; then
+    if tar -c $(get_tar_compression_flags "$COMPRESSION_FORMAT") -f "$ARCHIVE_PATH" -C "$VM_CONFIG_BASE_DIR" "$VMNAME"; then
       EXPORT_SUCCESS=true
     fi
   else # vm-bhyve
@@ -167,7 +230,7 @@ cmd_export() {
 
       if $EXPORT_SUCCESS; then # Only proceed if no errors so far (e.g., zvol or missing disk)
         # Tar the temporary directory
-        if tar $(get_tar_compression_flags "$COMPRESSION_FORMAT") -f "$ARCHIVE_PATH" -C "$TEMP_EXPORT_DIR" "$VMNAME"; then
+        if tar -c $(get_tar_compression_flags "$COMPRESSION_FORMAT") -f "$ARCHIVE_PATH" -C "$TEMP_EXPORT_DIR" "$VMNAME"; then
           EXPORT_SUCCESS=true
         else
           EXPORT_SUCCESS=false
