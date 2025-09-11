@@ -12,18 +12,21 @@ shopt -s globstar
 # === Global Variables & Paths ===
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 # Check if running from source (development mode) vs installed
+
+VERSION_BASE="1.0.0"
 if [ -d "$SCRIPT_DIR/lib" ]; then
   # Development mode: use local lib directory
   LIB_DIR="$SCRIPT_DIR/lib"
+  VERSION="${VERSION_BASE}-dev"
 else
   # Installed mode: use standard installation path
   LIB_DIR="/usr/local/share/bhyve-cli/lib"
+  VERSION="${VERSION_BASE}-install"
 fi
 CONFIG_DIR="/usr/local/etc/bhyve-cli"
 MAIN_CONFIG_FILE="$CONFIG_DIR/bhyve-cli.conf"
 VM_CONFIG_BASE_DIR="$CONFIG_DIR/vm.d"
 SWITCH_CONFIG_FILE="$CONFIG_DIR/switch.conf"
-VERSION="1.3.1-stable-install"
 
 # === Bhyve Binaries Paths ===
 BHYVE="/usr/sbin/bhyve"
