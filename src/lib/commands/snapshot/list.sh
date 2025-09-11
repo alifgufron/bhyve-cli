@@ -8,7 +8,7 @@ cmd_snapshot_list() {
   fi
 
   local VMNAME="$1"
-  local SNAPSHOT_DIR="$VM_CONFIG_BASE_DIR/$VMNAME/snapshots"
+  local SNAPSHOT_DIR="$VM_CONFIG_BASE_DIR/snapshots/$VMNAME"
 
   if [ ! -d "$SNAPSHOT_DIR" ] || [ -z "$(ls -A "$SNAPSHOT_DIR")" ]; then
     display_and_log "INFO" "No snapshots found for VM '$VMNAME'."

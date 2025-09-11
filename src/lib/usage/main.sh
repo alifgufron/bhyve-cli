@@ -2,7 +2,7 @@
 
 # === Main Usage Function ===
 main_usage() {
-  echo_message "Usage: $0 <command> [options/arguments]"
+  echo_message "Usage: $(basename "$0") <command> [options/arguments]"
   echo_message " "
   echo_message "Available Commands:"
   echo_message "  init          - Initialize bhyve-cli configuration."
@@ -14,5 +14,5 @@ main_usage() {
   echo_message "  switch        - Manage network bridges and physical interfaces."
   echo_message "  vmnet         - Manage isolated virtual networks for VMs."
   echo_message " "
-  echo_message "For detailed usage of each command, use: $0 <command> --help"
+  echo_message "For detailed usage of each command, use: $(basename "$0") <command> --help"
 }
