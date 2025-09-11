@@ -21,6 +21,8 @@ start_cmd()
 {
     echo "Initializing bhyve network switches..."
     ${command_interpreter} ${command} switch init
+    echo "Initializing bhyve vmnet configurations..."
+    ${command_interpreter} ${command} vmnet init
     echo "Starting autostart-enabled bhyve VMs..."
     ${command_interpreter} ${command} startall
 }
