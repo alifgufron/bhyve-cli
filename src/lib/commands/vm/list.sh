@@ -52,7 +52,7 @@ _process_vm_dir() {
           local cpus_val=${CPUS:-${vm_cpus:-N/A}}
           local mem_val=${MEMORY:-${vm_ram:-N/A}}
           local autostart_val=${AUTOSTART:-${vm_autostart:-no}}
-          local bootloader_val=${BOOTLOADER_TYPE:-bhyveload}
+          local bootloader_val=${BOOTLOADER_TYPE:-${loader:-bhyveload}}
 
           printf "%-25s %-12s %-10s %-8s %-10s %-10s %-15s %-10s %-10s %-12s\n" \
             "$VMNAME" \
