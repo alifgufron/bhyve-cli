@@ -28,6 +28,9 @@ _process_vm_dir() {
         # Source the config in a subshell to avoid polluting the main script's scope
         (
           . "$CONF_FILE"
+          # Map vm-bhyve variables to our internal variables for display
+          local CPUS_FROM_CONF=${cpu:-N/A}
+          local MEMORY_FROM_CONF=${memory:-N/A}
           local PID=$(get_vm_pid "$VMNAME")
           local STATUS="stopped"
 
@@ -49,8 +52,16 @@ _process_vm_dir() {
           fi
 
           # Adjust for vm-bhyve config naming if needed
-          local cpus_val=${CPUS:-${vm_cpus:-N/A}}
-          local mem_val=${MEMORY:-${vm_ram:-N/A}}
+          local cpus_val
+          local mem_val
+
+          if [ "$source_label" == "vm-bhyve" ]; then
+            cpus_val=${CPUS_FROM_CONF}
+            mem_val=${MEMORY_FROM_CONF}
+          else # bhyve-cli
+            cpus_val=${CPUS:-N/A}
+            mem_val=${MEMORY:-N/A}
+          fi
           local autostart_val=${AUTOSTART:-${vm_autostart:-no}}
           local bootloader_val=${BOOTLOADER_TYPE:-${loader:-bhyveload}}
 

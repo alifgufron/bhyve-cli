@@ -141,14 +141,18 @@ cmd_resize_disk_usage() {
 
 # === Usage function for export ===
 cmd_export_usage() {
-  echo_message "Usage: $(basename "$0") export <vmname> <destination_directory> [--compression <format>]\nArguments:"
+  echo_message "Usage: $(basename "$0") export <vmname> <destination_directory> [--compression <format>] [--force-export | --suspend-export | --stop-export]\nArguments:"
   echo_message "  <vmname>              - The name of the virtual machine to export."
   echo_message "  <destination_directory> - The full path to the directory where the VM will be exported. The VM will be exported in a new compression format."
   echo_message "\nOptions:"
   echo_message "  --compression <format> - Optional. Specify the compression format (gz, bz2, xz, lz4, zst). Default: gz."
+  echo_message "  --force-export         - Optional. Force export a running VM without stopping/suspending (not recommended)."
+  echo_message "  --suspend-export       - Optional. Suspend a running VM before export, and resume after."
+  echo_message "  --stop-export          - Optional. Stop a running VM before export, and restart after."
   echo_message "\nExample:"
   echo_message "  $(basename "$0") export myvm /tmp/myvm_exports"
   echo_message "  $(basename "$0") export myvm /tmp/myvm_exports --compression bz2"
+  echo_message "  $(basename "$0") export myvm /tmp/myvm_exports --stop-export"
 }
 
 # === Usage function for import ===

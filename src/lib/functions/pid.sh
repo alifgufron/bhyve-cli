@@ -1,10 +1,16 @@
 #!/usr/local/bin/bash
 
-# === Helper function to check if a VM is running ===
+# === Helper function to check if a VM is running (i.e., not suspended or stopped) ===
 is_vm_running() {
   local VMNAME_CHECK="$1"
-  get_vm_pid "$VMNAME_CHECK" > /dev/null
-  return $?
+  local pid=$(get_vm_pid "$VMNAME_CHECK")
+  if [ -n "$pid" ]; then
+    local status=$(get_vm_status "$pid")
+    if [ "$status" == "running" ]; then
+      return 0 # Running
+    fi
+  fi
+  return 1 # Not running (stopped or suspended)
 }
 
 # === Helper functions for VM PID file management ===

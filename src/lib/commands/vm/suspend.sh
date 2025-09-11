@@ -36,7 +36,7 @@ cmd_suspend() {
 
   display_and_log "INFO" "Suspending VM '$VMNAME' (PID: $pid)..."
   if kill -SIGSTOP "$pid"; then
-    set_vm_status "$VMNAME" "suspended"
+    
     display_and_log "INFO" "VM '$VMNAME' suspended successfully."
   else
     display_and_log "ERROR" "Failed to suspend VM '$VMNAME'."
