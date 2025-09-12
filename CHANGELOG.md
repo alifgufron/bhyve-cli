@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.1.1] - 2025-09-13
+
+### Fixed
+
+- **`make install` Directory Creation:**
+    - Fixed `make install` failure due to `No such file or directory` error for `vm.d`.
+    - Ensured explicit creation of parent configuration directory (`/usr/local/etc/bhyve-cli`) before `vm.d`.
+- **`bhyve-cli init` Redundant Copies:**
+    - Removed incorrect and redundant `rc.d` script copying from `bhyve-cli init`.
+    - Removed incorrect and redundant firmware files copying from `bhyve-cli init`.
+    - These tasks are correctly handled by `make install`.
+
 ## [v1.1.0] - 2025-09-13
 
 ### Added
@@ -47,14 +59,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **`vm export`**: Implemented integration for `vm-bhyve` VMs, allowing export of UFS-based disk images.
     - **`vm export` - Enhanced Compression & Usage**: Added `--compression` flag to support `gz`, `bz2`, `xz`, `lz4`, `zst` formats. Implemented automatic file extension handling based on compression type.
     - **`vm export` - Suspend/Stop Robustness:**
-        - Implemented `wait_for_vm_status` helper function to robustly wait for a VM to reach a specific status (suspended or stopped).
-        - Modified `vm export` to use `wait_for_vm_status` after calling `cmd_suspend` and `cmd_stop`.
-        - Refined `is_vm_running` to accurately reflect the "running" status by checking the actual process state.
-    - **`vm list` - Correct CPU/RAM Display for `vm-bhyve` and `bhyve-cli` VMs:**
-        - Modified `vm list` to correctly parse and display CPU and RAM information for `vm-bhyve` VMs.
-        - Adjusted the logic to conditionally assign CPU/RAM values based on VM type.
-    - **`vm export` - Add Date to Filename:**
-        - Modified `vm export` to include the current date (`YYYY_MM_DD`) in the exported archive filename.
+        * Removed placeholder `set_vm_status` call from `src/lib/commands/vm/suspend.sh`.
+        * Implemented `wait_for_vm_status` helper function to robustly wait for a VM to reach a specific status (suspended or stopped).
+        * Modified `vm export` to use `wait_for_vm_status` after calling `cmd_suspend` and `cmd_stop`.
+        * Refined `is_vm_running` to accurately reflect the "running" status by checking the actual process state.
+    * **`vm list` - Correct CPU/RAM Display for `vm-bhyve` and `bhyve-cli` VMs:**
+        * Modified `vm list` to correctly parse and display CPU and RAM information for `vm-bhyve` VMs.
+        * Adjusted the logic to conditionally assign CPU/RAM values based on VM type.
+    * **`vm export` - Add Date to Filename:**
+        * Modified `vm export` to include the current date (`YYYY_MM_DD`) in the exported archive filename.
 
 ### Other Enhancements
 
