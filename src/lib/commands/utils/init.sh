@@ -17,13 +17,9 @@ cmd_init() {
     mkdir -p "$CONFIG_DIR"
 
     # Copy rc.d script
-    display_and_log "INFO" "Copying rc.d script to /usr/local/etc/rc.d/bhyve-cli..."
-    cp "$SCRIPT_DIR/rc.d/bhyve-cli" "/usr/local/etc/rc.d/bhyve-cli" || { display_and_log "ERROR" "Failed to copy rc.d script."; exit 1; }
+    
 
-    # Copy firmware files
-    display_and_log "INFO" "Copying firmware files to $CONFIG_DIR/firmware..."
-    mkdir -p "$CONFIG_DIR/firmware"
-    cp -R "$SCRIPT_DIR/firmware"/* "$CONFIG_DIR/firmware/" || { display_and_log "ERROR" "Failed to copy firmware files."; exit 1; }
+    
 
     # Prompt for ISO directory
     read -rp "Enter the full path for storing ISO images [/var/bhyve/iso]: " iso_path_input
