@@ -301,7 +301,7 @@ cmd_start() {
         log "cu session ended."
       else
         if [ "$SUPPRESS_CONSOLE_MESSAGE" = false ]; then
-          echo_message "Please connect to the console using: $0 console $VMNAME"
+          echo_message "Please connect to the console using: bhyve-cli vm console $VMNAME"
         fi
       fi
     else

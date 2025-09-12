@@ -4,6 +4,22 @@ This file tracks completed tasks and major changes.
 
 ---
 
+* **2025-09-12** - **Enhancement: `vm start` Console Message**
+    * Modified the console connection message displayed after `vm start`.
+    * Changed from `./src/bhyve-cli console <VM_NAME>` to `bhyve-cli vm console <VM_NAME>` for better consistency and user experience.
+
+* **2025-09-12** - **Bug Fix: `vm import` - Unique TAP Interfaces**
+    * Fixed "Device busy" error when starting imported VMs.
+    * The `vm import` command now iterates through network interfaces (`TAP_X`) in the imported VM's `vm.conf`.
+    * It assigns new, unique TAP numbers using `get_next_available_tap_num` and updates `vm.conf` accordingly.
+    * This ensures that imported VMs do not conflict with existing running VMs over TAP devices.
+
+* **2025-09-12** - **Bug Fix: `vm import` Extraction**
+    * Fixed a "Broken pipe" error (`zstd: error 70`) occurring during the import of compressed archives (`.zst`, `.gz`, etc.).
+    * The previous method relied on `tar`'s `--use-compress-program` flag, which proved unreliable on the target system.
+    * Replaced the logic in `src/lib/commands/vm/import.sh` with a robust `case` statement that uses explicit pipes (e.g., `zstd -dc | tar -xf -`).
+    * This ensures reliable and portable extraction for all supported archive formats.
+
 * **2025-09-11** - **Feature: `vm-bhyve` Integration - Core Commands**
     * Implemented `get_vm_bhyve_dir()` to detect `vm-bhyve` installation path from `/etc/rc.conf`.
     * **`vm list`**: Adapted to display VMs from both `bhyve-cli` and `vm-bhyve` sources, including dynamic bootloader detection and output formatting.
