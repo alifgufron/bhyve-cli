@@ -157,12 +157,15 @@ cmd_export_usage() {
 
 # === Usage function for import ===
 cmd_import_usage() {
-  echo_message "Usage: $(basename "$0") import <path_to_vm_archive>"
+  echo_message "Usage: $(basename "$0") import <path_to_vm_archive> [new_vm_name]"
   echo_message "\nArguments:"
   echo_message "  <path_to_vm_archive> - The full path to the VM archive file to import (e.g., /tmp/myvm_backup.tar.gz)."
+  echo_message "  [new_vm_name]        - Optional. A new name for the imported VM. If not provided, the original VM name from the archive will be used."
   echo_message "\nExample:"
   echo_message "  $(basename "$0") import /tmp/myvm_backup.tar.gz"
+  echo_message "  $(basename "$0") import /tmp/myvm_backup.tar.gz my_new_vm_name"
 }
+
 
 # === Usage function for restart ===
 cmd_restart_usage() {
