@@ -4,6 +4,11 @@ This file tracks completed tasks and major changes.
 
 ---
 
+* **2025-09-13** - **Enhancement: `vm list` - VNC Port Column & Formatting**
+    * Added a "VNC PORT" column to the `vm list` output.
+    * Adjusted column widths for better alignment and readability, especially after adding the new column.
+    * Displays the `VNC_PORT` from `vm.conf` or '-' if not configured.
+
 * **2025-09-12** - **Enhancement: `vm start` Console Message**
     * Modified the console connection message displayed after `vm start`.
     * Changed from `./src/bhyve-cli console <VM_NAME>` to `bhyve-cli vm console <VM_NAME>` for better consistency and user experience.

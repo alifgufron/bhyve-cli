@@ -65,12 +65,15 @@ _process_vm_dir() {
           local autostart_val=${AUTOSTART:-${vm_autostart:-no}}
           local bootloader_val=${BOOTLOADER_TYPE:-${loader:-bhyveload}}
 
-          printf "%-25s %-12s %-10s %-8s %-10s %-10s %-15s %-10s %-10s %-12s\n" \
+          local vnc_port_val=${VNC_PORT:--}
+
+          printf "%-25s %-12s %-10s %-8s %-10s %-10s %-10s %-8s %-6s %-6s %-12s\n" \
             "$VMNAME" \
             "$bootloader_val" \
             "$autostart_val" \
             "$cpus_val" \
             "$mem_val" \
+            "$vnc_port_val" \
             "$STATUS" \
             "$PID" \
             "$CPU_USAGE" \
@@ -91,7 +94,7 @@ cmd_list() {
 
   # --- Process bhyve-cli VMs ---
   if [ -d "$VM_CONFIG_BASE_DIR" ] && [ -n "$(ls -A "$VM_CONFIG_BASE_DIR" 2>/dev/null)" ]; then
-    printf "%-25s %-12s %-10s %-8s %-10s %-10s %-15s %-10s %-10s %-12s\n" "VM NAME (bhyve-cli)" "BOOTLOADER" "AUTOSTART" "CPUS" "MEMORY" "STATUS" "PID" "CPU%" "MEM%" "UPTIME"
+    printf "%-25s %-12s %-10s %-8s %-10s %-10s %-10s %-8s %-6s %-6s %-12s\n" "VM NAME (bhyve-cli)" "BOOTLOADER" "AUTOSTART" "CPUS" "MEMORY" "VNC PORT" "STATUS" "PID" "CPU%" "MEM%" "UPTIME"
     _process_vm_dir "$VM_CONFIG_BASE_DIR" "bhyve-cli"
     bhyve_cli_vms_found=true
   fi
@@ -104,7 +107,7 @@ cmd_list() {
     if [ "$bhyve_cli_vms_found" = true ]; then
       echo # Add a newline for separation
     fi
-    printf "%-25s %-12s %-10s %-8s %-10s %-10s %-15s %-10s %-10s %-12s\n" "VM NAME (vm-bhyve)" "BOOTLOADER" "AUTOSTART" "CPUS" "MEMORY" "STATUS" "PID" "CPU%" "MEM%" "UPTIME"
+    printf "%-25s %-12s %-10s %-8s %-10s %-10s %-10s %-8s %-6s %-6s %-12s\n" "VM NAME (vm-bhyve)" "BOOTLOADER" "AUTOSTART" "CPUS" "MEMORY" "VNC PORT" "STATUS" "PID" "CPU%" "MEM%" "UPTIME"
     _process_vm_dir "$vm_bhyve_dir" "vm-bhyve"
     vm_bhyve_vms_found=true
   fi
