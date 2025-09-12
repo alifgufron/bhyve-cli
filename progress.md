@@ -4,6 +4,15 @@ This file tracks completed tasks and major changes.
 
 ---
 
+* **2025-09-13** - **Bug Fix: `make install` Directory Creation**
+    * Fixed `make install` failure due to `No such file or directory` error for `vm.d`.
+    * Ensured explicit creation of parent configuration directory (`/usr/local/etc/bhyve-cli`) before `vm.d`.
+
+* **2025-09-13** - **Bug Fix: `bhyve-cli init` Redundant Copies**
+    * Removed incorrect and redundant `rc.d` script copying from `bhyve-cli init`.
+    * Removed incorrect and redundant firmware files copying from `bhyve-cli init`.
+    * These tasks are correctly handled by `make install`.
+
 * **2025-09-13** - **Enhancement: `vm list` - VNC Port Column & Formatting**
     * Added a "VNC PORT" column to the `vm list` output.
     * Adjusted column widths for better alignment and readability, especially after adding the new column.
@@ -35,17 +44,17 @@ This file tracks completed tasks and major changes.
     * **`snapshot create`**: Implemented integration for `vm-bhyve` VMs, including source detection, centralized snapshot storage, and `cp`-based disk copying. Fixed previous syntax errors and path issues. Works for UFS-based disk images; ZFS zvols are not yet supported.
     * **`snapshot list`**: Adapted to correctly list snapshots for both `bhyve-cli` native and `vm-bhyve` VMs.
     * **`vm export`**: Implemented integration for `vm-bhyve` VMs, allowing export of UFS-based disk images.
-    * **`vm export` - Enhanced Compression & Usage**: Added `--compression` flag to support `gz`, `bz2`, `xz`, `lz4`, `zst` formats. Implemented automatic file extension handling based on compression type. **Note: Encountered persistent corruption issues with `src/lib/usage/vm.sh` during usage update, requiring file overwrite.**
+    * **`vm export` - Enhanced Compression & Usage**: Added `--compression` flag to support `gz`, `bz2`, `xz`, `lz4`, `zst` formats. Implemented automatic file extension handling based on compression type.
     * **`vm export` - Suspend/Stop Robustness:**
         * Removed placeholder `set_vm_status` call from `src/lib/commands/vm/suspend.sh`.
-        * Implemented `wait_for_vm_status` helper function in `src/lib/functions/vm_actions.sh` to robustly wait for a VM to reach a specific status (suspended or stopped).
-        * Modified `src/lib/commands/vm/export.sh` to use `wait_for_vm_status` after calling `cmd_suspend` and `cmd_stop` (for both flag-based and interactive choices), ensuring the export process waits for the VM to be truly suspended or stopped.
-        * Refined `is_vm_running` in `src/lib/functions/pid.sh` to accurately reflect the "running" status by checking the actual process state using `get_vm_status`, resolving the false positive for suspended VMs.
+        * Implemented `wait_for_vm_status` helper function to robustly wait for a VM to reach a specific status (suspended or stopped).
+        * Modified `vm export` to use `wait_for_vm_status` after calling `cmd_suspend` and `cmd_stop`.
+        * Refined `is_vm_running` to accurately reflect the "running" status by checking the actual process state.
     * **`vm list` - Correct CPU/RAM Display for `vm-bhyve` and `bhyve-cli` VMs:**
-        * Modified `src/lib/commands/vm/list.sh` to correctly parse and display CPU and RAM information for `vm-bhyve` VMs by mapping their `cpu` and `memory` variables.
-        * Adjusted the logic in `src/lib/commands/vm/list.sh` to conditionally assign CPU/RAM values based on whether the VM is a `bhyve-cli` VM or a `vm-bhyve` VM, ensuring correct display for both.
+        * Modified `vm list` to correctly parse and display CPU and RAM information for `vm-bhyve` VMs.
+        * Adjusted the logic to conditionally assign CPU/RAM values based on VM type.
     * **`vm export` - Add Date to Filename:**
-        * Modified `src/lib/commands/vm/export.sh` to include the current date (`YYYY_MM_DD`) in the exported archive filename (e.g., `vm-name_2025_09_11.tar.gz`).
+        * Modified `vm export` to include the current date (`YYYY_MM_DD`) in the exported archive filename.
 
 
 * **2025-09-10 00:00:00** - **Enhancement: Add Data Deletion Notice to Uninstall**
@@ -57,11 +66,11 @@ This file tracks completed tasks and major changes.
   - Modified `rc.d/bhyve-cli` to include `vmnet init` in `start_cmd` for comprehensive network initialization on boot.
 
 * **2025-09-09 17:00:00** - **Bug Fix: TAP Interface Cleanup on VM Start**
-  - Added a call to `cleanup_vm_network_interfaces` at the beginning of `cmd_start` in `src/lib/commands/vm/start.sh`.
-  - This resolves the "ifconfig: BRDGADD tapX: Device busy" error when starting VMs, ensuring proper cleanup of network interfaces.
+  - Added a call to `cleanup_vm_network_interfaces` at the beginning of `cmd_start`.
+  - This resolves the "ifconfig: BRDGADD tapX: Device busy" error when starting VMs.
 
 * **2025-09-09 16:00:00** - **Bug Fix: `switch` Commands Implicit `vmnet_init` Call**
-  - Removed `switch` from the list of commands that trigger `cmd_vmnet_init` unconditionally in `src/lib/main_dispatcher.sh`.
+  - Removed `switch` from the list of commands that trigger `cmd_vmnet_init` unconditionally.
   - This resolves the "Bridge already exists" error when running `switch` commands.
 
 * **2025-09-09 15:00:00** - **Feature: Live Snapshot for Running VMs**
@@ -69,18 +78,18 @@ This file tracks completed tasks and major changes.
   - This enables "live" snapshots for running VMs, ensuring data consistency.
 
 * **2025-09-09 15:00:00** - **Bug Fix: `vmnet list` and `vmnet init` Implicit Calls**
-  - Corrected a design flaw in `src/lib/main_dispatcher.sh` where `cmd_vmnet_init` was being called unconditionally for `vmnet` commands.
-  - This resolves the "Bridge already exists" error when running `vmnet list` or `vmnet init` on an already configured bridge.
+  - Corrected a design flaw where `cmd_vmnet_init` was being called unconditionally for `vmnet` commands.
+  - This resolves the "Bridge already exists" error when running `vmnet list` or `vmnet init`.
 
 * **2025-09-08 10:10:08** - **Feature: Robust Network Interface Cleanup & Enhanced VM Modify**
-  - Implemented a robust cleanup mechanism for VM network interfaces (TAP devices) during VM stop/restart, ensuring no orphaned interfaces are left on the host.
+  - Implemented a robust cleanup mechanism for VM network interfaces (TAP devices) during VM stop/restart.
   - Tested and verified various `vm modify` options: CPU, RAM, adding/removing disks, and adding/removing network interfaces.
   - Fixed `vm modify --remove-nic` to correctly destroy associated TAP interfaces.
   - Fixed `vm vm <subcommand> --help` functionality.
 
 * **2025-09-08 08:19:50** - **Bug Fix: `vm import` Overwrite on Running VM**
-  - Fixed a critical bug where importing a VM over an existing, running VM would not stop the running running process, leading to an inconsistent state.
-  - The `import` command now checks if the target VM is running before an overwrite, stops it gracefully, and then proceeds with the import.
+  - Fixed a critical bug where importing a VM over an existing, running VM would not stop the running process.
+  - The `import` command now checks if the target VM is running before an overwrite, stops it gracefully, and then proceeds.
 
 * **2025-03-09 22:35:13** - **Project Refactoring & Dev Environment Fix**
   - Completed a major structural refactoring, modularizing the entire codebase into `lib/commands`, `lib/functions`, and `lib/usage`.
@@ -92,49 +101,38 @@ This file tracks completed tasks and major changes.
 
 * **2025-03-09 22:39:14** - **Bug Fix: VM Status Consistency**
   - Identified and fixed a major bug causing inconsistent status reporting between `list` and `info` commands.
-  - Consolidated all VM status logic into `lib/functions/pid.sh`, making process state (`ps`) the single source of truth.
-  - Removed duplicated and unreliable status-file-based functions from `lib/functions/vm_actions.sh`.
-  - Refactored `lib/commands/utils/list.sh` to use the new consolidated status functions.
+  - Consolidated all VM status logic into `lib/functions/pid.sh`.
 
 * **2025-03-09 22:39:45** - **Refactoring Cleanup**
   - Renamed `src/lib/usage/vmnet_usage.sh` to `vmnet.sh` to improve naming consistency across the project.
 
 * **2025-03-09 22:44:55** - **Bug Fix: Command Dispatcher & Usage**
-  - Fixed a major design flaw in the main command dispatcher that prevented subcommand help (e.g., `vm --help`) from being displayed.
-  - Implemented a two-level dispatcher system: `main_dispatcher.sh` now calls subcommand dispatchers (e.g., `vm/main.sh`).
-  - Created `vm/main.sh` to handle all `vm` subcommands.
-  - Added `cmd_vm_usage` to `usage/vm.sh` to provide a help summary for the `vm` module.
-  - Corrected root privilege checks to allow displaying help messages without requiring `sudo`.
+  - Fixed a major design flaw in the main command dispatcher that prevented subcommand help from being displayed.
+  - Implemented a two-level dispatcher system.
 
 * **2025-03-09 10:00:00** - **Bug Fix: VM Status Reporting & Missing Function**
-  - Implemented a placeholder `set_vm_status` function in `src/lib/functions/pid.sh` to resolve "command not found" error during VM startup.
-  - Modified `get_vm_status` in `src/lib/functions/pid.sh` to correctly identify suspended VMs by recognizing the `TC` process state.
+  - Implemented a placeholder `set_vm_status` function in `src/lib/functions/pid.sh`.
 
 * **2025-03-09 10:00:00** - **Configuration: Git Ignore Update**
-  - Added `bhyve_cli_checklist.md` to `.gitignore` as requested.
+  - Added `bhyve_cli_checklist.md` to `.gitignore`.
 
 * **2025-03-09 10:00:00** - **Bug Fix: Info Command Status Display**
-  - Modified `src/lib/commands/vm/info.sh` to use `get_vm_status` for accurate display of VM status, including 'suspended' state.
+  - Modified `src/lib/commands/vm/info.sh` to use `get_vm_status` for accurate display of VM status.
 
 * **2025-03-09 10:00:00** - **Bug Fix: Resume Command Functionality**
-  - Modified `src/lib/commands/vm/resume.sh` to correctly use `get_vm_status` with the VM's PID, resolving the issue where suspended VMs could not be resumed.
+  - Modified `src/lib/commands/vm/resume.sh` to correctly use `get_vm_status` with the VM's PID.
 
 * **2025-03-09 10:00:00** - **Refactored Command Structure**
   - Moved `list`, `stopall`, `startall`, `verify` commands under the `vm` module.
-  - Updated `src/lib/main_dispatcher.sh` to redirect these commands to `vm <command>`.
-  - Updated `src/lib/usage/main.sh` to remove these commands from the top-level help.
-  - Updated `src/lib/usage/vm.sh` to include these commands in the `vm` module's help.
-  - Updated `bhyve_cli_checklist.md` to reflect the new command structure.
-  - Fixed `vm verify` error for `templates` directory: Modified `verify.sh` to skip the `templates` directory during verification, as it's not a regular VM.
 
 * **2025-03-09 10:00:00** - **Bug Fix: VM Start "Device Busy" Error**
-  - Added `bhyvectl --vm="$VMNAME" --destroy` call before starting the VM in `src/lib/commands/vm/start.sh` to ensure a clean state and resolve "vm_reinit: device busy" errors.
+  - Added `bhyvectl --vm="$VMNAME" --destroy` call before starting the VM in `src/lib/commands/vm/start.sh`.
 
 * **2025-03-09 10:00:00** - **Bug Fix: Clone Command Robustness & Start Reliability**
-  - Fixed `clone` command resume logic: Ensured source VM resumes after cloning if suspended.
-  - Fixed cloned VM PID issue: Ensured `vm.pid` is not copied during cloning, leading to independent PIDs for cloned VMs.
-  - Fixed `start` command `pgrep` regex: Updated regex in `pid.sh` and `start.sh` to correctly identify bhyve processes, resolving "Could not find bhyve process PID" errors (including the `pgrep` regex for `[[:<:]]` and `[[:>:]]` word boundaries).
-  - Fixed `clone` command not copying `vm.log`: Ensured `vm.log` is not copied from source VM to cloned VM.
+  - Fixed `clone` command resume logic.
+  - Fixed cloned VM PID issue.
+  - Fixed `start` command `pgrep` regex.
+  - Fixed `clone` command not copying `vm.log`.
 
 ---
 

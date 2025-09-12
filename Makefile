@@ -32,6 +32,7 @@ install:
 	@mkdir -p $(DESTDIR)$(BIN_DIR)
 	@mkdir -p $(DESTDIR)$(SHARE_SUBDIR)/lib
 	@mkdir -p $(DESTDIR)$(SHARE_SUBDIR)/firmware
+	@mkdir -p $(DESTDIR)$(ETC_APP_DIR)
 	@mkdir -p $(DESTDIR)$(VM_CONFIG_DIR)
 	@mkdir -p $(DESTDIR)$(RC_DIR)
 
