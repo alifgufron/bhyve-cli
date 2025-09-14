@@ -13,6 +13,7 @@ main_usage() {
   echo_message "  iso           - Manage ISO images (list and download)."
   echo_message "  switch        - Manage network bridges and physical interfaces."
   echo_message "  vmnet         - Manage isolated virtual networks for VMs."
+  echo_message "  datastore     - Manage bhyve-cli datastores."
   echo_message " "
   echo_message "For detailed usage of each command, use: $(basename "$0") <command> --help"
 }

@@ -2,84 +2,93 @@
 
 # === Subcommand: delete ===
 cmd_delete() {
-  log "Entering cmd_delete function for VM: $1"
-  if [ -z "$1" ]; then
+  local VMNAME=""
+  local EXPLICIT_DATASTORE_PROVIDED="false"
+  local DATASTORE_NAME="" # Will be set if --datastore is used
+
+  # Parse named arguments
+  while (( "$#" )); do
+    case "$1" in
+      --datastore)
+        shift
+        DATASTORE_NAME="$1"
+        EXPLICIT_DATASTORE_PROVIDED="true"
+        ;;
+      *)
+        if [[ -z "$VMNAME" ]]; then
+          VMNAME="$1"
+        else
+          log_error "Unknown argument: $1"
+          cmd_delete_usage
+          return 1
+        fi
+        ;;
+    esac
+    shift
+  done
+
+  if [[ -z "$VMNAME" ]]; then
+    log_error "VM name not specified."
     cmd_delete_usage
-    exit 1
+    return 1
   fi
 
-  VMNAME="$1"
-  load_vm_config "$VMNAME"
+  # Source the VM's configuration
+  if ! source_vm_config "$VMNAME" "$DATASTORE_NAME"; then
+    log_error "Failed to load configuration for VM '$VMNAME'."
+    return 1
+  fi
 
-  # Check if VM is running
+  # Confirm deletion
+  read -p "Are you sure you want to delete VM '$VMNAME' and all its associated files? (y/N): " -n 1 -r
+  echo
+  if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
+    log_info "VM deletion cancelled."
+    return 0
+  fi
+
+  # Stop the VM if it's running
   if is_vm_running "$VMNAME"; then
-    display_and_log "ERROR" "VM '$VMNAME' is still running."
-    read -rp "Do you want to stop and delete the VM '$VMNAME'? [y/n]: " CONFIRM_STOP_DELETE
-    if ! [[ "$CONFIRM_STOP_DELETE" =~ ^[Yy]$ ]]; then
-      display_and_log "INFO" "VM deletion cancelled."
-      log "VM deletion cancelled by user."
-      exit 0 # Exit without deleting
+    log_info "VM '$VMNAME' is running. Attempting to stop it..."
+    if ! cmd_stop "$VMNAME" --silent; then
+      log_error "Failed to stop VM '$VMNAME'. Cannot delete a running VM."
+      return 1
     fi
-    display_and_log "INFO" "Stopping VM '$VMNAME' before deletion..."
-    cmd_stop "$VMNAME" --force # Force stop the VM
-    # Give it a moment to ensure it's stopped
-    sleep 2
   fi
 
-  log "Deleting VM '$VMNAME'..."
-  display_and_log "INFO" "Initiating deletion process for VM '$VMNAME'..."
+  # Delete VM files
+  log_info "Deleting VM files for '$VMNAME'..."
+  if [[ -d "$VM_DIR" ]]; then
+    if rm -rf "$VM_DIR"; then
+      log_success "Successfully deleted VM directory: $VM_DIR"
+    else
+      log_error "Failed to delete VM directory: $VM_DIR"
+      return 1
+    fi
+  else
+    log_warn "VM directory '$VM_DIR' not found. Skipping."
+  fi
 
-  log "Cleaning up VM processes and kernel memory..."
-  cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
+  # Delete vm.pid file if it exists (should be handled by cmd_stop, but as a fallback)
+  delete_vm_pid "$VMNAME"
 
-  log "Cleaning up VM network interfaces..."
+  # Clean up network interfaces (if any were associated and not cleaned by stop)
   cleanup_vm_network_interfaces "$VMNAME"
 
-  # === Remove console device files ===
-  if [ -e "/dev/${CONSOLE}A" ]; then
-    log "Removing console device /dev/${CONSOLE}A..."
-    rm -f "/dev/${CONSOLE}A"
-    if [ $? -eq 0 ]; then
-      log "/dev/${CONSOLE}A removed successfully."
-    else
-      display_and_log "WARNING" "Failed to remove /dev/${CONSOLE}A."
-    fi
-  else
-    log "Console device /dev/${CONSOLE}A not found. Skipping removal."
-  fi
-  if [ -e "/dev/${CONSOLE}B" ]; then
-    log "Removing console device /dev/${CONSOLE}B..."
-    rm -f "/dev/${CONSOLE}B"
-    if [ $? -eq 0 ]; then
-      log "/dev/${CONSOLE}B removed successfully."
-    else
-      display_and_log "WARNING" "Failed to remove /dev/${CONSOLE}B."
-    fi
-  else
-    log "Console device /dev/${CONSOLE}B not found. Skipping removal."
-  fi
+  log_success "VM '$VMNAME' and all its associated files have been deleted."
+  update_changelog "Deleted VM '$VMNAME'."
+}
 
-  # Remove vm.pid file if it exists
-  delete_vm_pid "$VMNAME"
-  log "vm.pid file removal attempted."
-
-  unset LOG_FILE # Unset LOG_FILE here, after all operations that might use it for the VM.
-
-  # Remove vm.pid file if it exists
-  delete_vm_pid "$VMNAME"
-  log "vm.pid file removal attempted."
-
-  unset LOG_FILE # Unset LOG_FILE after vm.pid is handled and before VM directory is removed
-
-  # === Delete VM directory ===
-  display_and_log "INFO" "Deleting VM directory: $VM_DIR..."
-  rm -rf "$VM_DIR"
-  if [ $? -eq 0 ]; then
-    log "VM directory '$VM_DIR' removed successfully."
-  else
-    log "Failed to remove VM directory '$VM_DIR'. Please check permissions."
-  fi
-
-  display_and_log "INFO" "VM '$VMNAME' successfully deleted."
-  log "Exiting cmd_delete function for VM: $VMNAME"
+# === Usage: delete ===
+cmd_delete_usage() {
+  echo "Usage: bhyve-cli vm delete <vm_name> [--datastore <datastore_name>]"
+  echo ""
+  echo "Delete a virtual machine and all its associated files."
+  echo ""
+  echo "Arguments:"
+  echo "  <vm_name>           The name of the virtual machine to delete."
+  echo ""
+  echo "Options:"
+  echo "  --datastore <name>  Specify the datastore where the VM is located."
+  echo "                      If not specified, the default datastore will be used."
 }

@@ -7,6 +7,7 @@ cmd_create() {
   local VM_BRIDGE=""
   local BOOTLOADER_TYPE="bhyveload" # Default bootloader
   local FROM_TEMPLATE="" # New variable for template name
+  local DATASTORE_NAME="default" # Default datastore
 
   # Parse named arguments
   while (( "$#" )); do
@@ -14,6 +15,10 @@ cmd_create() {
       --name)
         shift
         VMNAME="$1"
+        ;;
+      --datastore)
+        shift
+        DATASTORE_NAME="$1"
         ;;
       --disk-size)
         shift
@@ -59,11 +64,19 @@ cmd_create() {
     exit 1
   fi
 
-  VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
+  # Get the absolute path for the selected datastore
+  local VM_BASE_PATH
+  VM_BASE_PATH=$(get_datastore_path "$DATASTORE_NAME")
+  if [ -z "$VM_BASE_PATH" ]; then
+    display_and_log "ERROR" "Datastore '$DATASTORE_NAME' not found. Please check 'datastore list'."
+    exit 1
+  fi
+
+  VM_DIR="$VM_BASE_PATH/$VMNAME"
   CONF="$VM_DIR/vm.conf"
 
   if [ -d "$VM_DIR" ]; then
-    display_and_log "ERROR" "VM '$VMNAME' already exists."
+    display_and_log "ERROR" "VM '$VMNAME' already exists in datastore '$DATASTORE_NAME'."
     exit 1
   fi
 
@@ -72,16 +85,16 @@ cmd_create() {
   LOG_FILE="$VM_DIR/vm.log" # Set LOG_FILE for create command
   log "VM directory '$VM_DIR' created successfully."
 
-  display_and_log "INFO" "Preparing to create VM '$VMNAME'..."
+  display_and_log "INFO" "Preparing to create VM '$VMNAME' in datastore '$DATASTORE_NAME'."
 
   if [ -n "$FROM_TEMPLATE" ]; then
-    local TEMPLATE_DIR="$VM_CONFIG_BASE_DIR/templates/$FROM_TEMPLATE"
+    local TEMPLATE_DIR="$VM_BASE_PATH/templates/$FROM_TEMPLATE"
     if [ ! -d "$TEMPLATE_DIR" ]; then
-      display_and_log "ERROR" "Template '$FROM_TEMPLATE' not found."
+      display_and_log "ERROR" "Template '$FROM_TEMPLATE' not found in datastore '$DATASTORE_NAME'."
       rmdir "$VM_DIR" # Clean up empty VM directory
       exit 1
     fi
-    display_and_log "INFO" "Creating VM from template '$FROM_TEMPLATE'..."
+    display_and_log "INFO" "Creating VM from template '$FROM_TEMPLATE' நான."
     start_spinner "Copying template files..."
     cp -R "$TEMPLATE_DIR/." "$VM_DIR/" || {
       stop_spinner
@@ -122,7 +135,7 @@ cmd_create() {
     local TRUNCATE_CMD="truncate -s \"${DISKSIZE}G\" \"$VM_DIR/disk.img\""
     log "Executing: $TRUNCATE_CMD"
     truncate -s "${DISKSIZE}G" "$VM_DIR/disk.img" || { display_and_log "ERROR" "Failed to create disk image at '$VM_DIR/disk.img'. Command: '$TRUNCATE_CMD'"; exit 1; }
-    log "Disk image '$VM_DIR/disk.img' \(${DISKSIZE}GB\) created successfully."
+    log "Disk image '$VM_DIR/disk.img' (${DISKSIZE}GB) created successfully."
   fi
 
   # === Check and create bridge interface if it doesn't exist ===

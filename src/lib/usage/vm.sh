@@ -15,6 +15,7 @@ cmd_create_usage() {
   echo_message "Usage: $(basename "$0") create --name <vmname> --switch <bridge_name> [--disk-size <disksize in GB>] [--from-template <template_name>] [--bootloader <type>] [--vnc-port <port>] [--vnc-wait] [--nic-type <type>]"
   echo_message "\nOptions:"
   echo_message "  --name <vmname>              - Name of the virtual machine."
+  echo_message "  --datastore <ds_name>        - Optional. Name of the datastore to create the VM in. Defaults to 'default'."
   echo_message "  --switch <bridge_name>       - Name of the network bridge to connect the VM to."
   echo_message "  --disk-size <size in GB>     - Optional. Size of the virtual disk in GB. Required if --from-template is not used."
   echo_message "  --from-template <template_name> - Optional. Create VM from an existing template. If used, --disk-size is optional."
@@ -32,7 +33,8 @@ cmd_create_usage() {
 cmd_delete_usage() {
   echo_message "Usage: $(basename "$0") delete <vmname>"
   echo_message "\nArguments:"
-  echo_message "  <vmname>    - The name of the virtual machine to permanently delete."
+  echo_message "  <vmname>    - The name of the virtual machine to permanently delete.
+  --datastore <ds_name> - Optional. Name of the datastore the VM is in. Defaults to 'default'."
 }
 
 # === Usage function for install ===

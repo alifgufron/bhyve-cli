@@ -4,6 +4,16 @@ This file tracks completed tasks and major changes.
 
 ---
 
+## Branch: v1.1.2
+
+* **2025-09-14** - **Enhancement: Advanced `vm-bhyve` Datastore Detection**
+    *   **Enhancement:** Re-engineered `vm-bhyve` integration to correctly detect and name all datastores.
+    *   **Logic:** The script now reads the primary datastore from `/etc/rc.conf`, then parses `<primary>/.config/system.conf` to find and identify any additional datastores.
+    *   **Fix:** As part of this, a bug was fixed where `vm list` failed in a `sudo` context because `ls` was not in the minimal `PATH`. This was resolved by using `/bin/ls`.
+    *   **Result:** The `vm list` command now accurately displays all VMs from all `vm-bhyve` datastores with their correct datastore names.
+
+---
+
 * **2025-09-13** - **Bug Fix: `make install` Directory Creation**
     * Fixed `make install` failure due to `No such file or directory` error for `vm.d`.
     * Ensured explicit creation of parent configuration directory (`/usr/local/etc/bhyve-cli`) before `vm.d`.
@@ -144,6 +154,13 @@ This file tracks completed tasks and major changes.
     *   **Step 2: Unify VM Listing.** Modify `vm list` to display VMs from both `bhyve-cli`'s own directory and the detected `vm-bhyve` directory.
     *   **Step 3: Adapt `vm info`.** Update the `info` command to parse `vm-bhyve`'s configuration file format.
     *   **Step 4: Adapt Other Commands.** Incrementally update other commands (`start`, `stop`, `snapshot`, `export`, etc.) to work with `vm-bhyve`'s structure and conventions.
+*   **Datastore Management for bhyve-cli.**
+    *   **Goal:** Allow managing `bhyve-cli` datastores directly from the command line.
+    *   **Implementation:**
+        *   `datastore list`: List all configured `bhyve-cli` datastores.
+        *   `datastore add <name> <path>`: Add a new datastore.
+        *   `datastore delete <name>`: Remove a datastore.
+        *   `vm create --datastore <name>`: Allow specifying a datastore during VM creation.
 *   **Rename VM on Import.**
     *   **Goal:** Allow specifying a new name for a VM during the import process.
     *   **Implementation:** Modify the `vm import` command to accept an optional second argument: `vm import <archive_path> [new_vm_name]`.

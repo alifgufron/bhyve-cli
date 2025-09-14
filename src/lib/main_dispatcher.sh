@@ -34,6 +34,9 @@ main_dispatcher() {
     vmnet)
       cmd_vmnet "$@"
       ;;
+    datastore)
+      cmd_datastore "$@"
+      ;;
     # Direct commands from old structure
     logs)
       cmd_logs "$@"

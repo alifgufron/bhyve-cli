@@ -23,9 +23,17 @@ check_initialization() {
 
 
 # === Function to load VM configuration ===
+# Arg1: VMNAME
+# Arg2: Optional: custom_datastore_path
 load_vm_config() {
   VMNAME="$1"
-  VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
+  local custom_datastore_path="$2"
+
+  if [ -n "$custom_datastore_path" ]; then
+    VM_DIR="$custom_datastore_path/$VMNAME"
+  else
+    VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
+  fi
   CONF_FILE="$VM_DIR/vm.conf"
 
   if [ ! -f "$CONF_FILE" ]; then
@@ -38,29 +46,154 @@ load_vm_config() {
   BOOTLOADER_TYPE="${BOOTLOADER_TYPE:-bhyveload}" # Default to bhyveload if not set
 }
 
-# Tries to detect the vm-bhyve directory from /etc/rc.conf
-# and validates its structure.
+# Tries to detect the vm-bhyve primary datastore from /etc/rc.conf,
+# then reads its system.conf to find any additional datastores.
 #
 # Returns:
-#   The path to the vm-bhyve directory if found and valid, otherwise empty.
+#   A space-separated list of "name:path" pairs for each found datastore.
+#   e.g., "default:/opt/bhvye datastore2:/home/bhyve"
 get_vm_bhyve_dir() {
-    local vm_dir_line
-    local vm_dir_path
+    local primary_path_line
+    local primary_path
+    local system_conf
+    local all_datastores=""
 
-    # Check if /etc/rc.conf contains vm_dir
-    vm_dir_line=$(grep '^vm_dir=' /etc/rc.conf 2>/dev/null)
+    # 1. Find primary path from /etc/rc.conf
+    primary_path_line=$(grep '^vm_dir=' /etc/rc.conf 2>/dev/null)
+    if [ -z "$primary_path_line" ]; then
+        echo ""
+        return 1
+    fi
+    primary_path=$(echo "$primary_path_line" | cut -d'=' -f2 | tr -d '"' | sed 's#/\.*$##')
 
-    if [ -n "$vm_dir_line" ]; then
-        # Extract the path, removing quotes
-        vm_dir_path=$(echo "$vm_dir_line" | cut -d'=' -f2 | tr -d '"')
+    # Validate primary path
+    if [ ! -d "$primary_path" ]; then
+        echo ""
+        return 1
+    fi
 
-        # Check if the path is a directory and contains a .config subdir
-        if [ -d "$vm_dir_path" ] && [ -d "$vm_dir_path/.config" ]; then
-            echo "$vm_dir_path"
-            return 0
+    # Add primary datastore (named by its basename) to our list
+    local primary_name
+    primary_name=$(basename "$primary_path")
+    all_datastores="$primary_name:$primary_path "
+
+    # 2. Look for additional datastores in the primary datastore's system.conf
+    system_conf="$primary_path/.config/system.conf"
+    if [ -f "$system_conf" ]; then
+        # 3. Get the list of additional datastore names
+        local datastore_list_line
+        datastore_list_line=$(grep '^datastore_list=' "$system_conf" 2>/dev/null)
+        if [ -n "$datastore_list_line" ]; then
+            local datastore_names
+            datastore_names=$(echo "$datastore_list_line" | cut -d'=' -f2 | tr -d '"' )
+
+            # 4. For each name, get its path
+            for name in $datastore_names; do
+                local path_line
+                path_line=$(grep "^path_${name}=" "$system_conf" 2>/dev/null)
+                if [ -n "$path_line" ]; then
+                    local datastore_path
+                    datastore_path=$(echo "$path_line" | cut -d'=' -f2 | tr -d '"' | sed 's#/\.*$##')
+                    # Validate and add the datastore if its path is a directory
+                    if [ -d "$datastore_path" ]; then
+                         all_datastores="${all_datastores}${name}:${datastore_path} "
+                    fi
+                fi
+            done
         fi
     fi
 
+    # Print all valid datastores, trimming any trailing space
+    echo "$all_datastores" | sed 's/ *$//'
+    return 0
+}
+
+# Gets the path for a given bhyve-cli datastore name.
+# Arg1: datastore_name
+# Returns:
+#   The absolute path of the datastore, or an empty string if not found.
+get_datastore_path() {
+  local ds_name="$1"
+
+  if [ "$ds_name" == "default" ]; then
+    echo "$VM_CONFIG_BASE_DIR"
+    return 0
+  fi
+
+  # Grep for the specific datastore variable in the main config file
+  local ds_line
+  ds_line=$(grep -E "^DATASTORE_${ds_name}=" "$MAIN_CONFIG_FILE" 2>/dev/null)
+
+  if [ -z "$ds_line" ]; then
     echo ""
     return 1
+  fi
+
+  # Extract path: everything after the first =
+  local ds_path
+  ds_path=$(echo "$ds_line" | cut -d'=' -f2- | tr -d '"' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  echo "$ds_path"
+  return 0
+}
+
+# Gets all bhyve-cli datastores (name:path pairs).
+# Returns:
+#   A space-separated list of "name:path" pairs for each found datastore.
+#   e.g., "default:/usr/local/etc/bhyve-cli/vm.d custom_ds:/tmp/custom_vms"
+get_all_bhyve_cli_datastores() {
+  local all_datastores=""
+  local additional_datastores_output=""
+
+  # 1. Add the default datastore
+  all_datastores="default:$VM_CONFIG_BASE_DIR "
+
+  # 2. Find and add additional DATASTORE_ variables from the main config file
+  additional_datastores_output=$(grep -E '^DATASTORE_[A-Za-z0-9_]+' "$MAIN_CONFIG_FILE" | while IFS= read -r line || [[ -n "$line" ]]; do
+    local clean_line
+    clean_line=$(echo "$line" | sed 's/#.*//')
+    [ -z "$clean_line" ] && continue
+
+    local name
+    local path
+    name=$(echo "$clean_line" | cut -d'=' -f1 | sed 's/DATASTORE_//')
+    path=$(echo "$clean_line" | cut -d'=' -f2- | tr -d '"' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    # Validate path exists before adding
+    if [ -d "$path" ]; then
+      echo "${name}:${path}" # Echo the name:path pair
+    fi
+  done)
+
+  all_datastores="${all_datastores}${additional_datastores_output}"
+
+  # Print all valid datastores, trimming any trailing space
+  echo "$all_datastores" | sed 's/ *$//'
+  return 0
+}
+
+# Finds a VM across all bhyve-cli datastores.
+# Arg1: vmname
+# Returns:
+#   A space-separated list of "datastore_name:datastore_path" pairs where the VM was found.
+#   Returns empty string if not found.
+find_vm_in_datastores() {
+  local vmname="$1"
+  local found_locations=""
+  local bhyve_cli_datastores
+
+  bhyve_cli_datastores=$(get_all_bhyve_cli_datastores)
+
+  for datastore_pair in $bhyve_cli_datastores; do
+    local ds_name
+    local ds_path
+    ds_name=$(echo "$datastore_pair" | cut -d':' -f1)
+    ds_path=$(echo "$datastore_pair" | cut -d':' -f2)
+
+    if [ -d "$ds_path/$vmname" ] && [ -f "$ds_path/$vmname/vm.conf" ]; then
+      found_locations="${found_locations}${ds_name}:${ds_path} "
+    fi
+  done
+
+  echo "$found_locations" | sed 's/ *$//'
+  return 0
 }
