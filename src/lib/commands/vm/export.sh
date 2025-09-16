@@ -3,7 +3,7 @@
 # === Subcommand: export ===
 cmd_export() {
   local VMNAME=""
-  local DEST_DIR="" # Renamed from DEST_PATH
+  local DEST_DIR=""
   local COMPRESSION_FORMAT="gz" # Default compression
   local ORIGINAL_VM_STATE="stopped" # Default state
   local FORCE_EXPORT=false
@@ -56,7 +56,7 @@ cmd_export() {
       *)
         if [ -z "$VMNAME" ]; then
           VMNAME="$1"
-        elif [ -z "$DEST_DIR" ]; then # Use DEST_DIR
+        elif [ -z "$DEST_DIR" ]; then
           DEST_DIR="$1"
         else
           display_and_log "ERROR" "Too many arguments: $1"
@@ -68,7 +68,7 @@ cmd_export() {
     esac
   done
 
-  if [ -z "$VMNAME" ] || [ -z "$DEST_DIR" ]; then # Use DEST_DIR
+  if [ -z "$VMNAME" ] || [ -z "$DEST_DIR" ]; then
     cmd_export_usage
     exit 1
   fi
@@ -76,33 +76,28 @@ cmd_export() {
   # Create the destination directory if it doesn't exist
   mkdir -p "$DEST_DIR" || { display_and_log "ERROR" "Failed to create destination directory: $DEST_DIR"; exit 1; }
 
+  # Use the centralized find_any_vm function
+  local found_vm_info
+  found_vm_info=$(find_any_vm "$VMNAME")
+
+  if [ -z "$found_vm_info" ]; then
+    display_and_log "ERROR" "VM '$VMNAME' not found in any bhyve-cli or vm-bhyve datastores."
+    exit 1
+  fi
+
+  # Parse the new format: source:datastore_name:datastore_path
+  local vm_source
+  local datastore_path
+  vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+  datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
+  local vm_dir="$datastore_path/$VMNAME"
+
   # Construct the final archive path
   local CURRENT_DATE=$(date +%Y_%m_%d)
   local ARCHIVE_PATH="${DEST_DIR}/${VMNAME}_${CURRENT_DATE}.tar.$(get_compression_extension_suffix "$COMPRESSION_FORMAT")"
 
-  # Detect VM source
-  local vm_source=""
-  local vm_base_dir=""
-  if [ -d "$VM_CONFIG_BASE_DIR/$VMNAME" ]; then
-    vm_source="bhyve-cli"
-    vm_base_dir="$VM_CONFIG_BASE_DIR"
-    load_vm_config "$VMNAME"
-  else
-    local vm_bhyve_base_dir
-    vm_bhyve_base_dir=$(get_vm_bhyve_dir)
-    if [ -n "$vm_bhyve_base_dir" ] && [ -d "$vm_bhyve_base_dir/$VMNAME" ]; then
-      vm_source="vm-bhyve"
-      vm_base_dir="$vm_bhyve_base_dir"
-    fi
-  fi
-
-  if [ -z "$vm_source" ]; then
-    display_and_log "ERROR" "VM '$VMNAME' not found in bhyve-cli or vm-bhyve directories."
-    exit 1
-  fi
-
   # Check if the VM is running
-  if is_vm_running "$VMNAME"; then
+  if is_vm_running "$VMNAME" "$vm_dir"; then
     ORIGINAL_VM_STATE="running"
     local choice="" # Initialize choice variable
 
@@ -113,7 +108,7 @@ cmd_export() {
       choice=2
       display_and_log "INFO" "Stopping VM for a consistent export as requested by --stop-export..."
       cmd_stop "$VMNAME" --silent
-      if ! wait_for_vm_status "$VMNAME" "stopped"; then
+      if ! wait_for_vm_status "$VMNAME" "$vm_dir" "stopped"; then
         display_and_log "ERROR" "Failed to stop VM '$VMNAME'. Aborting export."
         exit 1
       fi
@@ -121,7 +116,7 @@ cmd_export() {
       choice=3
       display_and_log "INFO" "Suspending VM for a consistent export as requested by --suspend-export..."
       cmd_suspend "$VMNAME"
-      if ! wait_for_vm_status "$VMNAME" "suspended"; then
+      if ! wait_for_vm_status "$VMNAME" "$vm_dir" "suspended"; then
         display_and_log "ERROR" "Failed to suspend VM '$VMNAME'. Aborting export."
         exit 1
       fi
@@ -145,18 +140,17 @@ cmd_export() {
         # Stop, export, restart
         if [ "$STOP_EXPORT" != true ]; then # Only if not already handled by --stop-export flag
           cmd_stop "$VMNAME" --silent
-          if ! wait_for_vm_status "$VMNAME" "stopped"; then
+          if ! wait_for_vm_status "$VMNAME" "$vm_dir" "stopped"; then
             display_and_log "ERROR" "Failed to stop VM '$VMNAME'. Aborting export."
             exit 1
           fi
         fi
         ;;
       3)
-        # Suspend, export, resume (already handled if --suspend-export)
-        # For interactive choice, we need to add it here.
+        # Suspend, export, resume
         if [ "$SUSPEND_EXPORT" != true ]; then # Only if not already handled by --suspend-export flag
           cmd_suspend "$VMNAME"
-          if ! wait_for_vm_status "$VMNAME" "suspended"; then
+          if ! wait_for_vm_status "$VMNAME" "$vm_dir" "suspended"; then
             display_and_log "ERROR" "Failed to suspend VM '$VMNAME'. Aborting export."
             exit 1
           fi
@@ -179,13 +173,13 @@ cmd_export() {
   local EXPORT_SUCCESS=false
 
   if [ "$vm_source" == "bhyve-cli" ]; then
-    if tar -c $(get_tar_compression_flags "$COMPRESSION_FORMAT") -f "$ARCHIVE_PATH" -C "$VM_CONFIG_BASE_DIR" "$VMNAME"; then
+    # Correctly change directory to the VM's datastore path
+    if tar -c $(get_tar_compression_flags "$COMPRESSION_FORMAT") -f "$ARCHIVE_PATH" -C "$datastore_path" "$VMNAME"; then
       EXPORT_SUCCESS=true
     fi
   else # vm-bhyve
     local EXPORT_SUCCESS=true # Initialize to true for vm-bhyve path
-    local VM_VM_DIR="$vm_base_dir/$VMNAME" # e.g., /opt/bhvye/mrtg
-    local CONF_FILE_PATH="$VM_VM_DIR/$VMNAME.conf"
+    local CONF_FILE_PATH="$vm_dir/$VMNAME.conf"
 
     if [ ! -f "$CONF_FILE_PATH" ]; then
       display_and_log "ERROR" "VM-bhyve config file not found: $CONF_FILE_PATH"
@@ -217,7 +211,7 @@ cmd_export() {
           break
         fi
 
-        local DISK_PATH="$VM_VM_DIR/$DISK_NAME"
+        local DISK_PATH="$vm_dir/$DISK_NAME"
         if [ ! -f "$DISK_PATH" ]; then
           display_and_log "ERROR" "Disk image not found: $DISK_PATH. Aborting."
           EXPORT_SUCCESS=false

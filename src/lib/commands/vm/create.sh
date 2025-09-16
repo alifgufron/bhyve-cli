@@ -43,7 +43,7 @@ cmd_create() {
       --vnc-wait)
         local VNC_WAIT="true"
         ;;
-      *)
+      * )
         display_and_log "ERROR" "Invalid option: $1"
         cmd_create_usage
         exit 1
@@ -267,8 +267,8 @@ EOF
   log "Configuration file created: $CONF"
   display_and_log "INFO" "VM '$VMNAME' successfully created."
   if [ -n "$FROM_TEMPLATE" ]; then
-    echo_message "\nPlease continue by running: $0 start $VMNAME"
+    echo_message "\nPlease continue by running: $(basename "$0") start $VMNAME"
   else
-    echo_message "\nPlease continue by running: $0 install $VMNAME"
+    echo_message "\nPlease continue by running: $(basename "$0") install $VMNAME"
   fi
 }

@@ -30,7 +30,54 @@ cmd_install() {
     exit 1
   fi
 
-  load_vm_config "$VMNAME"
+  # Find VM across all datastores
+  local found_bhyve_cli_vm
+  found_bhyve_cli_vm=$(find_vm_in_datastores "$VMNAME")
+
+  if [ -n "$found_bhyve_cli_vm" ]; then
+    local datastore_name=$(echo "$found_bhyve_cli_vm" | head -n 1 | cut -d':' -f1)
+    local vm_dir=$(echo "$found_bhyve_cli_vm" | head -n 1 | cut -d':' -f2)/"$VMNAME"
+    load_vm_config "$VMNAME" "$vm_dir" # Pass vm_dir as custom_datastore_path
+  else
+    # If not found in bhyve-cli datastores, check vm-bhyve directories
+    local vm_bhyve_dirs
+    vm_bhyve_dirs=$(get_vm_bhyve_dir) # Returns "name:path" pairs
+
+    local vm_found_in_vm_bhyve=false
+    if [ -n "$vm_bhyve_dirs" ]; then
+      for datastore_pair in $vm_bhyve_dirs; do
+        local current_ds_name=$(echo "$datastore_pair" | cut -d':' -f1)
+        local current_ds_path=$(echo "$datastore_pair" | cut -d':' -f2)
+        
+        if [ -d "$current_ds_path/$VMNAME" ]; then
+          # For vm-bhyve VMs, we don't use load_vm_config directly,
+          # but we need to set VM_DIR and source its config.
+          VM_DIR="$current_ds_path/$VMNAME"
+          local conf_file="$VM_DIR/$VMNAME.conf"
+          if [ -f "$conf_file" ]; then
+            . "$conf_file"
+            # Map vm-bhyve variables to our internal variables
+            CPUS=${cpu:-N/A}
+            MEMORY=${memory:-N/A}
+            BOOTLOADER_TYPE=${loader:-bhyveload}
+            AUTOSTART=${autostart:-no}
+            LOG_FILE="$VM_DIR/vm-bhyve.log"
+            CONSOLE=${console:-nmdm1}
+            vm_found_in_vm_bhyve=true
+            break # VM found, exit loop
+          else
+            display_and_log "ERROR" "VM configuration for '$VMNAME' not found in vm-bhyve directory: $conf_file"
+            exit 1
+          fi
+        fi
+      done
+    fi
+
+    if [ "$vm_found_in_vm_bhyve" = false ]; then
+      display_and_log "ERROR" "VM '$VMNAME' not found in any bhyve-cli or vm-bhyve datastores."
+      exit 1
+    fi
+  fi
 
   # Override BOOTLOADER_TYPE if specified for installation
   if [ -n "$INSTALL_BOOTLOADER_TYPE" ]; then
@@ -41,7 +88,7 @@ cmd_install() {
   ensure_nmdm_device_nodes "$CONSOLE"
   sleep 1 # Give nmdm devices a moment to be ready
 
-  log "Starting VM '$VMNAME'..."
+  log "Starting VM '$VMNAME'ருங்கள்"
 
   # === Stop bhyve if still active ===
   if is_vm_running "$VMNAME"; then
@@ -66,17 +113,25 @@ cmd_install() {
   case "$CHOICE" in
     1)
       log "Searching for ISO files in $ISO_DIR..."
-      if [ ! -d "$ISO_DIR" ]; then
-        display_and_log "INFO" "ISO directory '$ISO_DIR' not found. Creating it."
-        mkdir -p "$ISO_DIR"
+      local ISO_FILES=()
+      # Populate ISO_FILES array with .iso files from ISO_DIR
+      local REAL_ISO_DIR
+      REAL_ISO_DIR=$(readlink -f "$ISO_DIR")
+      if [ -z "$REAL_ISO_DIR" ]; then
+        display_and_log "ERROR" "Failed to resolve ISO directory: $ISO_DIR"
+        exit 1
       fi
-      mapfile -t ISO_LIST < <(find "$ISO_DIR" -type f -name "*.iso" 2>/dev/null)
-      if [ ${#ISO_LIST[@]} -eq 0 ]; then
-        display_and_log "WARNING" "No ISO files found in $ISO_DIR!"
+      # Populate ISO_FILES array with .iso files from REAL_ISO_DIR
+      while IFS= read -r -d '' file; do
+        ISO_FILES+=("$file")
+      done < <(find "$REAL_ISO_DIR" -maxdepth 1 -type f -name "*.iso" -print0)
+
+      if [ ${#ISO_FILES[@]} -eq 0 ]; then
+        display_and_log "ERROR" "No ISO files found in $ISO_DIR!"
         exit 1
       fi
       echo_message "Available ISOs:"
-      select iso in "${ISO_LIST[@]}"; do
+      select iso in "${ISO_FILES[@]}"; do
         if [ -n "$iso" ]; then
           ISO_PATH="$iso"
           break

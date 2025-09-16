@@ -123,12 +123,14 @@ cmd_modify_usage() {
 
 # === Usage function for clone ===
 cmd_clone_usage() {
-  echo_message "Usage: $(basename "$0") clone <source_vmname> <new_vmname>"
-  echo_message "\nArguments:"
-  echo_message "  <source_vmname>    - The name of the existing virtual machine to clone."
-  echo_message "  <new_vmname>       - The name for the new cloned virtual machine."
+  echo_message "Usage: $(basename "$0") clone --source <source_vmname> --new-name <new_vmname> [--datastore <ds_name>]"
+  echo_message "\nOptions:"
+  echo_message "  --source <source_vmname>     - The name of the existing virtual machine to clone."
+  echo_message "  --new-name <new_vmname>      - The name for the new cloned virtual machine."
+  echo_message "  --datastore <ds_name>        - Optional. Name of the datastore to create the new VM in. Defaults to 'default'."
   echo_message "\nExample:"
-  echo_message "  $(basename "$0") clone myvm newvm"
+  echo_message "  $(basename "$0") clone --source myvm --new-name newvm"
+  echo_message "  $(basename "$0") clone --source myvm --new-name newvm --datastore my_custom_ds"
 }
 
 # === Usage function for resize-disk ===

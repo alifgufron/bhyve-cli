@@ -9,9 +9,33 @@ cmd_snapshot_delete() {
 
   local VMNAME="$1"
   local SNAPSHOT_NAME="$2"
-  load_vm_config "$VMNAME"
 
-  local SNAPSHOT_PATH="$VM_DIR/snapshots/$SNAPSHOT_NAME"
+  # Use the centralized find_any_vm function to determine the VM source
+  local found_vm_info
+  found_vm_info=$(find_any_vm "$VMNAME")
+
+  if [ -z "$found_vm_info" ]; then
+    display_and_log "ERROR" "VM '$VMNAME' not found in any bhyve-cli or vm-bhyve datastores."
+    exit 1
+  fi
+
+  local vm_source
+  vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+
+  # Delegate to vm-bhyve if it's a vm-bhyve VM
+  if [ "$vm_source" == "vm-bhyve" ]; then
+    if ! command -v vm >/dev/null 2>&1; then
+      display_and_log "ERROR" "'vm-bhyve' command not found. Please ensure it is installed and in your PATH."
+      exit 1
+    fi
+    display_and_log "INFO" "Delegating to 'vm snapshot delete' for vm-bhyve VM '$VMNAME'..."
+    # vm-bhyve might ask for confirmation, which is fine for the CLI
+    vm snapshot delete "$VMNAME" "$SNAPSHOT_NAME"
+    exit $?
+  fi
+
+  # --- Logic for bhyve-cli VMs ---
+  local SNAPSHOT_PATH="$VM_CONFIG_BASE_DIR/snapshots/$VMNAME/$SNAPSHOT_NAME"
 
   if [ ! -d "$SNAPSHOT_PATH" ]; then
     display_and_log "ERROR" "Snapshot '$SNAPSHOT_NAME' not found for VM '$VMNAME'."

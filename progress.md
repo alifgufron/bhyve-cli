@@ -4,7 +4,55 @@ This file tracks completed tasks and major changes.
 
 ---
 
+* **2025-09-16** - **Refactor: Centralized Datastore Integration**
+    *   **Fix:** Created a centralized `find_any_vm` function in `lib/functions/config.sh` to reliably locate VMs from any datastore (`bhyve-cli` or `vm-bhyve`), replacing multiple broken implementations.
+    *   **Fix:** Refactored `vm stop`, `vm start`, `vm info`, `vm suspend`, and `vm resume` to use the new `find_any_vm` function. This fixed major bugs preventing these commands from working on VMs outside of the default datastores.
+    *   **Fix:** Corrected latent PID management bugs in the refactored commands by ensuring the full, correct VM directory path is used for PID file operations.
+    *   **Fix:** Refactored `vm export` to use `find_any_vm` and corrected a hardcoded `tar` path bug that prevented exporting from non-default datastores.
+    *   **Fix:** Corrected argument parsing and a latent bug in the `wait_for_vm_status` helper function in `lib/functions/vm_actions.sh`.
+    *   **Status:** The core VM discovery logic is now robust. `stop`, `start`, `info`, `suspend`, `resume` are verified. `export` is refactored but pending final verification.
+
+* **TODO (In Progress):**
+    *   **Verify `vm export`:** Run the final verification test for `vm export` that was previously cancelled.
+    *   **Fix `vm import`:** Refactor to support a `--datastore` argument.
+    *   **Fix `snapshot` commands:** Refactor `snapshot create`, `list`, `revert`, and `delete` to use `find_any_vm` and work across all datastores.
+
 ## Branch: v1.1.2
+
+* **2025-09-15** - **Enhancement: Comprehensive Network Cleanup on Uninstall**
+    *   **Added:** Created `src/lib/functions/network_cleanup_all.sh` to remove all `bhyve-cli` created network interfaces (bridges and TAP devices) during uninstallation.
+    *   **Changed:** Modified the `Makefile`'s `uninstall` target to execute `network_cleanup_all.sh`, ensuring a cleaner removal of network configurations.
+
+* **2025-09-15** - **Bug Fix: `bhyve-cli init` Command Path in Error Message**
+    *   **Fix:** Corrected the error message for uninitialized `bhyve-cli` to display `bhyve-cli init` instead of the absolute path (`/usr/local/sbin/bhyve-cli init`).
+    *   **Logic:** Implemented by using `$(basename "$0")` in `src/lib/core.sh` and `src/lib/functions/config.sh`.
+
+* **2025-09-15** - **Bug Fix: `vm list` Formatting & `vm-bhyve` Datastore Name**
+    *   **Fix:** Corrected the display name for the primary `vm-bhyve` datastore in `vm list` output from its basename (e.g., "bhvye") to "default".
+    *   **Fix:** Modified `vm list` to display `VMNAME` only for `bhyve-cli` VMs (removed `(DATASTORE)` suffix), relying on the dedicated `DATASTORE` column for clarity.
+    *   **Enhancement:** Adjusted column widths in `vm list` output for both data and header rows to `%-40s` for "VM NAME" and `%-20s` for "DATASTORE" to ensure proper alignment and visual neatness, accommodating longer names.
+
+* **2025-09-15** - **Bug Fix: Unintentional Network Cleanup Execution**
+    *   **Fix:** Resolved an issue where `network_cleanup_all.sh` was unintentionally executed during normal `bhyve-cli` operations.
+    *   **Logic:** Implemented by excluding `network_cleanup_all.sh` from the sourced helper functions in `src/bhyve-cli`.
+
+* **2025-09-15** - **Bug Fix: `vm list` Formatting & `vm-bhyve` Datastore Name**
+    *   **Fix:** Corrected the display name for the primary `vm-bhyve` datastore in `vm list` output from its basename (e.g., "bhvye") to "default".
+    *   **Fix:** Modified `vm list` to display `VMNAME (DATASTORE)` for `bhyve-cli` VMs, resolving confusion with duplicate VM names across datastores and improving output clarity.
+    *   **Enhancement:** Increased the width of the "VM NAME" column to `%-40s` and the "DATASTORE" column to `%-25s` in `vm list` output to accommodate longer names and ensure proper alignment.
+
+* **2025-09-15** - **Enhancement: `Makefile` Root Privilege Check & `bhyve-cli init` Interactive Configuration**
+    *   **Enhancement:** Added a root privilege check to `install` and `uninstall` targets in `Makefile`, providing clear error messages if not run as root.
+    *   **Enhancement:** Modified `bhyve-cli init` to interactively prompt the user for the desired ISO storage directory and the default VM datastore path.
+    *   **Logic:** The `init` command now updates the main configuration file (`bhyve-cli.conf`) and `/etc/rc.conf` with the user-defined paths.
+
+* **2025-09-15** - **Bug Fix: `vm delete` Syntax Error & Datastore/vm-bhyve Integration Updates**
+    *   **Fix:** Resolved `syntax error: unexpected end of file` in `src/lib/commands/vm/delete.sh` by completing truncated `case` and function blocks.
+    *   **Enhancement:** Implemented and integrated datastore management features, including `datastore add`, `datastore list`, `datastore delete` commands.
+    *   **Enhancement:** Updated `vm create` to support `--datastore` option.
+    *   **Enhancement:** Enhanced `vm list` to display VMs from multiple `bhyve-cli` and `vm-bhyve` datastores, including correct datastore naming.
+    *   **Refinement:** Improved `src/lib/functions/config.sh` with `get_datastore_path`, `get_all_bhyve_cli_datastores`, and `find_vm_in_datastores` for robust datastore handling.
+    *   **Refinement:** Integrated `datastore` command into `main_dispatcher.sh` and `src/lib/usage/main.sh`.
 
 * **2025-09-14** - **Enhancement: Advanced `vm-bhyve` Datastore Detection**
     *   **Enhancement:** Re-engineered `vm-bhyve` integration to correctly detect and name all datastores.

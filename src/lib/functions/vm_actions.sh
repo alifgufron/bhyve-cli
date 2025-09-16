@@ -102,17 +102,23 @@ ensure_nmdm_device_nodes() {
 }
 
 # === Helper function to wait for a VM to reach a specific status ===
+# Arg1: VM Name
+# Arg2: VM Directory Path
+# Arg3: Target Status (e.g., "stopped", "suspended")
+# Arg4: Timeout in seconds (optional, default 60)
+# Arg5: Interval in seconds (optional, default 1)
 wait_for_vm_status() {
   local VMNAME_WAIT="$1"
-  local TARGET_STATUS="$2"
-  local TIMEOUT=${3:-60} # Default timeout of 60 seconds
-  local INTERVAL=${4:-1} # Default check interval of 1 second
+  local VM_DIR_WAIT="$2"
+  local TARGET_STATUS="$3"
+  local TIMEOUT=${4:-60}
+  local INTERVAL=${5:-1}
   local ELAPSED_TIME=0
 
   display_and_log "INFO" "Waiting for VM '$VMNAME_WAIT' to become '$TARGET_STATUS' (timeout: ${TIMEOUT}s)..."
 
   while [ "$ELAPSED_TIME" -lt "$TIMEOUT" ]; do
-    local pid=$(get_vm_pid "$VMNAME_WAIT")
+    local pid=$(get_vm_pid "$VMNAME_WAIT" "$VM_DIR_WAIT")
     local current_status=$(get_vm_status "$pid")
 
     if [ "$current_status" == "$TARGET_STATUS" ]; then

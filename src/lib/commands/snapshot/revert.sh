@@ -9,36 +9,90 @@ cmd_snapshot_revert() {
 
   local VMNAME="$1"
   local SNAPSHOT_NAME="$2"
-  load_vm_config "$VMNAME"
 
-  local VM_DISK_PATH="$VM_DIR/$DISK"
-  local SNAPSHOT_PATH="$VM_DIR/snapshots/$SNAPSHOT_NAME"
+  # Use the centralized find_any_vm function to determine the VM source
+  local found_vm_info
+  found_vm_info=$(find_any_vm "$VMNAME")
 
-  if ! is_vm_running "$VMNAME"; then
-    display_and_log "INFO" "VM '$VMNAME' is not running. Proceeding with revert."
-  else
+  if [ -z "$found_vm_info" ]; then
+    display_and_log "ERROR" "VM '$VMNAME' not found in any bhyve-cli or vm-bhyve datastores."
+    exit 1
+  fi
+
+  local vm_source
+  local datastore_path
+  vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+  datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
+  local vm_dir="$datastore_path/$VMNAME"
+
+  # Delegate to vm-bhyve if it's a vm-bhyve VM
+  if [ "$vm_source" == "vm-bhyve" ]; then
+    if ! command -v vm >/dev/null 2>&1; then
+      display_and_log "ERROR" "'vm-bhyve' command not found. Please ensure it is installed and in your PATH."
+      exit 1
+    fi
+    display_and_log "INFO" "Delegating to 'vm snapshot revert' for vm-bhyve VM '$VMNAME'..."
+    # vm-bhyve might ask for confirmation, which is fine for the CLI
+    vm snapshot revert "$VMNAME" "$SNAPSHOT_NAME"
+    exit $?
+  fi
+
+  # --- Logic for bhyve-cli VMs ---
+  # Correctly check if VM is running using the full vm_dir path
+  if is_vm_running "$VMNAME" "$vm_dir"; then
     display_and_log "ERROR" "VM '$VMNAME' is running. Please stop the VM before reverting to a snapshot."
     exit 1
   fi
 
+  local SNAPSHOT_PATH="$VM_CONFIG_BASE_DIR/snapshots/$VMNAME/$SNAPSHOT_NAME"
   if [ ! -d "$SNAPSHOT_PATH" ]; then
     display_and_log "ERROR" "Snapshot '$SNAPSHOT_NAME' not found for VM '$VMNAME'."
     exit 1
   fi
 
-  display_and_log "INFO" "Reverting VM '$VMNAME' to snapshot '$SNAPSHOT_NAME'..."
-  start_spinner "Copying snapshot disk image..."
-  if ! cp "$SNAPSHOT_PATH/disk.img" "$VM_DISK_PATH"; then
-    stop_spinner
-    display_and_log "ERROR" "Failed to revert disk image from snapshot. Aborting."
-    exit 1
+  read -rp "This will overwrite the current state of VM '$VMNAME'. Are you sure you want to revert to snapshot '$SNAPSHOT_NAME'? (y/n): " CONFIRM_REVERT
+  if ! [[ "$CONFIRM_REVERT" =~ ^[Yy]$ ]]; then
+    echo_message "Snapshot revert cancelled."
+    exit 0
   fi
-  stop_spinner
-  log "Disk image reverted."
+
+  display_and_log "INFO" "Reverting VM '$VMNAME' to snapshot '$SNAPSHOT_NAME'..."
+  start_spinner "Copying snapshot files..."
+
+  # Load the bhyve-cli VM config to get disk details
+  load_vm_config "$VMNAME" "$datastore_path"
+
+  # --- Revert Disks by copying them from the snapshot directory ---
+  local DISK_IDX=0
+  while true; do
+    local CURRENT_DISK_VAR="DISK"
+    if [ "$DISK_IDX" -gt 0 ]; then CURRENT_DISK_VAR="DISK_${DISK_IDX}"; fi
+    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+    if [ -z "$CURRENT_DISK_FILENAME" ]; then break; fi
+
+    local SNAPSHOT_DISK_PATH="$SNAPSHOT_PATH/$CURRENT_DISK_FILENAME"
+    local VM_DISK_PATH="$vm_dir/$CURRENT_DISK_FILENAME"
+
+    if [ ! -f "$SNAPSHOT_DISK_PATH" ]; then
+      log "WARNING: Snapshot disk file '$SNAPSHOT_DISK_PATH' not found, skipping revert for this disk."
+      DISK_IDX=$((DISK_IDX + 1))
+      continue
+    fi
+
+    if ! cp "$SNAPSHOT_DISK_PATH" "$VM_DISK_PATH"; then
+      stop_spinner
+      display_and_log "ERROR" "Failed to revert disk image '$CURRENT_DISK_FILENAME' from snapshot. Aborting."
+      exit 1
+    fi
+    DISK_IDX=$((DISK_IDX + 1))
+  done
 
   # Revert vm.conf as well
-  cp "$SNAPSHOT_PATH/vm.conf" "$VM_DIR/vm.conf"
-  log "VM configuration reverted."
+  if [ -f "$SNAPSHOT_PATH/vm.conf" ]; then
+    cp "$SNAPSHOT_PATH/vm.conf" "$vm_dir/vm.conf"
+    log "VM configuration reverted."
+  fi
 
+  stop_spinner
   display_and_log "INFO" "VM '$VMNAME' successfully reverted to snapshot '$SNAPSHOT_NAME'."
 }

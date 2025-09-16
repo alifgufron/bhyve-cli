@@ -27,9 +27,15 @@ FIRMWARE_DIR = firmware
 all:
 	@echo "Usage: make [install|uninstall|clean]"
 
+
 install:
 	@echo "Installing bhyve-cli..."
+	@if [ "$(shell id -u)" -ne 0 ]; then \
+		echo "ERROR: Installation requires root privileges." >&2; \
+		exit 1; \
+	fi
 	@mkdir -p $(DESTDIR)$(BIN_DIR)
+
 	@mkdir -p $(DESTDIR)$(SHARE_SUBDIR)/lib
 	@mkdir -p $(DESTDIR)$(SHARE_SUBDIR)/firmware
 	@mkdir -p $(DESTDIR)$(ETC_APP_DIR)
@@ -54,10 +60,17 @@ install:
 
 uninstall:
 	@echo "Uninstalling bhyve-cli..."
+	@if [ "$(shell id -u)" -ne 0 ]; then \
+		echo "ERROR: Uninstallation requires root privileges." >&2; \
+		exit 1; \
+	fi
+	@echo "Running network cleanup script..."
+	@$(SRC_DIR)/lib/functions/network_cleanup_all.sh || echo "WARNING: Network cleanup script failed or encountered issues."
 	@rm -f $(DESTDIR)$(BIN_DIR)/$(APP_NAME)
 	@rm -rf $(DESTDIR)$(SHARE_SUBDIR)
 	@rm -rf $(DESTDIR)$(ETC_APP_DIR)
 	@rm -f $(DESTDIR)$(RC_DIR)/$(APP_NAME)
+
 	@echo "Uninstallation complete."
 	@echo "--------------------------------------------------"
 	@echo "NOTE: User data (VMs, disks, ISOs) is NOT deleted."

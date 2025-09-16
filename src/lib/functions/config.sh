@@ -16,7 +16,7 @@ check_initialization() {
   if [ "$1" != "init" ] && [ ! -f "$MAIN_CONFIG_FILE" ]; then
     echo_message "
 [ERROR] bhyve-cli has not been initialized."
-    echo_message "Please run the command '$0 init' to generate the required configuration files."
+    echo_message "Please run the command '$(basename "$0") init' to generate the required configuration files."
     exit 1
   fi
 }
@@ -30,7 +30,7 @@ load_vm_config() {
   local custom_datastore_path="$2"
 
   if [ -n "$custom_datastore_path" ]; then
-    VM_DIR="$custom_datastore_path/$VMNAME"
+    VM_DIR="$custom_datastore_path/$VMNAME" # Construct VM_DIR from datastore path and VMNAME
   else
     VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
   fi
@@ -72,9 +72,8 @@ get_vm_bhyve_dir() {
         return 1
     fi
 
-    # Add primary datastore (named by its basename) to our list
-    local primary_name
-    primary_name=$(basename "$primary_path")
+    # Add primary datastore (named as "default") to our list
+    local primary_name="default"
     all_datastores="$primary_name:$primary_path "
 
     # 2. Look for additional datastores in the primary datastore's system.conf
@@ -171,18 +170,21 @@ get_all_bhyve_cli_datastores() {
   return 0
 }
 
-# Finds a VM across all bhyve-cli datastores.
+# Finds a VM across ALL datastores (bhyve-cli and vm-bhyve).
 # Arg1: vmname
 # Returns:
-#   A space-separated list of "datastore_name:datastore_path" pairs where the VM was found.
-#   Returns empty string if not found.
-find_vm_in_datastores() {
+#   A single line in the format "source:datastore_name:datastore_path" if found.
+#   - source is either "bhyve-cli" or "vm-bhyve".
+#   - e.g., "bhyve-cli:local_ds1:/home/alif/vmbhvye"
+#   - e.g., "vm-bhyve:datastore2:/vm/datastore2"
+#   Returns an empty string if not found.
+#   If a VM with the same name exists in multiple places, it returns the first one found (bhyve-cli takes precedence).
+find_any_vm() {
   local vmname="$1"
-  local found_locations=""
+
+  # 1. Search in bhyve-cli datastores first
   local bhyve_cli_datastores
-
   bhyve_cli_datastores=$(get_all_bhyve_cli_datastores)
-
   for datastore_pair in $bhyve_cli_datastores; do
     local ds_name
     local ds_path
@@ -190,10 +192,30 @@ find_vm_in_datastores() {
     ds_path=$(echo "$datastore_pair" | cut -d':' -f2)
 
     if [ -d "$ds_path/$vmname" ] && [ -f "$ds_path/$vmname/vm.conf" ]; then
-      found_locations="${found_locations}${ds_name}:${ds_path} "
+      echo "bhyve-cli:${ds_name}:${ds_path}"
+      return 0
     fi
   done
 
-  echo "$found_locations" | sed 's/ *$//'
-  return 0
+  # 2. If not found, search in vm-bhyve datastores
+  local vm_bhyve_datastores
+  vm_bhyve_datastores=$(get_vm_bhyve_dir)
+  if [ -n "$vm_bhyve_datastores" ]; then
+    for datastore_pair in $vm_bhyve_datastores; do
+      local ds_name
+      local ds_path
+      ds_name=$(echo "$datastore_pair" | cut -d':' -f1)
+      ds_path=$(echo "$datastore_pair" | cut -d':' -f2)
+
+      # vm-bhyve VMs have a directory and a .conf file with the same name inside
+      if [ -d "$ds_path/$vmname" ] && [ -f "$ds_path/$vmname/$vmname.conf" ]; then
+        echo "vm-bhyve:${ds_name}:${ds_path}"
+        return 0
+      fi
+    done
+  fi
+
+  # 3. If not found anywhere
+  echo ""
+  return 1
 }

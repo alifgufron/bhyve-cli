@@ -148,49 +148,14 @@ build_network_args() {
 
 # === Function to clean up VM network interfaces ===
 cleanup_vm_network_interfaces() {
-  log "Entering cleanup_vm_network_interfaces function for VM: $1"
   local VMNAME_CLEANUP="$1"
-
-  if [ -z "$VMNAME_CLEANUP" ]; then
-    log "No VM name provided to cleanup_vm_network_interfaces. Aborting."
-    return 1
-  fi
-
-  log "Cleaning up all network interfaces for VM '$VMNAME_CLEANUP' based on description..."
-
-  # Get a list of all tap interfaces on the system
-  local ALL_TAPS
-  ALL_TAPS=$(ifconfig -l | tr ' ' '\n' | grep '^tap')
-
-  for tap_if in $ALL_TAPS;
-  do
-    # For each tap, get its description
-    local TAP_DESC
-    TAP_DESC=$(ifconfig "$tap_if" | grep 'description:' | sed 's/^[[:space:]]*description: //')
-
-    # Check if the description matches our VM name (e.g., starts with vmnet/vm-1/)
-    if [[ "$TAP_DESC" == "vmnet/${VMNAME_CLEANUP}/"* ]]; then
-      log "Found matching tap: [$tap_if] with description [$TAP_DESC]"
-
-      # Find which bridge it's a member of
-      local bridge_if
-      bridge_if=$(ifconfig -a | grep -B 5 "member: ${tap_if}" | grep '^bridge' | cut -d':' -f1)
-
-      if [ -n "$bridge_if" ]; then
-        log "Removing TAP '$tap_if' from bridge '$bridge_if'…"
-        if ! ifconfig "$bridge_if" deletem "$tap_if"; then
-          log "WARNING: Failed to remove TAP '$tap_if' from bridge '$bridge_if'."
-        fi
-      fi
-
-      log "Destroying TAP interface '$tap_if'…"
-      if ! ifconfig "$tap_if" destroy; then
-        log "WARNING: Failed to destroy TAP interface '$tap_if'."
-      fi
-    fi
+  log "Cleaning up network interfaces for VM: $VMNAME_CLEANUP"
+  # Find all tap interfaces associated with this VM
+  local TAP_INTERFACES=$(ifconfig | grep -o "tap[0-9]\+: flags=.*$VMNAME_CLEANUP" | cut -d':' -f1)
+  for tap_if in $TAP_INTERFACES; do
+    log "Destroying tap interface: $tap_if"
+    ifconfig "$tap_if" destroy >/dev/null 2>&1
   done
-
-  log "Network interface cleanup for '$VMNAME_CLEANUP' complete."
-  log "Exiting cleanup_vm_network_interfaces function for VM: $VMNAME_CLEANUP"
+  log "Network interface cleanup for VM '$VMNAME_CLEANUP' complete."
 }
 

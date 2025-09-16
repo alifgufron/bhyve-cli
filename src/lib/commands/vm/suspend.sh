@@ -9,26 +9,22 @@ cmd_suspend() {
 
   local VMNAME="$1"
 
-  # Detect VM source
-  local vm_source=""
-  if [ -d "$VM_CONFIG_BASE_DIR/$VMNAME" ]; then
-    vm_source="bhyve-cli"
-    load_vm_config "$VMNAME" # Load config for bhyve-cli VMs
-  else
-    local vm_bhyve_base_dir
-    vm_bhyve_base_dir=$(get_vm_bhyve_dir)
-    if [ -n "$vm_bhyve_base_dir" ] && [ -d "$vm_bhyve_base_dir/$VMNAME" ]; then
-      vm_source="vm-bhyve"
-      # No need to load full config for vm-bhyve, just need PID
-    fi
-  fi
+  # Use the centralized find_any_vm function
+  local found_vm_info
+  found_vm_info=$(find_any_vm "$VMNAME")
 
-  if [ -z "$vm_source" ]; then
-    display_and_log "ERROR" "VM '$VMNAME' not found in bhyve-cli or vm-bhyve directories."
+  if [ -z "$found_vm_info" ]; then
+    display_and_log "ERROR" "VM '$VMNAME' not found in any bhyve-cli or vm-bhyve datastores."
     exit 1
   fi
 
-  local pid=$(get_vm_pid "$VMNAME")
+  # Parse the new format: source:datastore_name:datastore_path
+  local datastore_path
+  datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
+  local vm_dir="$datastore_path/$VMNAME"
+
+  # Correctly get PID using the full vm_dir path
+  local pid=$(get_vm_pid "$VMNAME" "$vm_dir")
   if [ -z "$pid" ]; then
     display_and_log "ERROR" "VM '$VMNAME' is not running. Cannot suspend."
     exit 1
@@ -36,7 +32,6 @@ cmd_suspend() {
 
   display_and_log "INFO" "Suspending VM '$VMNAME' (PID: $pid)..."
   if kill -SIGSTOP "$pid"; then
-    
     display_and_log "INFO" "VM '$VMNAME' suspended successfully."
   else
     display_and_log "ERROR" "Failed to suspend VM '$VMNAME'."

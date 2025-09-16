@@ -10,28 +10,33 @@ cmd_snapshot_create() {
   local VMNAME_ARG="$1"
   local SNAPSHOT_NAME_ARG="$2"
 
-  # Detect VM source
-  local vm_source=""
-  local vm_base_dir=""
-  if [ -d "$VM_CONFIG_BASE_DIR/$VMNAME_ARG" ]; then
-    vm_source="bhyve-cli"
-    vm_base_dir="$VM_CONFIG_BASE_DIR"
-  else
-    local vm_bhyve_base_dir
-    vm_bhyve_base_dir=$(get_vm_bhyve_dir)
-    if [ -n "$vm_bhyve_base_dir" ] && [ -d "$vm_bhyve_base_dir/$VMNAME_ARG" ]; then
-      vm_source="vm-bhyve"
-      vm_base_dir="$vm_bhyve_base_dir"
-    fi
-  fi
+  # Use the centralized find_any_vm function to determine the VM source
+  local found_vm_info
+  found_vm_info=$(find_any_vm "$VMNAME_ARG")
 
-  if [ -z "$vm_source" ]; then
-    display_and_log "ERROR" "VM '$VMNAME_ARG' not found in bhyve-cli or vm-bhyve directories."
+  if [ -z "$found_vm_info" ]; then
+    display_and_log "ERROR" "VM '$VMNAME_ARG' not found in any bhyve-cli or vm-bhyve datastores."
     exit 1
   fi
 
-  # --- Common Snapshot Setup ---
-  local VM_DIR="$vm_base_dir/$VMNAME_ARG"
+  local vm_source
+  local datastore_path
+  vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+  datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
+  local vm_dir="$datastore_path/$VMNAME_ARG"
+
+  # Delegate to vm-bhyve if it's a vm-bhyve VM
+  if [ "$vm_source" == "vm-bhyve" ]; then
+    if ! command -v vm >/dev/null 2>&1; then
+      display_and_log "ERROR" "'vm-bhyve' command not found. Please ensure it is installed and in your PATH."
+      exit 1
+    fi
+    display_and_log "INFO" "Delegating to 'vm snapshot create' for vm-bhyve VM '$VMNAME_ARG'..."
+    vm snapshot create "$VMNAME_ARG" "$SNAPSHOT_NAME_ARG"
+    exit $?
+  fi
+
+  # --- Logic for bhyve-cli VMs ---
   local SNAPSHOT_ROOT_DIR="$VM_CONFIG_BASE_DIR/snapshots" # Centralized snapshot storage
   local VM_SNAPSHOT_DIR="$SNAPSHOT_ROOT_DIR/$VMNAME_ARG"
   local SNAPSHOT_PATH="$VM_SNAPSHOT_DIR/$SNAPSHOT_NAME_ARG"
@@ -48,105 +53,66 @@ cmd_snapshot_create() {
   display_and_log "INFO" "Creating snapshot '$SNAPSHOT_NAME_ARG' for VM '$VMNAME_ARG'..."
 
   local VM_WAS_RUNNING=false
-  if is_vm_running "$VMNAME_ARG"; then
+  # Correctly check if VM is running using the full vm_dir path
+  if is_vm_running "$VMNAME_ARG" "$vm_dir"; then
     VM_WAS_RUNNING=true
     display_and_log "INFO" "VM '$VMNAME_ARG' is running. Suspending VM for consistent snapshot..."
-    if [ "$vm_source" == "bhyve-cli" ]; then
-      if ! cmd_suspend "$VMNAME_ARG"; then
-        display_and_log "ERROR" "Failed to suspend VM '$VMNAME_ARG'. Aborting snapshot."
-        exit 1
-      fi
-    else # vm-bhyve
-      # Use cmd_suspend for vm-bhyve VMs as well
-      if ! cmd_suspend "$VMNAME_ARG"; then
-        display_and_log "ERROR" "Failed to suspend vm-bhyve VM '$VMNAME_ARG'. Aborting snapshot."
-        exit 1
-      fi
+    # cmd_suspend is already fixed and can find the VM on its own
+    if ! cmd_suspend "$VMNAME_ARG"; then
+      display_and_log "ERROR" "Failed to suspend VM '$VMNAME_ARG'. Aborting snapshot."
+      rm -rf "$SNAPSHOT_PATH"
+      exit 1
     fi
     log "VM '$VMNAME_ARG' suspended."
   fi
 
   start_spinner "Copying disk image(s) for snapshot..."
 
-  if [ "$vm_source" == "bhyve-cli" ]; then
-    load_vm_config "$VMNAME_ARG"
-    local VM_DISK_PATH="$VM_DIR/$DISK"
-    if ! cp "$VM_DISK_PATH" "$SNAPSHOT_PATH/disk.img"; then
-      stop_spinner
-      display_and_log "ERROR" "Failed to copy disk image for snapshot. Aborting."
-      if $VM_WAS_RUNNING; then
-        cmd_resume "$VMNAME_ARG"
-        log "VM '$VMNAME_ARG' resumed after snapshot failure."
-      fi
-      exit 1
-    fi
-    # Copy vm.conf for consistency
-    cp "$VM_DIR/vm.conf" "$SNAPSHOT_PATH/vm.conf"
-    log "VM configuration copied."
-  else # vm-bhyve
-    local conf_file="$vm_base_dir/$VMNAME_ARG/$VMNAME_ARG.conf"
-    if [ -f "$conf_file" ]; then
-      . "$conf_file"
-      local DISK_IDX=0
-      while true; do
-        local type_var="disk${DISK_IDX}_type"
-        local name_var="disk${DISK_IDX}_name"
-        local DISK_TYPE="${!type_var}"
-        if [ -z "$DISK_TYPE" ]; then break; fi
-        local DISK_NAME="${!name_var}"
-        local DISK_PATH="$vm_base_dir/$VMNAME_ARG/$DISK_NAME"
+  # Load the VM config to get disk details
+  load_vm_config "$VMNAME_ARG" "$datastore_path"
 
-        if [ "$DISK_TYPE" == "zvol" ]; then
-          stop_spinner
-          display_and_log "ERROR" "ZFS zvols are not yet supported for snapshotting. Aborting."
-          if $VM_WAS_RUNNING; then
-            cmd_resume "$VMNAME_ARG"
-            log "VM '$VMNAME_ARG' resumed after snapshot failure."
-          fi
-          exit 1
-        fi
+  # --- Copy Disks ---
+  local DISK_IDX=0
+  while true; do
+    local CURRENT_DISK_VAR="DISK"
+    if [ "$DISK_IDX" -gt 0 ]; then CURRENT_DISK_VAR="DISK_${DISK_IDX}"; fi
+    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+    if [ -z "$CURRENT_DISK_FILENAME" ]; then break; fi
 
-        if ! cp "$DISK_PATH" "$SNAPSHOT_PATH/disk${DISK_IDX}.img"; then
-          stop_spinner
-          display_and_log "ERROR" "Failed to copy disk image $DISK_NAME for snapshot. Aborting."
-          if $VM_WAS_RUNNING; then
-            cmd_resume "$VMNAME_ARG"
-            log "VM '$VMNAME_ARG' resumed after snapshot failure."
-          fi
-          exit 1
-        fi
+    local VM_DISK_PATH="$vm_dir/$CURRENT_DISK_FILENAME"
+    local SNAPSHOT_DISK_PATH="$SNAPSHOT_PATH/$CURRENT_DISK_FILENAME"
+
+    if [ ! -f "$VM_DISK_PATH" ]; then
+        log "WARNING: Disk file '$VM_DISK_PATH' not found, skipping."
         DISK_IDX=$((DISK_IDX + 1))
-      done
-      # Copy vm-bhyve config for consistency
-      cp "$conf_file" "$SNAPSHOT_PATH/$VMNAME_ARG.conf"
-      log "VM-bhyve configuration copied."
-    else
+        continue
+    fi
+
+    if ! cp "$VM_DISK_PATH" "$SNAPSHOT_DISK_PATH"; then
       stop_spinner
-      display_and_log "ERROR" "VM-bhyve config file not found for snapshot: $conf_file"
+      display_and_log "ERROR" "Failed to copy disk image '$CURRENT_DISK_FILENAME' for snapshot. Aborting."
+      rm -rf "$SNAPSHOT_PATH"
       if $VM_WAS_RUNNING; then
         cmd_resume "$VMNAME_ARG"
         log "VM '$VMNAME_ARG' resumed after snapshot failure."
       fi
       exit 1
     fi
-  fi # Added: Closes the if [ "$vm_source" == "bhyve-cli" ] on line 66
+    DISK_IDX=$((DISK_IDX + 1))
+  done
+
+  # Copy vm.conf for consistency
+  cp "$vm_dir/vm.conf" "$SNAPSHOT_PATH/vm.conf"
+  log "VM configuration copied."
 
   stop_spinner
   log "Disk image(s) copied."
 
   if $VM_WAS_RUNNING; then
     display_and_log "INFO" "Resuming VM '$VMNAME_ARG' ..."
-    if [ "$vm_source" == "bhyve-cli" ]; then
-      if ! cmd_resume "$VMNAME_ARG"; then
-        display_and_log "ERROR" "Failed to resume VM '$VMNAME_ARG'. Manual intervention may be required."
-        exit 1
-      fi
-    else # vm-bhyve
-      # Use cmd_resume for vm-bhyve VMs as well
-      if ! cmd_resume "$VMNAME_ARG"; then
-        display_and_log "ERROR" "Failed to resume vm-bhyve VM '$VMNAME_ARG'. Manual intervention may be required."
-        exit 1
-      fi
+    # cmd_resume is already fixed and can find the VM on its own
+    if ! cmd_resume "$VMNAME_ARG"; then
+      display_and_log "ERROR" "Failed to resume VM '$VMNAME_ARG'. Manual intervention may be required."
     fi
     log "VM '$VMNAME_ARG' resumed."
   fi

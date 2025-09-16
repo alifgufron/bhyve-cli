@@ -9,38 +9,11 @@ cmd_start() {
   fi
 
   local VMNAME_ARG=$1
-
-  # Detect VM source
-  local vm_source=""
-  if [ -d "$VM_CONFIG_BASE_DIR/$VMNAME_ARG" ]; then
-    vm_source="bhyve-cli"
-  else
-    local vm_bhyve_base_dir
-    vm_bhyve_base_dir=$(get_vm_bhyve_dir)
-    if [ -n "$vm_bhyve_base_dir" ] && [ -d "$vm_bhyve_base_dir/$VMNAME_ARG" ]; then
-      vm_source="vm-bhyve"
-    fi
-  fi
-
-  # Delegate to vm-bhyve if applicable
-  if [ "$vm_source" == "vm-bhyve" ]; then
-    if ! command -v vm >/dev/null 2>&1; then
-      display_and_log "ERROR" "'vm-bhyve' command not found. Please ensure it is installed and in your PATH."
-      exit 1
-    fi
-    display_and_log "INFO" "Delegating start command to vm-bhyve for VM '$VMNAME_ARG'..."
-    vm start "$VMNAME_ARG"
-    exit $?
-  fi
-
-  # If we are here, it's a bhyve-cli VM. Proceed with original logic.
-
-  local VMNAME="$1"
   local CONNECT_TO_CONSOLE=false
   local QUIET_BOOTLOADER=true # Default to quiet bootloader (no console)
   local SUPPRESS_CONSOLE_MESSAGE=false # New flag to suppress console message
 
-  # Parse arguments
+  # Parse arguments for --console, --suppress-console-message
   local ARGS=()
   for arg in "$@"; do
     if [[ "$arg" == "--console" ]]; then
@@ -53,17 +26,45 @@ cmd_start() {
     fi
   done
 
-  # Ensure VMNAME is set from ARGS
-  if [ -z "$VMNAME" ] && [ ${#ARGS[@]} -gt 0 ]; then
-    VMNAME="${ARGS[0]}"
+  # Ensure VMNAME_ARG is set from ARGS if it was not the first argument
+  if [ -z "$VMNAME_ARG" ] && [ ${#ARGS[@]} -gt 0 ]; then
+    VMNAME_ARG="${ARGS[0]}"
   fi
 
-  if [ -z "$VMNAME" ]; then
+  if [ -z "$VMNAME_ARG" ]; then
     cmd_start_usage
     exit 1
   fi
 
-  load_vm_config "$VMNAME"
+  local found_vm_info
+  found_vm_info=$(find_any_vm "$VMNAME_ARG")
+
+  if [ -z "$found_vm_info" ]; then
+    display_and_log "ERROR" "VM '$VMNAME_ARG' not found in any bhyve-cli or vm-bhyve datastores."
+    exit 1
+  fi
+
+  # Parse the new format: source:datastore_name:datastore_path
+  local vm_source
+  local vm_datastore_name
+  local datastore_path
+  vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+  vm_datastore_name=$(echo "$found_vm_info" | cut -d':' -f2)
+  datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
+
+  # Delegate to vm-bhyve if applicable
+  if [ "$vm_source" == "vm-bhyve" ]; then
+    if ! command -v vm >/dev/null 2>&1; then
+      display_and_log "ERROR" "'vm-bhyve' command not found. Please ensure it is installed and in your PATH."
+      exit 1
+    fi
+    display_and_log "INFO" "Delegating start command to vm-bhyve for VM '$VMNAME_ARG'…"
+    vm start "$VMNAME_ARG"
+    exit $?
+  fi
+
+  # If we are here, it's a bhyve-cli VM. Load its configuration.
+  load_vm_config "$VMNAME_ARG" "$datastore_path"
 
   # Clean up any lingering network interfaces from previous sessions
   cleanup_vm_network_interfaces "$VMNAME"
@@ -83,28 +84,28 @@ cmd_start() {
     exit 1
   fi
 
-  # Check if VM is already running
-  if is_vm_running "$VMNAME"; then
-    display_and_log "INFO" "VM '$VMNAME' is already running."
+  # Check if VM is already running, using the correct VM_DIR
+  if is_vm_running "$VMNAME_ARG" "$VM_DIR"; then
+    display_and_log "INFO" "VM '$VMNAME_ARG' is already running."
     if [ "$CONNECT_TO_CONSOLE" = true ]; then
-      display_and_log "INFO" "Connecting to console..."
-      cmd_console "$VMNAME"
+      display_and_log "INFO" "Connecting to console…"
+      cmd_console "$VMNAME_ARG"
     fi
     exit 0
   fi
 
   if [ "$SUPPRESS_CONSOLE_MESSAGE" = false ]; then
-    start_spinner "Starting VM '$VMNAME'..."
+    start_spinner "Starting VM '$VMNAME'…"
   fi
   # Ensure VM is destroyed from kernel memory before attempting to start
-  log "Attempting to destroy VM '$VMNAME' from kernel memory before start..."
+  log "Attempting to destroy VM '$VMNAME' from kernel memory before start…"
   $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
   if [ $? -eq 0 ]; then
     log "VM '$VMNAME' successfully destroyed from kernel memory (if it existed)."
   else
     log "VM '$VMNAME' was not found in kernel memory or destroy failed (this might be normal if it was already stopped)."
   fi
-  log "Loading VM configuration for '$VMNAME'...";
+  log "Loading VM configuration for '$VMNAME'…";
   log "VM Name: $VMNAME"
   log "CPUs: $CPUS"
   log "Memory: $MEMORY"
@@ -138,7 +139,7 @@ cmd_start() {
 
   # === Start Logic ===
   if [ "$BOOTLOADER_TYPE" = "bhyveload" ]; then
-    log "Preparing for bhyveload start..."
+    log "Preparing for bhyveload start…"
     ensure_nmdm_device_nodes "$CONSOLE"
     sleep 1 # Give nmdm devices a moment to be ready
     
@@ -187,17 +188,17 @@ cmd_start() {
         display_and_log "ERROR" "Failed to start VM '$VMNAME'. Could not find bhyve process PID."
         exit 1
     fi
-    save_vm_pid "$VMNAME" "$BHYVE_PID"
+    save_vm_pid "$VMNAME_ARG" "$BHYVE_PID" "$VM_DIR"
 
     # Wait briefly for bhyve to start or fail
     sleep 1
-    if ! is_vm_running "$VMNAME"; then
+    if ! is_vm_running "$VMNAME" "$VM_DIR"; then
       if [ "$SUPPRESS_CONSOLE_MESSAGE" = false ]; then
         stop_spinner
       fi
       log_to_global_file "ERROR" "bhyve process for $VMNAME exited prematurely. Check vm.log for details."
       display_and_log "ERROR" "Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
-      delete_vm_pid "$VMNAME"
+      delete_vm_pid "$VMNAME_ARG" "$VM_DIR"
       $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
       exit 1
     fi
@@ -215,7 +216,7 @@ cmd_start() {
       echo_message "Please connect to the console using: $0 console $VMNAME"
     fi
   else
-    log "Preparing for non-bhyveload start..."
+    log "Preparing for non-bhyveload start…"
     ensure_nmdm_device_nodes "$CONSOLE"
     sleep 1 # Give nmdm devices a moment to be ready
     local BHYVE_LOADER_CLI_ARG=""
@@ -261,7 +262,7 @@ cmd_start() {
         ;;
     esac
 
-    log "Starting VM '$VMNAME'..."
+    log "Starting VM '$VMNAME'…"
     local BHYVE_CMD="${BHYVE_CMD_COMMON_ARGS} -l com1,/dev/${CONSOLE}A -s 31,lpc ${BHYVE_LOADER_CLI_ARG} \"$VMNAME\""
     log "Executing bhyve command: $BHYVE_CMD"
     # Execute bhyve command and capture its output and exit code
@@ -283,7 +284,7 @@ cmd_start() {
         display_and_log "ERROR" "Failed to start VM '$VMNAME'. Could not find bhyve process PID."
         exit 1
     fi
-    save_vm_pid "$VMNAME" "$BHYVE_PID"
+    save_vm_pid "$VMNAME_ARG" "$BHYVE_PID" "$VM_DIR"
 
     # Wait briefly for bhyve to start or fail
     sleep 1
@@ -309,7 +310,7 @@ cmd_start() {
         stop_spinner
       fi
       echo_message "ERROR: Failed to start VM '$VMNAME'. Bhyve process exited prematurely. Check VM logs for details."
-      delete_vm_pid "$VMNAME"
+      delete_vm_pid "$VMNAME_ARG" "$VM_DIR"
       $BHYVECTL --vm="$VMNAME" --destroy > /dev/null 2>&1
       exit 1
     fi

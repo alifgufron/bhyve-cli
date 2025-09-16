@@ -496,7 +496,7 @@ load_config() {
 check_initialization() {
   if [ "$1" != "init" ] && [ ! -f "$MAIN_CONFIG_FILE" ]; then
     echo_message "\n[ERROR] bhyve-cli has not been initialized."
-    echo_message "Please run the command '$0 init' to generate the required configuration files."
+    echo_message "Please run the command '$(basename "$0") init' to generate the required configuration files."
     exit 1
   fi
 }

@@ -3,7 +3,8 @@
 # === Helper function to check if a VM is running (i.e., not suspended or stopped) ===
 is_vm_running() {
   local VMNAME_CHECK="$1"
-  local pid=$(get_vm_pid "$VMNAME_CHECK")
+  local VM_DIR_CHECK="$2"
+  local pid=$(get_vm_pid "$VMNAME_CHECK" "$VM_DIR_CHECK")
   if [ -n "$pid" ]; then
     local status=$(get_vm_status "$pid")
     if [ "$status" == "running" ]; then
@@ -16,10 +17,10 @@ is_vm_running() {
 # === Helper functions for VM PID file management ===
 get_vm_pid() {
   local VMNAME_GET_PID="$1"
-  local VM_DIR_GET_PID="$VM_CONFIG_BASE_DIR/$VMNAME_GET_PID"
+  local VM_DIR_GET_PID="$2"
   local PID=""
-  if [ -f "$VM_DIR_GET_PID/vm.pid" ]; then
-    PID=$(cat "$VM_DIR_GET_PID/vm.pid")
+  if [ -f "${VM_DIR_GET_PID}vm.pid" ]; then
+    PID=$(cat "${VM_DIR_GET_PID}vm.pid")
     if [ -n "$PID" ] && ps -p "$PID" > /dev/null 2>&1; then
       echo "$PID"
       return 0
@@ -37,15 +38,15 @@ get_vm_pid() {
 save_vm_pid() {
   local VMNAME_SAVE_PID="$1"
   local PID_TO_SAVE="$2"
-  local VM_DIR_SAVE_PID="$VM_CONFIG_BASE_DIR/$VMNAME_SAVE_PID"
-  echo "$PID_TO_SAVE" > "$VM_DIR_SAVE_PID/vm.pid"
+  local VM_DIR_SAVE_PID="$3"
+  echo "$PID_TO_SAVE" > "${VM_DIR_SAVE_PID}vm.pid"
 }
 
 delete_vm_pid() {
   local VMNAME_DELETE_PID="$1"
-  local VM_DIR_DELETE_PID="$VM_CONFIG_BASE_DIR/$VMNAME_DELETE_PID"
-  if [ -f "$VM_DIR_DELETE_PID/vm.pid" ]; then
-    rm "$VM_DIR_DELETE_PID/vm.pid"
+  local VM_DIR_DELETE_PID="$2"
+  if [ -f "${VM_DIR_DELETE_PID}vm.pid" ]; then
+    rm "${VM_DIR_DELETE_PID}vm.pid"
   fi
 }
 

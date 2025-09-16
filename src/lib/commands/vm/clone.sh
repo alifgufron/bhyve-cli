@@ -2,23 +2,82 @@
 
 # === Subcommand: clone ===
 cmd_clone() {
-  if [ -z "$1" ] || [ -z "$2" ]; then
+  local SOURCE_VMNAME=""
+  local NEW_VMNAME=""
+  local DATASTORE_NAME="default" # Default datastore for the new VM
+
+  # Parse named arguments
+  while (( "$#" )); do
+    case "$1" in
+      --source)
+        shift
+        SOURCE_VMNAME="$1"
+        ;;
+      --new-name)
+        shift
+        NEW_VMNAME="$1"
+        ;;
+      --datastore)
+        shift
+        DATASTORE_NAME="$1"
+        ;;
+      * )
+        display_and_log "ERROR" "Invalid option: $1"
+        cmd_clone_usage
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  if [ -z "$SOURCE_VMNAME" ] || [ -z "$NEW_VMNAME" ]; then
     cmd_clone_usage
     exit 1
   fi
 
-  local SOURCE_VMNAME="$1"
-  local NEW_VMNAME="$2"
+  # Find Source VM across all datastores
+  local found_source_vm
+  found_source_vm=$(find_vm_in_datastores "$SOURCE_VMNAME")
 
-  local SOURCE_VM_DIR="$VM_CONFIG_BASE_DIR/$SOURCE_VMNAME"
-  local NEW_VM_DIR="$VM_CONFIG_BASE_DIR/$NEW_VMNAME"
-  local SOURCE_CONF_FILE="$SOURCE_VM_DIR/vm.conf"
-  local NEW_CONF_FILE="$NEW_VM_DIR/vm.conf"
+  local SOURCE_VM_DIR=""
+  local SOURCE_CONF_FILE=""
+  local SOURCE_VM_DATASTORE_NAME=""
 
-  if [ ! -d "$SOURCE_VM_DIR" ]; then
-    display_and_log "ERROR" "Source VM '$SOURCE_VMNAME' not found."
+  if [ -n "$found_source_vm" ]; then
+    SOURCE_VM_DATASTORE_NAME=$(echo "$found_source_vm" | head -n 1 | cut -d':' -f1)
+    SOURCE_VM_DIR=$(echo "$found_source_vm" | head -n 1 | cut -d':' -f2)/"$SOURCE_VMNAME"
+    SOURCE_CONF_FILE="$SOURCE_VM_DIR/vm.conf"
+  else
+    # Check vm-bhyve directories for source VM
+    local vm_bhyve_dirs
+    vm_bhyve_dirs=$(get_vm_bhyve_dir)
+
+    local source_vm_found_in_vm_bhyve=false
+    if [ -n "$vm_bhyve_dirs" ]; then
+      for datastore_pair in $vm_bhyve_dirs; do
+        local current_ds_name=$(echo "$datastore_pair" | cut -d':' -f1)
+        local current_ds_path=$(echo "$datastore_pair" | cut -d':' -f2)
+        
+        if [ -d "$current_ds_path/$SOURCE_VMNAME" ]; then
+          display_and_log "ERROR" "Cloning vm-bhyve VMs is not directly supported by bhyve-cli. Please use vm-bhyve's cloning mechanism."
+          exit 1
+        fi
+      done
+    fi
+    display_and_log "ERROR" "Source VM '$SOURCE_VMNAME' not found in any bhyve-cli datastores."
     exit 1
   fi
+
+  # Get the absolute path for the destination datastore
+  local NEW_VM_BASE_PATH
+  NEW_VM_BASE_PATH=$(get_datastore_path "$DATASTORE_NAME")
+  if [ -z "$NEW_VM_BASE_PATH" ]; then
+    display_and_log "ERROR" "Destination datastore '$DATASTORE_NAME' not found. Please check 'datastore list'."
+    exit 1
+  fi
+
+  local NEW_VM_DIR="$NEW_VM_BASE_PATH/$NEW_VMNAME"
+  local NEW_CONF_FILE="$NEW_VM_DIR/vm.conf"
 
   local SHOULD_RESUME_AFTER_CLONE=false
   local ORIGINAL_VM_STATE="stopped" # To track if VM was running/suspended before clone
@@ -85,7 +144,7 @@ cmd_clone() {
   VM_DIR="$SOURCE_VM_DIR"
   CONF_FILE="$SOURCE_CONF_FILE"
   LOG_FILE="$SOURCE_VM_DIR/vm.log"
-  load_vm_config "$SOURCE_VMNAME"
+  load_vm_config "$SOURCE_VMNAME" "$SOURCE_VM_DIR" # Pass SOURCE_VM_DIR as custom_datastore_path
 
   # Generate new UUID
   local NEW_UUID=$(uuidgen)

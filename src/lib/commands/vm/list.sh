@@ -30,7 +30,7 @@ _process_vm_dir() {
         . "$CONF_FILE"
         local CPUS_FROM_CONF=${cpu:-N/A}
         local MEMORY_FROM_CONF=${memory:-N/A}
-        local PID=$(get_vm_pid "$VMNAME")
+        local PID=$(get_vm_pid "$VMNAME" "$VM_DIR_PATH")
         local STATUS="stopped"
 
         if [ -n "$PID" ]; then
@@ -60,8 +60,13 @@ _process_vm_dir() {
         local bootloader_val=${BOOTLOADER_TYPE:-${loader:-bhyveload}}
         local vnc_port_val=${VNC_PORT:--}
 
-        printf "% -25s % -12s % -12s % -10s % -8s % -10s % -10s % -10s % -8s % -6s % -6s % -12s\n" \
-          "$VMNAME" "$datastore_name" "$bootloader_val" "$autostart_val" "$cpus_val" \
+        local DISPLAY_VM_NAME="$VMNAME"
+        # Removed: if [ "$source_label" == "bhyve-cli" ]; then
+        # Removed:   DISPLAY_VM_NAME="$VMNAME ($datastore_name)"
+        # Removed: fi
+
+        printf "% -40s % -20s % -12s % -10s % -8s % -10s % -10s % -10s % -8s % -6s % -6s % -12s\n" \
+          "$DISPLAY_VM_NAME" "$datastore_name" "$bootloader_val" "$autostart_val" "$cpus_val" \
           "$mem_val" "$vnc_port_val" "$STATUS" "$PID" "$CPU_USAGE" "$MEM_USAGE" "$UPTIME"
       fi
     fi
@@ -79,7 +84,7 @@ cmd_list() {
   bhyve_cli_datastores=$(get_all_bhyve_cli_datastores)
 
   if [ -n "$bhyve_cli_datastores" ]; then
-    printf "% -25s % -12s % -12s % -10s % -8s % -10s % -10s % -10s % -8s % -6s % -6s % -12s\n" "VM NAME (bhyve-cli)" "DATASTORE" "BOOTLOADER" "AUTOSTART" "CPUS" "MEMORY" "VNC PORT" "STATUS" "PID" "CPU%" "MEM%" "UPTIME"
+    printf "% -40s % -20s % -12s % -10s % -8s % -10s % -10s % -10s % -8s % -6s % -6s % -12s\n" "VM NAME (bhyve-cli)" "DATASTORE" "BOOTLOADER" "AUTOSTART" "CPUS" "MEMORY" "VNC PORT" "STATUS" "PID" "CPU%" "MEM%" "UPTIME"
     for datastore_pair in $bhyve_cli_datastores; do
       local datastore_name
       local datastore_path
@@ -98,7 +103,7 @@ cmd_list() {
     if [ "$bhyve_cli_vms_found" = true ]; then
       echo # Add a newline for separation
     fi
-    printf "% -25s % -12s % -12s % -10s % -8s % -10s % -10s % -10s % -8s % -6s % -6s % -12s\n" "VM NAME (vm-bhyve)" "DATASTORE" "BOOTLOADER" "AUTOSTART" "CPUS" "MEMORY" "VNC PORT" "STATUS" "PID" "CPU%" "MEM%" "UPTIME"
+    printf "% -40s % -20s % -12s % -10s % -8s % -10s % -10s % -10s % -8s % -6s % -6s % -12s\n" "VM NAME (vm-bhyve)" "DATASTORE" "BOOTLOADER" "AUTOSTART" "CPUS" "MEMORY" "VNC PORT" "STATUS" "PID" "CPU%" "MEM%" "UPTIME"
     
     # Loop through each datastore directory
     for datastore_pair in $vm_bhyve_dirs; do

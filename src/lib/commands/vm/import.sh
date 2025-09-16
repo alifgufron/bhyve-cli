@@ -2,19 +2,54 @@
 
 # === Subcommand: import ===
 cmd_import() {
-  if [ -z "$1" ]; then
+  local ARCHIVE_PATH=""
+  local NEW_VM_NAME=""
+  local DATASTORE_NAME="default"
+
+  # Parse arguments
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --datastore)
+        if [ -z "$2" ]; then
+          display_and_log "ERROR" "Missing argument for --datastore."
+          cmd_import_usage
+          exit 1
+        fi
+        DATASTORE_NAME="$2"
+        shift 2
+        ;;
+      *)
+        if [ -z "$ARCHIVE_PATH" ]; then
+          ARCHIVE_PATH="$1"
+        elif [ -z "$NEW_VM_NAME" ]; then
+          NEW_VM_NAME="$1"
+        else
+          display_and_log "ERROR" "Too many arguments: $1"
+          cmd_import_usage
+          exit 1
+        fi
+        shift 1
+        ;;
+    esac
+  done
+
+  if [ -z "$ARCHIVE_PATH" ]; then
     cmd_import_usage
     exit 1
   fi
 
-  local ARCHIVE_PATH="$1"
-  local NEW_VM_NAME="$2" # Optional new VM name
+  # Get the absolute path for the selected datastore
+  local datastore_path
+  datastore_path=$(get_datastore_path "$DATASTORE_NAME")
+  if [ -z "$datastore_path" ]; then
+    display_and_log "ERROR" "Datastore '$DATASTORE_NAME' not found. Please check 'datastore list'."
+    exit 1
+  fi
 
   # Get the VM name from the archive (assuming it's the top-level directory)
   start_spinner "Checking archive..."
-
-  local VMNAME_IN_ARCHIVE=$(tar -tf "$ARCHIVE_PATH" | head -n 1 | cut -d'/' -f1)
-
+  local VMNAME_IN_ARCHIVE
+  VMNAME_IN_ARCHIVE=$(tar -tf "$ARCHIVE_PATH" 2>/dev/null | head -n 1 | cut -d'/' -f1)
   stop_spinner
 
   if [ -z "$VMNAME_IN_ARCHIVE" ]; then
@@ -23,9 +58,12 @@ cmd_import() {
   fi
 
   local FINAL_VM_NAME="${NEW_VM_NAME:-$VMNAME_IN_ARCHIVE}"
-  local DEST_VM_DIR="$VM_CONFIG_BASE_DIR/$FINAL_VM_NAME"
+  local DEST_VM_DIR="$datastore_path/$FINAL_VM_NAME"
 
-  if [ -d "$DEST_VM_DIR" ]; then
+  # Check if a VM with the final name already exists anywhere
+  local existing_vm_info
+  existing_vm_info=$(find_any_vm "$FINAL_VM_NAME")
+  if [ -n "$existing_vm_info" ]; then
     display_and_log "WARNING" "VM '$FINAL_VM_NAME' already exists."
     read -rp "Do you want to overwrite it? (y/n): " OVERWRITE_CHOICE
     if ! [[ "$OVERWRITE_CHOICE" =~ ^[Yy]$ ]]; then
@@ -35,18 +73,21 @@ cmd_import() {
     display_and_log "INFO" "Overwriting existing VM '$FINAL_VM_NAME'..."
 
     # If overwriting, check if the VM is running and stop it first.
-    if is_vm_running "$FINAL_VM_NAME"; then
+    local existing_vm_dir="$(echo "$existing_vm_info" | cut -d':' -f3)/$FINAL_VM_NAME"
+    if is_vm_running "$FINAL_VM_NAME" "$existing_vm_dir"; then
       display_and_log "INFO" "Stopping running VM '$FINAL_VM_NAME' before overwrite..."
       cmd_stop "$FINAL_VM_NAME" --silent
-      if is_vm_running "$FINAL_VM_NAME"; then
+      if ! wait_for_vm_status "$FINAL_VM_NAME" "$existing_vm_dir" "stopped"; then
         display_and_log "ERROR" "Failed to stop running VM '$FINAL_VM_NAME'. Aborting import."
         exit 1
       fi
       display_and_log "INFO" "VM stopped successfully."
     fi
+    # Remove the old directory before importing the new one
+    rm -rf "$existing_vm_dir"
   fi
 
-  start_spinner "Importing VM from '$ARCHIVE_PATH'வுகளை..."
+  start_spinner "Importing VM from '$ARCHIVE_PATH'..."
 
   local ARCHIVE_EXTENSION="${ARCHIVE_PATH##*.}"
   # Extract to a temporary directory first to allow renaming
@@ -76,7 +117,7 @@ cmd_import() {
       result=$?
       ;;
     *)
-      stop_spinner_on_failure
+      stop_spinner
       display_and_log "ERROR" "Unsupported archive format: .$ARCHIVE_EXTENSION"
       rm -rf "$TEMP_EXTRACT_DIR"
       exit 1
@@ -84,15 +125,17 @@ cmd_import() {
   esac
 
   if [ $result -ne 0 ]; then
-      stop_spinner_on_failure
+      stop_spinner
       display_and_log "ERROR" "Failed to extract archive '$ARCHIVE_PATH'. Tar exit code: $result"
       rm -rf "$TEMP_EXTRACT_DIR"
       exit 1
   fi
 
   # Move the extracted VM to its final destination
+  # Ensure parent directory exists
+  mkdir -p "$datastore_path"
   mv "$TEMP_EXTRACT_DIR/$VMNAME_IN_ARCHIVE" "$DEST_VM_DIR" || {
-    stop_spinner_on_failure
+    stop_spinner
     display_and_log "ERROR" "Failed to move extracted VM from '$TEMP_EXTRACT_DIR/$VMNAME_IN_ARCHIVE' to '$DEST_VM_DIR'."
     rm -rf "$TEMP_EXTRACT_DIR"
     exit 1
@@ -100,65 +143,46 @@ cmd_import() {
   rm -rf "$TEMP_EXTRACT_DIR" # Clean up temporary directory
 
   # Clean up vm.pid and vm.log if they were imported from an older archive
-  if [ -f "$DEST_VM_DIR/vm.pid" ]; then
-    rm "$DEST_VM_DIR/vm.pid"
-    display_and_log "INFO" "Removed old vm.pid from '$DEST_VM_DIR'."
-  fi
-  if [ -f "$DEST_VM_DIR/vm.log" ]; then
-    rm "$DEST_VM_DIR/vm.log"
-    display_and_log "INFO" "Removed old vm.log from '$DEST_VM_DIR'."
-  fi
+  [ -f "$DEST_VM_DIR/vm.pid" ] && rm "$DEST_VM_DIR/vm.pid"
+  [ -f "$DEST_VM_DIR/vm.log" ] && rm "$DEST_VM_DIR/vm.log"
 
-  # Update VMNAME, CONSOLE, and LOG in vm.conf if a new name was provided
-  if [ -n "$NEW_VM_NAME" ] && [ "$NEW_VM_NAME" != "$VMNAME_IN_ARCHIVE" ]; then
-    local VM_CONF_FILE="$DEST_VM_DIR/vm.conf"
-    local VM_BHYVE_CONF_FILE="$DEST_VM_DIR/$VMNAME_IN_ARCHIVE.conf"
-
-    if [ -f "$VM_CONF_FILE" ]; then
-      # bhyve-cli native VM
-      # Update VMNAME
-      sed -i '' "s/^VMNAME=.*/VMNAME=$FINAL_VM_NAME/" "$VM_CONF_FILE"
-      display_and_log "INFO" "Updated VMNAME in '$VM_CONF_FILE' to '$FINAL_VM_NAME'."
-
-      # Update CONSOLE
-      sed -i '' "s/^CONSOLE=nmdm-$VMNAME_IN_ARCHIVE.1/CONSOLE=nmdm-$FINAL_VM_NAME.1/" "$VM_CONF_FILE"
-      display_and_log "INFO" "Updated CONSOLE in '$VM_CONF_FILE' to 'nmdm-$FINAL_VM_NAME.1'."
-
-      # Update LOG path
-      sed -i '' "s|^LOG=$VM_CONFIG_BASE_DIR/$VMNAME_IN_ARCHIVE/vm.log|LOG=$VM_CONFIG_BASE_DIR/$FINAL_VM_NAME/vm.log|" "$VM_CONF_FILE"
-      display_and_log "INFO" "Updated LOG path in '$VM_CONF_FILE' to '$VM_CONFIG_BASE_DIR/$FINAL_VM_NAME/vm.log'."
-
-    elif [ -f "$VM_BHYVE_CONF_FILE" ]; then
-      # vm-bhyve VM - rename its config file
-      mv "$VM_BHYVE_CONF_FILE" "$DEST_VM_DIR/$FINAL_VM_NAME.conf"
-      display_and_log "INFO" "Renamed vm-bhyve config file to '$DEST_VM_DIR/$FINAL_VM_NAME.conf'."
-    fi
+  local VM_CONF_FILE="$DEST_VM_DIR/vm.conf"
+  # Update VMNAME, CONSOLE, and LOG in vm.conf
+  if [ -f "$VM_CONF_FILE" ]; then
+    # Update VMNAME
+    sed -i '' "s/^VMNAME=.*/VMNAME=$FINAL_VM_NAME/" "$VM_CONF_FILE"
+    # Update CONSOLE
+    sed -i '' "s/^CONSOLE=nmdm-.*/CONSOLE=nmdm-$FINAL_VM_NAME.1/" "$VM_CONF_FILE"
+    # Update LOG path to its new location
+    sed -i '' "s|^LOG=.*|LOG=$DEST_VM_DIR/vm.log|" "$VM_CONF_FILE"
+    log "Updated vm.conf for new name and location: $FINAL_VM_NAME"
   fi
 
   # Update TAP interfaces to ensure uniqueness
   display_and_log "INFO" "Updating TAP interfaces for '$FINAL_VM_NAME'..."
-  local NIC_INDEX=0
-  while true; do
-    local TAP_VAR="TAP_${NIC_INDEX}"
-    local CURRENT_TAP_LINE=$(grep "^${TAP_VAR}=" "$DEST_VM_DIR/vm.conf")
+  if [ -f "$VM_CONF_FILE" ]; then
+    local NIC_INDEX=0
+    while true; do
+      local TAP_VAR="TAP_${NIC_INDEX}"
+      local CURRENT_TAP_LINE=$(grep "^${TAP_VAR}=" "$VM_CONF_FILE")
 
-    if [ -z "$CURRENT_TAP_LINE" ]; then
-      # No more TAP interfaces found
-      break
-    fi
+      if [ -z "$CURRENT_TAP_LINE" ]; then
+        break # No more TAP interfaces found
+      fi
 
-    local OLD_TAP_DEVICE=$(echo "$CURRENT_TAP_LINE" | cut -d'=' -f2)
-    local NEW_TAP_NUM=$(get_next_available_tap_num)
-    local NEW_TAP_DEVICE="tap${NEW_TAP_NUM}"
+      local OLD_TAP_DEVICE=$(echo "$CURRENT_TAP_LINE" | cut -d'=' -f2)
+      local NEW_TAP_NUM=$(get_next_available_tap_num)
+      local NEW_TAP_DEVICE="tap${NEW_TAP_NUM}"
 
-    if [ "$OLD_TAP_DEVICE" != "$NEW_TAP_DEVICE" ]; then
-      sed -i '' "s|^${TAP_VAR}=${OLD_TAP_DEVICE}$|${TAP_VAR}=${NEW_TAP_DEVICE}|" "$DEST_VM_DIR/vm.conf"
-      display_and_log "INFO" "Updated ${TAP_VAR} from '$OLD_TAP_DEVICE' to '$NEW_TAP_DEVICE'."
-    fi
+      if [ "$OLD_TAP_DEVICE" != "$NEW_TAP_DEVICE" ]; then
+        sed -i '' "s|^${TAP_VAR}=${OLD_TAP_DEVICE}$|${TAP_VAR}=${NEW_TAP_DEVICE}|" "$VM_CONF_FILE"
+        display_and_log "INFO" "Updated ${TAP_VAR} from '$OLD_TAP_DEVICE' to '$NEW_TAP_DEVICE'."
+      fi
 
-    NIC_INDEX=$((NIC_INDEX + 1))
-  done
+      NIC_INDEX=$((NIC_INDEX + 1))
+    done
+  fi
 
   stop_spinner
-  display_and_log "INFO" "VM '$FINAL_VM_NAME' imported successfully."
+  display_and_log "INFO" "VM '$FINAL_VM_NAME' imported successfully into datastore '$DATASTORE_NAME'."
 }

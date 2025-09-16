@@ -108,6 +108,8 @@ cmd_switch_add() {
     log_to_global_file "INFO" "Interface '$MEMBER_IF' is already a member of bridge '$BRIDGE_NAME'."
   fi
 
+  display_and_log "SUCCESS" "Switch '$BRIDGE_NAME' configured successfully."
+
   # Save switch configuration only if called directly
   if [ "$SAVE_CONFIG" = true ]; then
     touch "$SWITCH_CONFIG_FILE"

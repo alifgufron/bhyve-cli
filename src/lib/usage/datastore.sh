@@ -4,7 +4,7 @@
 
 datastore_usage() {
   cat <<EOF
-Usage: $0 datastore <subcommand> [options]
+Usage: $(basename "$0") datastore <subcommand> [options]
 
   Manage bhyve-cli datastores.
 

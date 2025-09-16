@@ -5,12 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v1.1.2] - 2025-09-15
+## [v1.1.2] - 2025-09-16
+
+### Changed
+
+- **Major Refactoring of VM Discovery:**
+    - Replaced multiple, inconsistent VM discovery implementations across various commands with a single, robust, centralized function: `find_any_vm`.
+    - This resolves numerous bugs where commands (`stop`, `start`, `info`, `suspend`, `resume`, `export`, `import`, `snapshot`) would fail if the target VM was not in a default datastore.
+    - All major commands now reliably work with both `bhyve-cli` and `vm-bhyve` VMs across all configured datastores.
+- **Snapshot Command Logic:**
+    - Reworked all `snapshot` subcommands (`list`, `create`, `delete`, `revert`) to correctly delegate to the native `vm-bhyve` utility for `vm-bhyve` VMs, enabling proper ZFS snapshot support.
+    - Corrected file paths for `bhyve-cli` file-based snapshots.
+- **PID and Helper Function Reliability:**
+    - Corrected logic in all commands to pass the full VM directory path to helper functions (`is_vm_running`, `get_vm_pid`, etc.), improving reliability and fixing latent bugs.
+    - Fixed argument parsing in the `wait_for_vm_status` helper function.
+- **`clone` Command Argument Parsing & Datastore Support:**
+    - Modified `clone` command to use named arguments (`--source`, `--new-name`) and added optional `--datastore` argument for specifying the destination datastore.
+    - Implemented in `src/lib/commands/vm/clone.sh` and `src/lib/usage/vm.sh`.
+- **`Makefile` Uninstall Target:**
+    - Modified the `uninstall` target to execute `network_cleanup_all.sh`, ensuring a cleaner removal of network configurations.
+- **`bhyve-cli init` Interactive Configuration:**
+    - The `init` command now interactively prompts the user for the desired ISO storage directory and the default VM datastore path.
+    - Updates the main configuration file (`bhyve-cli.conf`) and `/etc/rc.conf` with the user-defined paths.
 
 ### Fixed
 
-- **`vm delete` Syntax Error:**
-    - Resolved `syntax error: unexpected end of file` in `src/lib/commands/vm/delete.sh` by completing truncated `case` and function blocks.
+- **`autostart` VM Discovery Across Datastores:**
+    - Fixed an issue where `bhyve-cli autostart` could not find VMs located in non-default `bhyve-cli` datastores.
+    - The command now correctly searches for VMs across all configured `bhyve-cli` datastores.
+    - Added a check to prevent managing autostart for `vm-bhyve` VMs, as they are managed by `vm-bhyve` itself.
+    - Implemented in `src/lib/commands/vm/autostart.sh`.
+- **`vm info` VM Discovery Across Datastores:**
+    - Fixed an issue where `bhyve-cli vm info` could not find VMs located in non-default `bhyve-cli` datastores due to a duplicated directory in the VM path.
+    - The command now correctly resolves the VM directory.
+    - Implemented in `src/lib/commands/vm/info.sh` and `src/lib/functions/config.sh`.
+- **`datastore delete` VM Check and Confirmation:**
+    - Enhanced `datastore delete` to check for existing VMs within the datastore before deletion.
+    - Prompts for interactive confirmation if VMs are found, preventing accidental data loss.
+    - Implemented in `src/lib/commands/datastore/delete.sh`.
+- **`vm list` vm-bhyve Primary Datastore Name:**
+    - Corrected the display name for the primary `vm-bhyve` datastore in `vm list` output from its basename (e.g., "bhvye") to "default".
+    - Implemented in `src/lib/functions/config.sh`.
+- **`vm list` Duplicate VM Names & Formatting:**
+    - Modified `vm list` to display `VMNAME` only for `bhyve-cli` VMs (removed `(DATASTORE)` suffix), relying on the dedicated `DATASTORE` column for clarity.
+    - Adjusted column widths in `vm list` output for both data and header rows to `%-40s` for "VM NAME" and `%-20s` for "DATASTORE" to ensure proper alignment and visual neatness, accommodating longer names.
+    - Implemented in `src/lib/commands/vm/list.sh`.
+- **Unintentional Network Cleanup Execution:**
+    - Fixed an issue where `network_cleanup_all.sh` was unintentionally executed during normal `bhyve-cli` operations.
+    - Resolved by excluding `network_cleanup_all.sh` from the sourced helper functions in `src/bhyve-cli`.
+
+### Added
+
+- **Network Cleanup Script for Uninstallation:**
+    - Created `src/lib/functions/network_cleanup_all.sh` to comprehensively remove all `bhyve-cli` created network interfaces (bridges and TAP devices) during uninstallation.
 
 ## [v1.1.1] - 2025-09-13
 

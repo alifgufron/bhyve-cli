@@ -7,48 +7,51 @@ cmd_info() {
     exit 1
   fi
 
-  VMNAME="$1"
-  local vm_source=""
-  local vm_dir=""
+  local VMNAME="$1"
 
-  # Check bhyve-cli directory first
-  if [ -d "$VM_CONFIG_BASE_DIR/$VMNAME" ]; then
-    vm_source="bhyve-cli"
-    vm_dir="$VM_CONFIG_BASE_DIR/$VMNAME"
-    load_vm_config "$VMNAME"
-  else
-    # Check vm-bhyve directory
-    local vm_bhyve_base_dir
-    vm_bhyve_base_dir=$(get_vm_bhyve_dir)
-    if [ -n "$vm_bhyve_base_dir" ] && [ -d "$vm_bhyve_base_dir/$VMNAME" ]; then
-      vm_source="vm-bhyve"
-      vm_dir="$vm_bhyve_base_dir/$VMNAME"
-      local conf_file="$vm_dir/$VMNAME.conf"
-      if [ -f "$conf_file" ]; then
-        # Source the config to get variables
-        . "$conf_file"
-        # Map vm-bhyve variables to our internal variables
-        CPUS=${cpu:-N/A}
-        MEMORY=${memory:-N/A}
-        BOOTLOADER_TYPE=${loader:-bhyveload}
-        AUTOSTART=${autostart:-no}
-        LOG_FILE="$vm_dir/vm-bhyve.log"
-        CONSOLE=${console:-nmdm1}
-      else
-        display_and_log "ERROR" "VM configuration for '$VMNAME' not found in vm-bhyve directory: $conf_file"
-        exit 1
-      fi
-    fi
-  fi
+  # Use the centralized find_any_vm function
+  local found_vm_info
+  found_vm_info=$(find_any_vm "$VMNAME")
 
-  # If vm_source is still empty, VM not found
-  if [ -z "$vm_source" ]; then
-    display_and_log "ERROR" "VM '$VMNAME' not found in bhyve-cli or vm-bhyve directories."
+  if [ -z "$found_vm_info" ]; then
+    display_and_log "ERROR" "VM '$VMNAME' not found in any bhyve-cli or vm-bhyve datastores."
     exit 1
   fi
 
-  local PID_STR=$(get_vm_pid "$VMNAME")
-  local STATUS_STR="Stopped" # Default status
+  # Parse the new format: source:datastore_name:datastore_path
+  local vm_source
+  local datastore_name
+  local datastore_path
+  vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+  datastore_name=$(echo "$found_vm_info" | cut -d':' -f2)
+  datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
+
+  local vm_dir="$datastore_path/$VMNAME"
+
+  # Load configuration based on the source
+  if [ "$vm_source" == "bhyve-cli" ]; then
+    load_vm_config "$VMNAME" "$datastore_path"
+  else # vm-bhyve
+    local conf_file="$vm_dir/$VMNAME.conf"
+    if [ -f "$conf_file" ]; then
+      # Source the config to get variables
+      . "$conf_file"
+      # Map vm-bhyve variables to our internal variables
+      CPUS=${cpu:-N/A}
+      MEMORY=${memory:-N/A}
+      BOOTLOADER_TYPE=${loader:-bhyveload}
+      AUTOSTART=${autostart:-no}
+      LOG_FILE="$vm_dir/vm-bhyve.log"
+      CONSOLE=${console:-nmdm1}
+    else
+      display_and_log "ERROR" "VM configuration for '$VMNAME' not found in vm-bhyve directory: $conf_file"
+      exit 1
+    fi
+  fi
+
+  # Correctly get PID using the full vm_dir path
+  local PID_STR=$(get_vm_pid "$VMNAME" "$vm_dir")
+  local STATUS_STR="stopped" # Default status
 
   if [ -n "$PID_STR" ]; then
     STATUS_STR=$(get_vm_status "$PID_STR")
@@ -63,6 +66,7 @@ cmd_info() {
   else
     printf "% -15s: %s\n" "Status" "$STATUS_STR"
   fi
+  printf "% -15s: %s (%s)\n" "Datastore" "$datastore_name" "$vm_source"
   printf "% -15s: %s\n" "CPUs" "$CPUS"
   printf "% -15s: %s\n" "Memory" "$MEMORY"
   printf "% -15s: %s\n" "Bootloader" "$BOOTLOADER_TYPE"

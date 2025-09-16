@@ -46,6 +46,10 @@ source "$LIB_DIR/core.sh"
 
 # Load Helper Functions
 for func_file in "$LIB_DIR"/functions/*.sh; do
+    # Exclude the network cleanup script, which is meant to be run standalone by Makefile
+    if [[ "$(basename "$func_file")" == "network_cleanup_all.sh" ]]; then
+        continue
+    fi
     source "$func_file"
 done
 
