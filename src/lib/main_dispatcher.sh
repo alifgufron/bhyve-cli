@@ -47,10 +47,10 @@ main_dispatcher() {
     --help|-h)
       main_usage
       ;;
-    # Legacy command redirects for backward compatibility
+    # Deprecated direct commands: inform user and show main usage
     create|delete|install|start|stop|restart|console|autostart|modify|clone|info|resize-disk|export|import|suspend|resume|vnc|list|verify|stopall|startall)
-      display_and_log "INFO" "This command is now part of the 'vm' module. Redirecting to 'vm $command $@'..."
-      cmd_vm "$command" "$@"
+      main_usage
+      exit 1
       ;;
     *)
       main_usage

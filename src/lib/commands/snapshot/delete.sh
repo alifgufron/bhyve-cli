@@ -22,19 +22,7 @@ cmd_snapshot_delete() {
   local vm_source
   vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
 
-  # Delegate to vm-bhyve if it's a vm-bhyve VM
-  if [ "$vm_source" == "vm-bhyve" ]; then
-    if ! command -v vm >/dev/null 2>&1; then
-      display_and_log "ERROR" "'vm-bhyve' command not found. Please ensure it is installed and in your PATH."
-      exit 1
-    fi
-    display_and_log "INFO" "Delegating to 'vm snapshot delete' for vm-bhyve VM '$VMNAME'..."
-    # vm-bhyve might ask for confirmation, which is fine for the CLI
-    vm snapshot delete "$VMNAME" "$SNAPSHOT_NAME"
-    exit $?
-  fi
-
-  # --- Logic for bhyve-cli VMs ---
+  # --- Logic for all VMs (bhyve-cli and vm-bhyve) ---
   local SNAPSHOT_PATH="$VM_CONFIG_BASE_DIR/snapshots/$VMNAME/$SNAPSHOT_NAME"
 
   if [ ! -d "$SNAPSHOT_PATH" ]; then

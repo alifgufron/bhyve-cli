@@ -86,21 +86,39 @@ cmd_info() {
   if [ "$vm_source" == "bhyve-cli" ]; then
     local NIC_IDX=0
     while true; do
-      local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
-      local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
       local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
       local CURRENT_NIC_TYPE_VAR="NIC_${NIC_IDX}_TYPE"
-      local CURRENT_TAP="${!CURRENT_TAP_VAR}"
-      if [ -z "$CURRENT_TAP" ]; then break; fi
-      local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+      local CURRENT_MAC_VAR="MAC_${NIC_IDX}" # New: Read static MAC from vm.conf
+
       local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
       local CURRENT_NIC_TYPE="${!CURRENT_NIC_TYPE_VAR:-virtio-net}"
+      local STATIC_MAC="${!CURRENT_MAC_VAR}" # Read static MAC
+
+      if [ -z "$CURRENT_BRIDGE" ]; then break; fi
+
       printf "\n"
       printf " Interface %d\n" "$NIC_IDX"
-      printf "    %-10s: %s\n" "TAP" "$CURRENT_TAP"
-      printf "    %-10s: %s\n" "MAC" "$CURRENT_MAC"
       printf "    %-10s: %s\n" "Bridge" "$CURRENT_BRIDGE"
       printf "    %-10s: %s\n" "Type" "$CURRENT_NIC_TYPE"
+
+      if [ -n "$STATIC_MAC" ]; then
+        printf "    %-10s: %s\n" "MAC" "$STATIC_MAC"
+      else
+        printf "    %-10s: %s\n" "MAC" "(Dynamic)"
+      fi
+
+      # If VM is running, try to get live TAP info
+      if [ "$STATUS_STR" == "running" ]; then
+        local LIVE_TAP_NAME
+        LIVE_TAP_NAME=$(ifconfig -a | grep -B 1 "description: vmnet/${VMNAME}/${NIC_IDX}/${CURRENT_BRIDGE}" | grep '^tap' | cut -d':' -f1)
+        if [ -n "$LIVE_TAP_NAME" ]; then
+          printf "    %-10s: %s\n" "TAP" "$LIVE_TAP_NAME"
+        else
+          printf "    %-10s: %s\n" "TAP" "(Not found)"
+        fi
+      else
+        printf "    %-10s: %s\n" "TAP" "(VM stopped)"
+      fi
       NIC_IDX=$((NIC_IDX + 1))
     done
   else # vm-bhyve network info
@@ -126,8 +144,7 @@ cmd_info() {
   if [ "$vm_source" == "bhyve-cli" ]; then
     local DISK_IDX=0
     while true; do
-      local CURRENT_DISK_VAR="DISK"
-      if [ "$DISK_IDX" -gt 0 ]; then CURRENT_DISK_VAR="DISK_${DISK_IDX}"; fi
+      local CURRENT_DISK_VAR="DISK_${DISK_IDX}"
       local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
       if [ -z "$CURRENT_DISK_FILENAME" ]; then break; fi
       local CURRENT_DISK_TYPE_VAR="DISK_${DISK_IDX}_TYPE"

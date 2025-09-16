@@ -2,55 +2,62 @@
 
 # === Subcommand: logs ===
 cmd_logs() {
-  if [ -z "$1" ] || [ "$1" = "--help" ] || [ "$2" = "--help" ]; then
+  if [ -z "$1" ] || [ "$1" = "--help" ]; then
     cmd_logs_usage
     exit 0
   fi
 
   local VMNAME="$1"
-  local TAIL_LINES=100 # Default to 100 lines
+  local TAIL_LINES=100
   local FOLLOW_LOG=false
-  local NEXT_IS_TAIL_VALUE=false
 
-  log "DEBUG" "Initial VMNAME: $VMNAME"
-  log "DEBUG" "Initial TAIL_LINES: $TAIL_LINES"
-
-  # Shift VMNAME so that $@ contains only options and their values
+  # Shift to process options like -f and --tail
   shift
-  log "DEBUG" "Arguments after shifting VMNAME: $@"
 
-  for arg in "$@"; do
-    log "DEBUG" "Processing argument: $arg"
-    if [ "$NEXT_IS_TAIL_VALUE" = true ]; then
-      log "DEBUG" "NEXT_IS_TAIL_VALUE is true. Current arg: $arg"
-      if [[ "$arg" =~ ^[0-9]+$ ]]; then
-        TAIL_LINES="$arg"
-        NEXT_IS_TAIL_VALUE=false
-        log "DEBUG" "TAIL_LINES set to: $TAIL_LINES"
-      else
-        display_and_log "ERROR" "Invalid number for --tail option: $arg."
-        cmd_logs_usage
-        exit 1
-      fi
-    elif [ "$arg" = "--tail" ]; then
-      NEXT_IS_TAIL_VALUE=true
-      log "DEBUG" "--tail option found. NEXT_IS_TAIL_VALUE set to true."
-    elif [ "$arg" = "-f" ]; then
-      FOLLOW_LOG=true
-      log "DEBUG" "-f option found. FOLLOW_LOG set to true."
-    else
-      log "DEBUG" "Unexpected argument: $arg"
-      : # Do nothing for now, as only --tail and -f are expected
-    fi
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -f)
+        FOLLOW_LOG=true
+        shift
+        ;;
+      --tail)
+        if [[ "$2" =~ ^[0-9]+$ ]]; then
+          TAIL_LINES="$2"
+          shift 2
+        else
+          display_and_log "ERROR" "Invalid number for --tail option: '$2'."
+          exit 1
+        fi
+        ;;
+      *)
+        # Ignore unknown arguments for now
+        shift
+        ;;
+    esac
   done
 
-  log "DEBUG" "Final TAIL_LINES before tail command: $TAIL_LINES"
-  log "DEBUG" "Final FOLLOW_LOG before tail command: $FOLLOW_LOG"
+  # Use the centralized find_any_vm function
+  local found_vm_info
+  found_vm_info=$(find_any_vm "$VMNAME")
 
-  load_vm_config "$VMNAME"
+  if [ -z "$found_vm_info" ]; then
+    display_and_log "ERROR" "VM '$VMNAME' not found in any datastore."
+    exit 1
+  fi
+
+  local vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+  local datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
+  local vm_dir="$datastore_path/$VMNAME"
+
+  local LOG_FILE
+  if [ "$vm_source" == "vm-bhyve" ]; then
+    LOG_FILE="$vm_dir/vm-bhyve.log"
+  else
+    LOG_FILE="$vm_dir/vm.log"
+  fi
 
   if [ ! -f "$LOG_FILE" ]; then
-    display_and_log "ERROR" "Log file for VM '$VMNAME' not found."
+    display_and_log "ERROR" "Log file for VM '$VMNAME' not found at '$LOG_FILE'."
     exit 1
   fi
 

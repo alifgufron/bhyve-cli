@@ -25,19 +25,7 @@ cmd_snapshot_revert() {
   datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
   local vm_dir="$datastore_path/$VMNAME"
 
-  # Delegate to vm-bhyve if it's a vm-bhyve VM
-  if [ "$vm_source" == "vm-bhyve" ]; then
-    if ! command -v vm >/dev/null 2>&1; then
-      display_and_log "ERROR" "'vm-bhyve' command not found. Please ensure it is installed and in your PATH."
-      exit 1
-    fi
-    display_and_log "INFO" "Delegating to 'vm snapshot revert' for vm-bhyve VM '$VMNAME'..."
-    # vm-bhyve might ask for confirmation, which is fine for the CLI
-    vm snapshot revert "$VMNAME" "$SNAPSHOT_NAME"
-    exit $?
-  fi
-
-  # --- Logic for bhyve-cli VMs ---
+  # --- Logic for all VMs (bhyve-cli and vm-bhyve) ---
   # Correctly check if VM is running using the full vm_dir path
   if is_vm_running "$VMNAME" "$vm_dir"; then
     display_and_log "ERROR" "VM '$VMNAME' is running. Please stop the VM before reverting to a snapshot."

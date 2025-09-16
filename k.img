@@ -1,0 +1,1234 @@
+[33mcommit f44c1a25c94fb364e6db2608547047a9fb7aa738[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mv1.1.2[m[33m)[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Sep 16 07:30:24 2025 +0700
+
+    refactor(core): Stabilize and complete datastore integration
+    
+    Replaced multiple inconsistent VM discovery implementations with a single,
+    robust, centralized function (`find_any_vm`). This new function reliably
+    locates VMs from any `bhyve-cli` or `vm-bhyve` datastore.
+    
+    Refactored all major VM and snapshot commands to use this central
+    function, fixing numerous bugs and making them datastore-aware.
+    
+    - Fixed: `stop`, `start`, `info`, `suspend`, `resume`, `export`, `import`.
+    - Fixed: All `snapshot` subcommands (`create`, `list`, `delete`, `revert`).
+    - Fixed: Latent bugs in helper functions (`wait_for_vm_status`, PID functions).
+    - Result: All commands now work reliably with VMs in non-default datastores.
+
+[33mcommit 99978f81071df0816a0e428b84c2bfbec8ec2b29[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Mon Sep 15 01:59:30 2025 +0700
+
+    fix: Resolve vm delete syntax error and update datastore features
+
+[33mcommit ab73b0d6c88a1adb578f444bf0ab8b472b8ceb56[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Sep 13 01:31:32 2025 +0700
+
+    docs: Update CHANGELOG.md for v1.1.1
+
+[33mcommit e8282e8822617fd8575ebcff1a7fa295894a42de[m[33m ([m[1;33mtag: [m[1;33mv1.1.1[m[33m)[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Sep 13 01:28:58 2025 +0700
+
+    fix: Fix make install and bhyve-cli init issues
+
+[33mcommit 340f904d5c761aec7d37993ed5329310d67264e0[m[33m ([m[1;33mtag: [m[1;33mv1.1.0[m[33m)[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Sep 13 00:40:13 2025 +0700
+
+    docs: Add CHANGELOG.md for v1.1.0
+
+[33mcommit 3c9126ac225342da9017cf97e29dce743a7da2ba[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Sep 13 00:35:15 2025 +0700
+
+    feat: Add VNC Port column to vm list and improve formatting
+
+[33mcommit 1998bebbab2788a6fad1430a9b8aa83e1a2ea381[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Sep 12 23:24:31 2025 +0700
+
+    fix: Improve vm import robustness and start message
+    
+    - **vm import:**
+      - Fixed "Broken pipe" error during archive extraction by using explicit piping for decompression (e.g., `zstd -dc | tar -xf -`).
+      - Ensured unique TAP interface assignment for imported VMs to prevent "Device busy" errors on start.
+      - Correctly updated VMNAME, CONSOLE, and LOG paths in vm.conf for imported VMs.
+      - Added cleanup for vm.pid and vm.log in imported VM directories.
+    - **vm start:**
+      - Updated console connection message for better user experience and consistency.
+
+[33mcommit 4e6cfe2d2212fae808c07851341530825c351a42[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 11 14:59:44 2025 +0700
+
+    docs: Update README.md with interoperability notes; feat: Enhance vm import compression
+
+[33mcommit f410175622db6985c2293498e26553982b5d0a48[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 11 14:48:52 2025 +0700
+
+    feat: Enhance VM export and list functionalities and update progress log
+
+[33mcommit 4fe7574c20b84ddb5d48cd8e5106c964324d881b[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 11 12:54:12 2025 +0700
+
+    refactor: Improve CLI usage display and export command
+
+[33mcommit eac11c3ab46149f373da4fe88e54a21ee986d01f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 11 09:05:48 2025 +0700
+
+    feat(stop): Add vm-bhyve delegation to vm stop command
+
+[33mcommit 2b857f4904109f029e43fec794d75d05d67b96e0[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 11 08:50:07 2025 +0700
+
+    feat(vm): Add start delegation and fix list for vm-bhyve
+
+[33mcommit c755fad9267c675fa047d85435b8ce8044955fc4[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 11 08:20:35 2025 +0700
+
+    feat(info): Add vm-bhyve support to vm info command
+
+[33mcommit 06199121d5ad5d40ac4f0272794f61c41577694e[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 11 08:07:51 2025 +0700
+
+    feat(list): Integrate vm-bhyve detection into vm list
+
+[33mcommit d69f091cdcecbe91abc495c742e53243b450ddfd[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 11 07:38:08 2025 +0700
+
+    chore(version): Bump version to 1.1.0 for development
+
+[33mcommit a1deeec0a5b6ee0cfcee9698b08730d6afb7b306[m[33m ([m[1;33mtag: [m[1;33mv1.0.0[m[33m)[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 11 07:28:59 2025 +0700
+
+    fix(version): Correctly display dev/install status and update to 1.0.0
+
+[33mcommit 6c8adbb10fb862d23639627a833f600af4346327[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 11 07:18:41 2025 +0700
+
+    chore: Update docs and improve system integration
+    
+    - Update README.md to reflect the latest features and commands.
+    - Enhance `make uninstall` with a warning that user data is not deleted.
+    - Add `vmnet init` to the rc.d script to initialize networks on boot.
+
+[33mcommit 31f67d8f9c41b9b7e9ca9875305e4ac962157432[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Sep 9 14:05:26 2025 +0700
+
+    feat: Live snapshots, vmnet/switch init fix, TAP cleanup on start
+
+[33mcommit 85a0ea8d8db519a9d11209da3c7f4198a9153488[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Mon Sep 8 17:09:16 2025 +0700
+
+    feat: Implement robust network interface cleanup and enhance vm modify
+
+[33mcommit 33287be426ac016ea5a8c980dbb22dc224a45c86[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 4 11:18:22 2025 +0700
+
+    fix: Correct vm verify command for templates directory
+
+[33mcommit d3900a81c90856919faa97b6ad73d40fc35ad4ca[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Sep 4 11:02:00 2025 +0700
+
+    feat: VM management improvements and bug fixes
+
+[33mcommit 9fe4198d9a02944989c483e6803eca37661c983f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 14:56:56 2025 +0700
+
+    feat: Add rc.d script and update documentation
+
+[33mcommit b051ac200412ea25b3fa4bd607cefd1e9eafb691[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 14:41:03 2025 +0700
+
+    refactor: Remove obsolete scripts and test files
+
+[33mcommit 18e8378a9a01c56ffc59547468ee25b1695d9452[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 14:09:54 2025 +0700
+
+    fix: Resolve startall variable bleed and improve UEFI VM start
+
+[33mcommit 8eddc97942c733b7fb037021330a556dcbfe337f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 13:58:29 2025 +0700
+
+    feat: Add VNC support and enhance startall command robustness
+
+[33mcommit 0aca37b22787b2fd3ce2e43133c0cf1631854468[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 13:37:14 2025 +0700
+
+    feat: Improve VM template creation and console handling
+
+[33mcommit f9c95b53fea86e6944b6c9db4522683c5e9f04ab[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 12:11:38 2025 +0700
+
+    fix: Improve verify command accuracy and robustness
+
+[33mcommit d44c03731fb094ede46bfb5e07ed2d0e22937c8b[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 11:45:57 2025 +0700
+
+    feat: Enhance VM modify command for disk and NIC management
+
+[33mcommit f718448ede595be48481fc0564c87654a8519c6d[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 11:26:03 2025 +0700
+
+    fix: Improve disk path handling and info display in modify and info commands
+
+[33mcommit 8a5a4fc63227f813b57318784357cd0aefa2782e[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 10:56:48 2025 +0700
+
+    feat: Improve stopall functionality and graceful VM shutdown
+
+[33mcommit 5fe7c4b11b37f6fa588c141b50afaa627cb2126a[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 10:47:43 2025 +0700
+
+    feat: Improve startall and stopall functionality
+
+[33mcommit a4ab5b149759ae32f74486d438ca6482bc2514e0[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 10:13:09 2025 +0700
+
+    refactor(install): Unify bhyveload and UEFI installation logic
+    
+    - Removes duplicated code for handling bhyveload and UEFI boot types.
+    - Introduces a single, unified flow for the installation process.
+    - Moves the bhyve execution to a background process to allow for interactive console access using `cu`.
+    - Adds a user prompt for UEFI boot to manually enter the boot menu, improving reliability over a fixed-timed `ESC` keypress.
+    - Updates usage instructions for the `install` command.
+
+[33mcommit d40efe4f25bb3d304d34bed8434bea67a173caee[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 26 00:19:33 2025 +0700
+
+    feat: Improve UEFI install and refine start/create output
+
+[33mcommit 410f2ab1f807b6c2bc5ea40fac089b9d9a426629[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 25 23:18:51 2025 +0700
+
+    refactor: Improve VM status handling and output clarity
+
+[33mcommit 07b1be177481daebaf4ed5a2eea4de51062f21aa[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 24 22:18:18 2025 +0700
+
+    refactor: Improve VM import command
+    
+    This commit refactors the  command to:
+    - Add a "Checking environment..." spinner during initial checks.
+    - Implement a check for existing VMs with the same name, prompting the user to overwrite if found.
+    - Provide a more concise warning message when a VM already exists.
+    - Ensure the "Importing VM..." spinner is displayed only during the actual  extraction process.
+    - Update the success message to include the imported VM's name.
+
+[33mcommit 3863c4cbb7db0e7fefcdb59d68858af6837e6329[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 24 19:24:56 2025 +0700
+
+    feat: Implement VM cloning and fix TAP cleanup on stop
+
+[33mcommit 3b125065026d899b83504ee91eefb45583f96413[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 24 08:07:20 2025 +0700
+
+    fix: Correct VM start and console handling
+    
+    This commit addresses multiple issues:
+    - Fixes `bhyveload` failures during VM start by correcting loader logic.
+    - Resolves unresponsive console keyboard input by adding a delay before attaching `cu`.
+    - Corrects a shell syntax error in the `start` command.
+
+[33mcommit 60d18e7148f9665125d65bb930caa2ac13aa5a7f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 20 21:52:44 2025 +0700
+
+    feat: Modularize bhyve-cli script
+    
+    Refactor the monolithic bhyve-cli.sh script into a modular structure.
+    
+    - Create lib/ directory for all library files.
+    
+    - Move core helper functions (logging, config, process management) to lib/core.sh.
+    
+    - Separate all command _usage functions into lib/usage.sh.
+    
+    - Isolate each command's logic into its own file within lib/commands/.
+    
+    - Transform the main bhyve-cli.sh into a lean dispatcher.
+    
+    - Separate status and list commands for better clarity:
+    
+        - list: Shows static configuration of VMs.
+    
+        - status: Shows live resource usage of running VMs.
+    
+    This refactoring significantly improves code readability, maintainability, and scalability.
+
+[33mcommit c8243fae1412b9b416bf8fbd5ae5242f05707d2c[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 19 18:36:57 2025 +0700
+
+    refactor: Improve create/delete UX with spinners
+
+[33mcommit 11d6c2df96b42cdcb7e4e51865836b948e7f23fd[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 19:15:06 2025 +0700
+
+    Revert "fix: Ensure TAP interface MAC address is set on host"
+    
+    This reverts commit ec8b91c3434448fea730040348d1067402bc0c6a.
+
+[33mcommit ec8b91c3434448fea730040348d1067402bc0c6a[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 18:46:06 2025 +0700
+
+    fix: Ensure TAP interface MAC address is set on host
+
+[33mcommit 923fa4be0cc4790a814fa53eb95f0fde5919901d[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 16:59:16 2025 +0700
+
+    fix: Ensure start --console connects to nmdm for bhyveload VMs and improve import spinner
+
+[33mcommit 730ce56928c9ea53c9d148657eb216711a6e60da[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 16:15:26 2025 +0700
+
+    fix: Resolve PCI slot conflicts and improve error logging
+
+[33mcommit 76154d9b3f641da2a1769d32ba7f83c0361d7cd0[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 15:11:18 2025 +0700
+
+    fix: Silence bhyveload error logging
+
+[33mcommit 67b23c7ea0b96e085d6a4d08966c728d687d9474[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 14:49:17 2025 +0700
+
+    refactor: Silence stop command output
+
+[33mcommit bd76256c1fdeb91b4590cfeda9cd21b4a34c6606[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 14:44:30 2025 +0700
+
+    fix: Correct logging and improve start command feedback
+
+[33mcommit 8b3010fa5d00d07a0b721b76b91ef7b4350c8964[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 11:50:52 2025 +0700
+
+    feat: Improve VM start behavior and logging
+
+[33mcommit 90b22c85dbed7accccd433d5a43903b410a36b11[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 08:31:13 2025 +0700
+
+    refactor: Improve VM process and ISO command handling
+    
+    - Corrected 'iso' command dispatch in main script.
+    - Replaced direct 'pgrep' calls with 'is_vm_running' and 'get_vm_pid' helper functions for consistency and robustness in 'cmd_stop', 'cmd_resize_disk', and 'cleanup_vm_processes'.
+
+[33mcommit 3b1b4882db8ddaf9c9cf1ba401a253bc71dca0bb[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 08:05:20 2025 +0700
+
+    refactor: Use get_vm_pid in cmd_info and cmd_status
+
+[33mcommit 0147aec34b8c02af4bfdb29dcabab1c52ed39101[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 06:47:55 2025 +0700
+
+    refactor: Simplify README and reorder code blocks
+
+[33mcommit 389131842a1697897d79b698aa32a64f0ea6d5df[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 00:37:05 2025 +0700
+
+    fix: Display correct process names for startall/stopall commands
+
+[33mcommit 031c372036c41d490f31b7695b926a2f28bfe0b6[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 00:21:34 2025 +0700
+
+    fix: Align uptime calculation in status command with info command
+
+[33mcommit b0b00ad218c8e9cda5efcb228897991def2ae59c[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Fri Jul 18 00:13:26 2025 +0700
+
+    feat: Add spinner animation for clone, import, and export operations
+
+[33mcommit 99ca215e82c026098ca0c8c587e0d515f0b7532a[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 22:05:04 2025 +0700
+
+    feat: Improve unique TAP interface assignment for VM operations
+
+[33mcommit 2aa9469d64369f8322cfe9a701630f785fc11a20[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 18:31:53 2025 +0700
+
+    fix: Improve script robustness and info command accuracy
+    
+    Corrected syntax errors in cmd_status function.
+    Refactored cmd_info to use more reliable PID detection and
+    accurate parsing of bhyvectl output, ensuring consistency with cmd_status.
+
+[33mcommit 204125aff6a19fee414242085980de74891ec2a5[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 17:35:08 2025 +0700
+
+    feat: Enhance restart command and fix install networking
+    
+    Improves the "restart" command by making the default behavior a safe stop/start cycle. Adds a "--force" flag to allow for a faster, but less safe, hard reset using "bhyvectl --force-reset".
+    
+    Fixes a bug in the "install" command where network arguments were not being loaded, preventing VMs from having network access during installation.
+
+[33mcommit 0aabee9523fa11ec738fd13128ff0b72c28e2c70[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 15:54:53 2025 +0700
+
+    refactor: Improve VM start error handling and add MAC address generation
+
+[33mcommit d24ae5d112095eb2c258f3d05247a44c57155b86[m
+Merge: f9e186c 0808174
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 10:58:47 2025 +0700
+
+    feat: Add --remove-nic and --remove-disk options to modify command
+
+[33mcommit 080817471f2b4b3de2b17bc7d20ba80da5b79166[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 10:58:02 2025 +0700
+
+    feat: Add --remove-nic and --remove-disk options to modify command
+
+[33mcommit f9e186cf9ee94c7294d61344ceef54412248ecee[m
+Merge: 702b891 3403c30
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 10:08:07 2025 +0700
+
+    Merge branch 'fix/status-compat' into main
+
+[33mcommit 3403c3063333f6586d03ce32122b07fc26975c0f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 09:51:02 2025 +0700
+
+    fix: Improve VM status compatibility across FreeBSD versions
+
+[33mcommit 702b891668bdee30ad54c8ce8a9f01a596b39348[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 08:42:50 2025 +0700
+
+    refactor: Remove debug logging from cmd_status
+
+[33mcommit 09da8651c20c4ff94de05e87e1c4a7f761649981[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 08:39:21 2025 +0700
+
+    feat: Enhance status and info commands with detailed VM metrics
+    
+    - Fix: Resolve shellcheck syntax errors in cmd_info function.
+    - Feat: Add uptime, resident memory, VM exits, and bootloader information to 'status' command output.
+    - Feat: Display detailed uptime, resident memory, and VM exits in 'info' command output.
+
+[33mcommit bbd68a8441725828df7b26bc9b44842c0e6ddc50[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 07:50:57 2025 +0700
+
+    fix: Resolve nmdm console connection issue and refactor cmd_install cleanup\n\n- ensure_nmdm_device_nodes: Add robust error checking for mknod and chmod.\n- cmd_install: Add sleep after nmdm device creation to allow system to register devices.\n- cmd_install: Replace duplicate cleanup code with call to cleanup_vm_processes for efficiency and consistency.
+
+[33mcommit 124c835a9b512d4e53a2896723152856f988ad38[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 07:32:37 2025 +0700
+
+    feat: Display all disks in cmd_info and load all disks in cmd_start/cmd_install
+
+[33mcommit 96d8d59d576600f32bb2991c05ed7fe8012ed978[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 17 07:16:27 2025 +0700
+
+    refactor: Improve script robustness and logging\n\n- cmd_stop: Default to graceful shutdown via ACPI poweroff.\n- cmd_modify: Add --add-nic option for automatic NIC creation.\n- cmd_create/cmd_start/cmd_install: Use helper function for TAP interface creation and ensure MAC addresses are passed to bhyve.\n- cmd_modify_usage: Update usage message for clarity.
+
+[33mcommit 7e9404c122517ecb142ec2281016fdcef08bf632[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 15 14:33:15 2025 +0700
+
+    Fix bug and Refactor code
+
+[33mcommit 8375c7039a5979f503dbcfdfcfe09c40ca58e78c[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 15 10:46:33 2025 +0700
+
+    refactor: Improve script robustness and logging for VM deletion
+
+[33mcommit 90da21b99e6b7ee37c21e06de99997b6156362d6[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 15 08:10:49 2025 +0700
+
+    refactor: Improve script robustness and logging
+    
+    This commit refactors various parts of the script to improve its robustness and enhance logging capabilities. Key changes include:
+    - Improved error handling and logging verbosity in VM management commands (create, start, delete, stop).
+    - Added functionality to modify VM disks.
+    - Addressed numerous shellcheck warnings for better code quality and maintainability.
+    - Ensured compatibility across different FreeBSD versions.
+
+[33mcommit 0292b0cf7ebd282bc4e5fd2fd00d4971c3521155[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Mon Jul 14 17:07:45 2025 +0700
+
+    Fix bridge create
+
+[33mcommit 4a2bea1e5478321a32dd44f1ea736d38f05630d3[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Mon Jul 14 15:41:05 2025 +0700
+
+    add command for config switch to up
+
+[33mcommit abb2f0f2b0bcea26f9923b44b3cbd41e74e8979b[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Mon Jul 14 09:41:43 2025 +0700
+
+    Add fucntion cleanup VM Process and refactor cmd_stop and cmd_delete
+
+[33mcommit e56bd0cdc10ead7be10eed1246c528cf020a35d5[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Mon Jul 14 06:58:37 2025 +0700
+
+    Initial commit
+
+[33mcommit 92538cdabb6f5d9894c971fffc372567e18605a2[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Mon Jul 14 06:58:14 2025 +0700
+
+    refactor usage message
+
+[33mcommit d69785a6145e50711b2a05b2c8256c16be9d3008[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 23:50:53 2025 +0700
+
+    Add Log detail
+
+[33mcommit 14094060f438f1adff0fd96334709f65eee8c88b[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 23:47:46 2025 +0700
+
+    Add Lib Firmware
+
+[33mcommit 84abb01c0879bf81f109fb180e95f83a2b1a56c3[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 23:28:34 2025 +0700
+
+    fix typo
+
+[33mcommit e8f92955c2f6b0f1aa7522741ad9b06bd0b84cdf[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 22:56:55 2025 +0700
+
+    Add Firmware
+
+[33mcommit aade9f784a26532fff01984d1b97c0a05de0c33f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 22:51:36 2025 +0700
+
+    feat: Implement VM restart command and network cleanup refactoring
+    
+       - Introduced a new `restart` command for VMs, allowing users to stop and then start a VM with a single command.
+       - Refactored network interface cleanup logic into a dedicated `cleanup_vm_network_interfaces` function.
+       - Integrated `cleanup_network_interfaces` into both `delete` and `stop` commands for consistent and centralized network resource management.
+       - Updated `main_usage` and added `cmd_restart_usage` for the new command.
+
+[33mcommit fc241159c53b03fcb8c62a2dea59e86edb119593[m
+Author: alifgufron <59003499+alifgufron@users.noreply.github.com>
+Date:   Sun Jul 13 22:15:06 2025 +0700
+
+    Update README.md
+
+[33mcommit c79831b3c6caf51dcb0bd62381d00b495d935d3a[m
+Merge: 93f1110 72ea692
+Author: Alif Gufron <alifgufronp@gmail.com>
+Date:   Sun Jul 13 20:21:01 2025 +0700
+
+    Merge remote-tracking branch 'origin/main'
+
+[33mcommit 93f11109ff7489643cc4a4d3c029372b12314c8f[m
+Author: Alif Gufron <alifgufronp@gmail.com>
+Date:   Sun Jul 13 20:14:00 2025 +0700
+
+    Change device
+
+[33mcommit 178b705efabb6353de2061f783dd6fcda07d2b07[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 19:57:58 2025 +0700
+
+    refactor and clean directory
+
+[33mcommit e87994561f8d9dfdd9904ede1e52994634a38e32[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 18:38:28 2025 +0700
+
+    Feat: Enhanced switch list output.
+
+[33mcommit cfd2ea9e402d864bb74186af7c816e2ee991213f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 18:26:58 2025 +0700
+
+    Fix: Import command logic.
+
+[33mcommit ba321effdf4f5404e1da014d8af1067344d1d4d2[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 18:08:41 2025 +0700
+
+    Fix: VM management commands pathing and logic
+
+[33mcommit 5628c0f06f18f2820af3cc8b064d6c1b6edb42b1[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 13:51:27 2025 +0700
+
+    feat: Improve cmd_modify validation and align cmd_info status detection.
+
+[33mcommit 3dfba9ef83736a97fe6eb0bf5bbae58301f53546[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 13:36:55 2025 +0700
+
+    feat: Implement PID file management for robust VM status and control.
+
+[33mcommit bffad4ca69535bad225e30bd3a57739a2259b253[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 13:15:26 2025 +0700
+
+    feat: Align UEFI firmware detection and logging in cmd_start with cmd_install.
+
+[33mcommit e69957025b188cd4a228263cf3a236353706edec[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 13:11:00 2025 +0700
+
+    Refactor: Overhaul cmd_install for robustness and clarity.
+
+[33mcommit df0e25c1f3def114c639c3cea6db872f397a3782[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 12:22:46 2025 +0700
+
+    feat: Improve UEFI firmware detection and add aggressive process termination on install failure.
+
+[33mcommit 3b498bf22e92494788ec76075596edde9edc69f6[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 11:43:27 2025 +0700
+
+    Refactor: Restore UEFI/GRUB start logic and add console message.
+
+[33mcommit 5745314b4faa909669fbac1e86b7c7a68a2b6511[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 10:22:41 2025 +0700
+
+    feat: Refine 'iso list' output
+    
+    - Modified 'iso list' command to display ISO files with a numbered list, including their size in GB, for better readability and conciseness.
+    - Removed the full path from the 'iso list' output.
+
+[33mcommit 566e48fa48cbc0ad9dd84ccb01a9c49ffe99678d[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 10:16:08 2025 +0700
+
+    feat: Enhance 'switch list' output and 'switch init' logging
+    
+    - Modified 'switch list' to display the parent physical interface (vlandev) for VLAN-tagged bridges, providing more informative output.
+    - Improved logging for 'switch init' to include detailed steps and commands executed in the global log file, ensuring comprehensive traceability.
+
+[33mcommit 166861df75532c86cfe236bebb88049af9754120[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 10:06:39 2025 +0700
+
+    fix: Improve switch command logging and destruction
+    
+    - Enhanced logging for 'switch init' and 'switch destroy' commands to provide more detailed information in the global log file, including executed commands.
+    - Corrected 'switch destroy' to properly remove member interfaces (including VLANs) and their configurations from 'switch.conf'.
+    - Ensured 'switch add' is idempotent and prevents duplicate entries in 'switch.conf'.
+
+[33mcommit 4eb900f41b31b732fe401396a4b620ef9228a814[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 09:28:22 2025 +0700
+
+    feat: Implement centralized configuration and initialization
+    
+    Introduces a new configuration management system for bhyve-cli.
+    
+    Key changes:
+    - Adds an 'init' command to create a centralized configuration directory at /usr/local/etc/bhyve-cli.
+    - All configuration files, including VM configs, are now stored in this directory.
+    - Implements a 'switch init' command and configuration persistence in switch.conf to restore network settings after a host reboot.
+    - The script now checks for initialization before running most commands, guiding the user to run 'init' first.
+    - Refactors variable handling to use the new centralized configuration.
+
+[33mcommit 621d706f8998eee33b88c06df9970bd798f5fc57[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sun Jul 13 00:31:39 2025 +0700
+
+    style: Standardize comments to English with consistent formatting
+    
+    This commit refactors all comments within the bhyve-cli.sh script to adhere to a consistent English language format.
+    
+    Key changes include:
+    - All comments are now in English.
+    - Comments follow the # === Comment Text === format for better readability and uniformity.
+    - Inline comments and block comments have been adjusted to match the new style.
+
+[33mcommit c9d109d3d4de57849b027217448e05550c196aab[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 12 23:56:40 2025 +0700
+
+    docs: Standardize and improve command usage messages
+    
+    This commit focuses on enhancing the clarity and consistency of all command usage messages within the bhyve-cli.sh script.
+    
+    Key improvements include:
+    - Standardized formatting for arguments, options, and examples across all commands.
+    - Ensured consistent indentation and line breaks for better readability.
+    - Updated bootloader options in install and create usage to reflect only bhyveload and uefi.
+    - Provided more detailed descriptions for command arguments and options where previously lacking.
+    - Corrected minor inconsistencies in prompt formatting for interactive inputs.
+
+[33mcommit 0568bd761d192a9996bad0c8182cf1d8866b5226[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Sat Jul 12 23:18:13 2025 +0700
+
+    feat: Refactor script for reliability and consistency
+    
+    This commit introduces several key improvements:
+    
+    - Adds prerequisite checks for root privileges and loaded vmm/nmdm kernel modules at startup.
+    - Refactors the bhyveload install and start process for better user feedback and reliability, separating stdio loading from nmdm console attachment.
+    - Creates new helper functions (ensure_nmdm_device_nodes, run_bhyveload) to reduce code duplication.
+    - Standardizes all bhyve utility calls to use absolute paths defined globally.
+    - Changes all instances of UEFI to lowercase uefi for consistency.
+    - Improves interactive prompts by placing user input on the same line as the prompt text.
+
+[33mcommit 1b69424e32518941c52ce440b290f04063cb4c34[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 18:47:41 2025 +0700
+
+    fix bhvyeload loadder installer
+
+[33mcommit 72ea692b54c66c12d7ad7d4f0e641b5b3008413d[m
+Author: alifgufron <59003499+alifgufron@users.noreply.github.com>
+Date:   Thu Jul 10 17:05:54 2025 +0700
+
+    Initial commit
+
+[33mcommit 7b75727ad4254caea0cfc8bde0d287d2b1d171e4[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 16:45:00 2025 +0700
+
+    Fix: Improve VM stop/status accuracy and nmdm cleanup
+
+[33mcommit 894c027813d07d74f732a4dc628854195ada365e[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 15:01:53 2025 +0700
+
+    Fix: Conditional loader argument for bhyve in install and start commands
+
+[33mcommit fd1edac08deb4ce169bb0bc501838bf6a868a81e[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 14:17:45 2025 +0700
+
+    Fix: Handle bhyveload for ISO installation in cmd_install
+
+[33mcommit cdfc88ea7fa4a744479c03f335fd8ec45d190063[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 14:10:01 2025 +0700
+
+    Fix: Allow ISO installation with bhyveload by omitting loader
+
+[33mcommit 8c59f80c863978eb349f177bbda712457a0b4981[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 14:00:23 2025 +0700
+
+    feat: Enhance info command output for VM details
+
+[33mcommit e5239d137f054c16b7ca28675b91f35595130c65[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 13:49:39 2025 +0700
+
+    Fix: Re-enable automatic console connection during install
+
+[33mcommit 2866e3d73630510232ce928f350e928aaf0616a5[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 13:13:57 2025 +0700
+
+    feat: Add --bootloader option to install command
+
+[33mcommit ce66d428a38e9510a930b0437d3e244042ac7448[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 12:56:31 2025 +0700
+
+    Fix: Improve bhyve install process and error handling
+
+[33mcommit 229ba3313c711b4db536b373d0fc6d4b9e8c43cc[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 12:21:40 2025 +0700
+
+    feat: Use relative path for UEFI firmware
+
+[33mcommit 96c62e519fa23c9c851d8b723903eef350ed0a33[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 12:06:46 2025 +0700
+
+    Fix: Prevent error when deleting VM by unsetting LOG_FILE
+
+[33mcommit 832ca26da4a573bd299cf53b11f6a917d466b97d[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 11:51:51 2025 +0700
+
+    feat: Implement --bootloader option for create command and enhance output
+
+[33mcommit 3fb653173a9ab17ed784402b1324a53352a44136[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 01:07:47 2025 +0700
+
+    WIP: Prepare for adding display_and_log function and improving switch subcommand an usage message
+
+[33mcommit 34da2c0592418128b7e1817a3ab583e5136d5540[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 00:54:25 2025 +0700
+
+    Feat: Improve output messages for switch add command
+
+[33mcommit 01c2041379f46e4a3cf106fc4ef330326839af8e[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 00:43:46 2025 +0700
+
+    Refactor: Rename switch delete-member to delete and fix usage call
+
+[33mcommit fdecfd4613dab6ffc94f952bb8f1457a50f1c65e[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 00:39:32 2025 +0700
+
+    Refactor: Rename switch remove-member to delete-member and remove switch remove subcommand
+
+[33mcommit 4f1b7e9b20076ab075e07de754728cb31c0c5f3f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 00:29:48 2025 +0700
+
+    Fix: Missing 'fi' in log() function
+
+[33mcommit 95a816e255cfe7716883ce5c45661ed97b8955fe[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 00:28:33 2025 +0700
+
+    Refactor: Improve switch remove command and add destroy/remove-member subcommands
+
+[33mcommit d5575f40dfdd724381eb1133c40e47aa58445b82[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Thu Jul 10 00:01:32 2025 +0700
+
+    Fix indentaion message switch add & remoce
+
+[33mcommit cf4b71df9a056e897d7e4cb935a85c3db6447acf[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 23:58:02 2025 +0700
+
+    Fix: Format usage messages for switch add and remove commands
+
+[33mcommit e73a661841548da24bf2a4d0efb1df65d5da5c8f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 23:52:22 2025 +0700
+
+    Refactor: Change network add command to use named arguments
+
+[33mcommit 88927ffa7e6d363802764aa952177c329914f180[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 23:40:08 2025 +0700
+
+    Fix: Newline characters not interpreted in echo_message
+
+[33mcommit 98c927cf61ccfa45fe9f221c5e67cb92581f9da4[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 23:39:06 2025 +0700
+
+    Add cmd_network_usage function to bhyve-cli.sh
+
+[33mcommit 55b9e90a443f762f41588831bf68f294b0fcc716[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 23:38:04 2025 +0700
+
+    Before adding cmd_network_usage function
+
+[33mcommit ad7e8cb9ca891639fb86f79e79cebaef87b10162[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 22:40:23 2025 +0700
+
+    fix(cli): Remove redundant error messages for network and switch commands
+
+[33mcommit 96075ff27efd66be6874d667b93b7a3c78dae81a[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 22:29:38 2025 +0700
+
+    refactor(cli): Add usage functions for disk and import/export commands
+
+[33mcommit 9a146f5a4d5fc688c5e3022c0b6fbb12d46cbe91[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 22:16:46 2025 +0700
+
+    refactor(cli): Add usage functions for modify, clone, and info commands
+
+[33mcommit c856fb5346ef3df998af4ec1e7ce25b74fabe7a1[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 22:09:30 2025 +0700
+
+    refactor(cli): Add usage functions for management commands
+
+[33mcommit 36367c98eface2ca8bad83bc79c32363d701324d[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 19:04:15 2025 +0700
+
+    refactor(cli): Unify usage messages for core and main commands
+
+[33mcommit a0cb9aaf182a39257cb21944568c29c10f33f892[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 17:20:28 2025 +0700
+
+    refactor(cli): Improve usage messages and deduplicate switch logic
+
+[33mcommit 165cc0fd728e7ae7349741b02e2262b808431941[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 07:09:22 2025 +0700
+
+    rollback to 0e87595015fc4e369933034e3c988596bb2af15c
+
+[33mcommit 96453016e79da39a3c2b2677191b86ec0c965138[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 07:08:57 2025 +0700
+
+    move file
+
+[33mcommit 1cceb472e4ce8af3b81e92d62f4cf3f9be19caa7[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 01:22:02 2025 +0700
+
+    Refactor: Fix syntax errors and improve usage messages for all commands
+
+[33mcommit acc8980ef455a0e47a2c179545eb6fcfd67692fa[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 01:11:41 2025 +0700
+
+    Refactor: Fix syntax errors and improve usage messages for all commands
+
+[33mcommit 8cec59f49f2b2b58f364c90a4d191d784e891f59[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:45:39 2025 +0700
+
+    Refactor: Fix syntax errors and improve usage messages for all commands
+
+[33mcommit 1c15519816d71801ff75cc1b2b749d0508ae7129[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:42:29 2025 +0700
+
+    Refactor: Fix syntax errors and improve usage messages for all commands
+
+[33mcommit 1adccf9d798a6bc6d7791dd2653ee71e17759873[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:39:47 2025 +0700
+
+    Refactor: Improve 'network' command usage messages and --help handling
+
+[33mcommit dc677b109fabcb6d1eb3a8e4d1b308092a65364e[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:27:40 2025 +0700
+
+    Refactor: Standardize usage messages and --help handling across all commands
+
+[33mcommit 14b5d98e32fcea9628ce32664b44b33f441bcdc6[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:25:43 2025 +0700
+
+    Refactor: Improve 'import' command usage messages and --help handling
+
+[33mcommit 1cf2aecb8336453d0c3120a7afff5c48d7c132c5[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:25:07 2025 +0700
+
+    Refactor: Improve 'export' command usage messages and --help handling
+
+[33mcommit 5c3d8b25f508f3e6b2c2e9d638a3f0a2e1758f88[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:24:39 2025 +0700
+
+    Refactor: Improve 'resize-disk' command usage messages and --help handling
+
+[33mcommit 735e187d26c38430502097e9377590af40d3886d[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:24:07 2025 +0700
+
+    Refactor: Improve 'info' command usage messages and --help handling
+
+[33mcommit aee61ec8927291474f6417bddd9a6e6a0c37c0db[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:23:24 2025 +0700
+
+    Refactor: Improve 'clone' command usage messages and --help handling
+
+[33mcommit deebdd6e6d82e9a994a317740266199bd1020421[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:22:44 2025 +0700
+
+    Refactor: Improve 'modify' command usage messages and --help handling
+
+[33mcommit 983d03da4c7818680dff7930ccdb162e63af9b0f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:22:11 2025 +0700
+
+    Refactor: Improve 'autostart' command usage messages and --help handling
+
+[33mcommit effa3240cba6faa744ec3d4783d626865bb4f21e[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:21:42 2025 +0700
+
+    Refactor: Improve 'status' command usage messages and --help handling
+
+[33mcommit f141ee0f3d892062727c49ee2d662b7355770636[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:21:05 2025 +0700
+
+    Refactor: Improve 'logs' command usage messages and --help handling
+
+[33mcommit 1e6c3c985bb5e0291bbc129d8984f377834b8175[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:20:37 2025 +0700
+
+    Refactor: Improve 'console' command usage messages and --help handling
+
+[33mcommit df078b20e137a487d552fa5d989350f4d5171e4b[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:20:13 2025 +0700
+
+    Refactor: Improve 'stop' command usage messages and --help handling
+
+[33mcommit 1cf7aeae10585bdaad77f21a360f9a38a207866c[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:19:41 2025 +0700
+
+    Refactor: Improve 'start' command usage messages and --help handling
+
+[33mcommit 2a046d958ef0f7f01e849a7cb9406628ea4f3768[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:17:13 2025 +0700
+
+    Refactor: Improve 'install' command usage messages and --help handling
+
+[33mcommit ac9bcb76be1e42fe79669b861a23622a604e0c8a[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:16:13 2025 +0700
+
+    Refactor: Improve 'delete' command usage messages and --help handling
+
+[33mcommit 9d9369ade23749542ae5686a5b96568898ec9b19[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Wed Jul 9 00:01:56 2025 +0700
+
+    Refactor: Improve 'create' command usage messages and --help handling
+
+[33mcommit 0e87595015fc4e369933034e3c988596bb2af15c[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 23:57:09 2025 +0700
+
+    Refactor: Improve 'switch' command usage messages and --help handling
+
+[33mcommit 9b957c7ae31ec05b02ec65744be8f9975597a8cc[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 20:12:03 2025 +0700
+
+    Improve vm info network interface display with explicit indexed keys
+
+[33mcommit 774bd51599e969e562ec7bf7b51346dd9f375748[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 20:10:19 2025 +0700
+
+    Revert cmd_status header fix and simplify output
+
+[33mcommit 93045ffeb367944bbf2ab7f0065d2437b6487942[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 20:07:13 2025 +0700
+
+    Simplify vm status output, remove network details
+
+[33mcommit 3f6d843ac992a46b6770439fb72f88f7c22ce6eb[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 20:03:55 2025 +0700
+
+    Implement immediate TAP creation/destruction in network add/remove
+
+[33mcommit 093a2e15724c2eb05f3f80f38ec540a9bd3fd02f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 20:00:49 2025 +0700
+
+    Clarify TAP interface naming in cmd_network_add usage
+
+[33mcommit b7737a1629f529a74567d3717f9e80823018a585[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:54:21 2025 +0700
+
+    Improve vm info network interface display
+
+[33mcommit c6008579863a64c27a516c2abcece735f744d9eb[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:53:11 2025 +0700
+
+    Refactor cmd_status to display all network interfaces
+
+[33mcommit 9eec2402ac7ae5d42d8f1f02c9dbf6d5e648d37d[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:42:15 2025 +0700
+
+    Add vm network add and remove commands
+
+[33mcommit 63ba9b8c9e77a240a8c151141cc2c429a3ad535c[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:26:52 2025 +0700
+
+    Refactor cmd_modify to handle multiple network interfaces
+
+[33mcommit 013437937b06f2957e944b440438f8d9339236fc[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:22:58 2025 +0700
+
+    Refactor cmd_clone to handle multiple network interfaces
+
+[33mcommit 843fc5eaf0fa5e0ae0fda50e9e32c73b71d6a90b[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:21:12 2025 +0700
+
+    Refactor cmd_info to display multiple network interfaces
+
+[33mcommit 588d62d893953aeb5284e096e55e4cf6a36e2279[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:18:39 2025 +0700
+
+    Refactor cmd_delete to clean up multiple network interfaces
+
+[33mcommit 9ac5201258cedc4df2f824b545f23d30d46b49e1[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:18:07 2025 +0700
+
+    Refactor cmd_start to support multiple network interfaces
+
+[33mcommit 6dbdc6e95c435138df540118363b9834c89cbbf8[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:12:23 2025 +0700
+
+    Refactor cmd_create to use indexed network interfaces (TAP_0, MAC_0, BRIDGE_0)
+
+[33mcommit 5be300e595ac0d6477760bc314e2201cd8f7019f[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:06:35 2025 +0700
+
+    Add vm export and import commands
+
+[33mcommit 0d26755faaff29b01d3bc499cad916e43ca95766[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:03:26 2025 +0700
+
+    Update DISKSIZE in vm.conf after resize-disk
+
+[33mcommit a175cfc97f2cd2412a56f46afd069f1b2f8a59a4[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:01:20 2025 +0700
+
+    Handle empty DISKSIZE in vm info output
+
+[33mcommit e284d7deb7e909dd719571a671c91dfe26c48917[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 19:00:18 2025 +0700
+
+    Store DISKSIZE in vm.conf during VM creation
+
+[33mcommit 987cc107d8523b92e7b4d2feed81430e92ded344[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 18:59:19 2025 +0700
+
+    Add configured disk size to vm info output
+
+[33mcommit 31d5e3b2733ba6a5b9b286bf460d2d7ca208d244[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 18:57:32 2025 +0700
+
+    Add vm resize-disk command
+
+[33mcommit 68c1d43af98e2198e178abcc5d10c3041d16cf96[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 18:56:02 2025 +0700
+
+    Fix vm info output alignment
+
+[33mcommit 4724d26f1a03c336e64b5525d470b2df1164903a[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 18:54:12 2025 +0700
+
+    Improve vm info output formatting
+
+[33mcommit 2386289b946dbb803d97b61264dec88a20d7ec29[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 18:53:19 2025 +0700
+
+    Add disk usage to vm info command
+
+[33mcommit 88a1f5c95fea5084e5c1b0576a2e243a2b38e0bb[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 18:51:40 2025 +0700
+
+    Add vm info command
+
+[33mcommit c0d6ceb7f36d2b55bdcefdf901c946bc8adf7771[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 18:48:12 2025 +0700
+
+    Add vm clone command
+
+[33mcommit b35bd46464a0a59f43b428f5b024a51dc4e006c3[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 18:39:06 2025 +0700
+
+    Add vm modify command for CPU, RAM, TAP, and Bridge
+
+[33mcommit 5c27ed17461309f8bdd902adf18f658fb7923451[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 18:35:53 2025 +0700
+
+    Add vm autostart command
+
+[33mcommit 711aaedf75313de2c9d8b047417b9f9e0813def6[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 18:34:08 2025 +0700
+
+    Update vm logs command to use tail -f for live updates
+
+[33mcommit f430e59f6e5ac14b55521eac2324e83172537650[m
+Author: 4life <4life@ngoprekbareng.my.id>
+Date:   Tue Jul 8 18:31:55 2025 +0700
+
+    Add vm logs command

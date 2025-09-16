@@ -89,15 +89,22 @@ check_kld() {
 # === Helper function to check if a VM is running ===
 is_vm_running() {
   local VMNAME_CHECK="$1"
-  get_vm_pid "$VMNAME_CHECK" > /dev/null
+  local VM_DIR_CHECK="$2"
+  get_vm_pid "$VMNAME_CHECK" "$VM_DIR_CHECK" > /dev/null
   return $?
 }
 
 # === Helper functions for VM PID file management ===
 get_vm_pid() {
   local VMNAME_GET_PID="$1"
-  local VM_DIR_GET_PID="$VM_CONFIG_BASE_DIR/$VMNAME_GET_PID"
+  local VM_DIR_GET_PID="$2"
   local PID=""
+
+  if [ -z "$VM_DIR_GET_PID" ]; then
+      log_to_global_file "ERROR" "get_vm_pid called without a VM directory for $VMNAME_GET_PID."
+      return 1
+  fi
+
   if [ -f "$VM_DIR_GET_PID/vm.pid" ]; then
     PID=$(cat "$VM_DIR_GET_PID/vm.pid")
     if [ -n "$PID" ] && ps -p "$PID" > /dev/null 2>&1; then
@@ -106,7 +113,7 @@ get_vm_pid() {
     fi
   fi
   # Fallback to pgrep if vm.pid is not found or invalid
-  PID=$(pgrep -f "bhyve .* $VMNAME_GET_PID$")
+  PID=$(pgrep -f "bhyve: $VMNAME_GET_PID\[")
   if [ -n "$PID" ] && ps -p "$PID" > /dev/null 2>&1; then
     echo "$PID"
     return 0
@@ -117,15 +124,26 @@ get_vm_pid() {
 save_vm_pid() {
   local VMNAME_SAVE_PID="$1"
   local PID_TO_SAVE="$2"
-  local VM_DIR_SAVE_PID="$VM_CONFIG_BASE_DIR/$VMNAME_SAVE_PID"
+  local VM_DIR_SAVE_PID="$3"
+
+  if [ -z "$VM_DIR_SAVE_PID" ]; then
+      log_to_global_file "ERROR" "save_vm_pid called without a VM directory for $VMNAME_SAVE_PID."
+      return
+  fi
   echo "$PID_TO_SAVE" > "$VM_DIR_SAVE_PID/vm.pid"
 }
 
 delete_vm_pid() {
   local VMNAME_DELETE_PID="$1"
-  local VM_DIR_DELETE_PID="$VM_CONFIG_BASE_DIR/$VMNAME_DELETE_PID"
-  if [ -f "$VM_DIR_DELETE_PID/vm.pid" ]; then
-    rm "$VM_DIR_DELETE_PID/vm.pid"
+  local VM_DIR_DELETE_PID="$2"
+
+  if [ -z "$VM_DIR_DELETE_IDEL" ]; then
+      log_to_global_file "ERROR" "delete_vm_pid called without a VM directory for $VMNAME_DELETE_PID."
+      return
+  fi
+
+  if [ -f "$VM_DIR_DELETE_IDEL/vm.pid" ]; then
+    rm "$VM_DIR_DELETE_IDEL/vm.pid"
   fi
 }
 
@@ -224,17 +242,6 @@ get_next_available_tap_num() {
     USED_TAPS+=("$tap_num")
   done
 
-  # Get TAP interfaces configured in all vm.conf files
-  for VMCONF_FILE in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
-    if [ -f "$VMCONF_FILE" ]; then
-      local CONFIGURED_TAPS
-      CONFIGURED_TAPS=$(grep '^TAP_[0-9]*=' "$VMCONF_FILE" | cut -d'=' -f2 | sed 's/tap//' | sort -n)
-      for tap_num in $CONFIGURED_TAPS; do
-        USED_TAPS+=("$tap_num")
-      done
-    fi
-  done
-
   # Sort and get unique numbers
   local UNIQUE_USED_TAPS
   UNIQUE_USED_TAPS=$(printf "%s\n" "${USED_TAPS[@]}" | sort -n -u)
@@ -258,20 +265,20 @@ create_and_configure_tap_interface() {
   local VM_NAME="$4"
   local NIC_IDX="$5"
 
-  log "Attempting to create TAP interface '$TAP_NAME'..."
+  log "Attempting to create TAP interface '$TAP_NAME'ப்பான"
   local CREATE_TAP_CMD="ifconfig \"$TAP_NAME\" create"
   log "Executing: $CREATE_TAP_CMD"
   ifconfig "$TAP_NAME" create || { log_to_global_file "ERROR" "Failed to create TAP interface '$TAP_NAME'. Command: '$CREATE_TAP_CMD'"; return 1; }
   log "TAP interface '$TAP_NAME' successfully created."
 
-  log "Setting TAP description for '$TAP_NAME'..."
+  log "Setting TAP description for '$TAP_NAME'ப்பான"
   local TAP_DESC="vmnet/${VM_NAME}/${NIC_IDX}/${BRIDGE_NAME}"
   local DESC_TAP_CMD="ifconfig \"$TAP_NAME\" description \"$TAP_DESC\""
   log "Executing: $DESC_TAP_CMD"
   ifconfig "$TAP_NAME" description "$TAP_DESC" || { log_to_global_file "WARNING" "Failed to set description for TAP interface '$TAP_NAME'. Command: '$DESC_TAP_CMD'"; }
   log "TAP description for '$TAP_NAME' set to: '$TAP_DESC'."
 
-  log "Activating TAP interface '$TAP_NAME'..."
+  log "Activating TAP interface '$TAP_NAME'ப்பான"
   local ACTIVATE_TAP_CMD="ifconfig \"$TAP_NAME\" up"
   log "Executing: $ACTIVATE_TAP_CMD"
   ifconfig "$TAP_NAME" up || { log_to_global_file "ERROR" "Failed to activate TAP interface '$TAP_NAME'. Command: '$ACTIVATE_TAP_CMD'"; return 1; }
@@ -288,7 +295,7 @@ create_and_configure_tap_interface() {
     log "Bridge interface '$BRIDGE_NAME' already exists. Skipping creation."
   fi
 
-  log "Adding TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'..."
+  log "Adding TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'ப்பான"
   local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$BRIDGE_NAME\" addm \"$TAP_NAME\""
   log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
   ifconfig "$BRIDGE_NAME" addm "$TAP_NAME" || { log_to_global_file "ERROR" "Failed to add TAP '$TAP_NAME' to bridge '$BRIDGE_NAME'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
@@ -340,63 +347,55 @@ build_network_args() {
   local VM_DIR="$2" # Not directly used here, but might be useful for future expansion
   local NETWORK_ARGS=""
   local NIC_DEV_NUM=10 # Starting device number for virtio-net
+  local CREATED_TAPS=() # Array to store dynamically created TAP interfaces
 
   local NIC_IDX=0
   while true; do
-    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
-    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
     local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
     local CURRENT_NIC_TYPE_VAR="NIC_${NIC_IDX}_TYPE"
+    local CURRENT_MAC_VAR="MAC_${NIC_IDX}" # New: Read static MAC from vm.conf
 
-    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
-    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
     local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
     local CURRENT_NIC_TYPE="${!CURRENT_NIC_TYPE_VAR:-virtio-net}" # Default to virtio-net
+    local STATIC_MAC="${!CURRENT_MAC_VAR}" # Read static MAC
 
-    if [ -z "$CURRENT_TAP" ]; then
+    if [ -z "$CURRENT_BRIDGE" ]; then
       break # No more network interfaces configured
     fi
 
-    log "Checking network interface NIC_${NIC_IDX} (TAP: $CURRENT_TAP, MAC: $CURRENT_MAC, Bridge: $CURRENT_BRIDGE, Type: $CURRENT_NIC_TYPE)"
-
-    # === Create and configure TAP interface if it doesn't exist or activate if it does ===
-    if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
-      if ! create_and_configure_tap_interface "$CURRENT_TAP" "$CURRENT_MAC" "$CURRENT_BRIDGE" "$VMNAME" "$NIC_IDX"; then
-        return 1
-      fi
+    local MAC_TO_USE=""
+    if [ -n "$STATIC_MAC" ]; then
+      MAC_TO_USE="$STATIC_MAC"
+      log "Using static MAC address for NIC_${NIC_IDX}: $STATIC_MAC"
     else
-      log "TAP '$CURRENT_TAP' already exists. Attempting to activate and ensure bridge connection..."
-      local ACTIVATE_TAP_CMD="ifconfig \"$CURRENT_TAP\" up"
-      log "Executing: $ACTIVATE_TAP_CMD"
-      ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate existing TAP interface '$CURRENT_TAP'. Command: '$ACTIVATE_TAP_CMD'"; return 1; }
-      log "TAP '$CURRENT_TAP' activated."
-
-      # Ensure bridge exists and TAP is a member
-      if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
-        log "Bridge interface '$CURRENT_BRIDGE' does not exist. Attempting to create..."
-        local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$CURRENT_BRIDGE\""
-        log "Executing: $CREATE_BRIDGE_CMD"
-        ifconfig bridge create name "$CURRENT_BRIDGE" || { display_and_log "ERROR" "Failed to create bridge '$CURRENT_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; return 1; }
-        log "Bridge interface '$CURRENT_BRIDGE' successfully created."
-      fi
-
-      if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
-        log "Adding TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'...";
-        local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$CURRENT_BRIDGE\" addm \"$CURRENT_TAP\""
-        log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
-        ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP" || { display_and_log "ERROR" "Failed to add TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
-      else
-        log "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'."
-      fi
+      MAC_TO_USE="58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+      log "Generating dynamic MAC address for NIC_${NIC_IDX}: $MAC_TO_USE"
     fi
 
-    NETWORK_ARGS+=" -s ${NIC_DEV_NUM}:0,${CURRENT_NIC_TYPE},\""$CURRENT_TAP"\",mac=\""$CURRENT_MAC"\""
+    # Dynamically generate TAP name
+    local NEXT_TAP_NUM=$(get_next_available_tap_num)
+    local DYNAMIC_TAP_NAME="tap${NEXT_TAP_NUM}"
+
+    log "Creating network interface NIC_${NIC_IDX} (TAP: $DYNAMIC_TAP_NAME, MAC: $MAC_TO_USE, Bridge: $CURRENT_BRIDGE, Type: $CURRENT_NIC_TYPE)"
+
+    if ! create_and_configure_tap_interface "$DYNAMIC_TAP_NAME" "$MAC_TO_USE" "$CURRENT_BRIDGE" "$VMNAME" "$NIC_IDX"; then
+      # If creation fails, clean up any TAPs already created in this call
+      for tap in "${CREATED_TAPS[@]}"; do
+        ifconfig "$tap" destroy > /dev/null 2>&1
+      done
+      return 1
+    fi
+    CREATED_TAPS+=("$DYNAMIC_TAP_NAME")
+
+    NETWORK_ARGS+=" -s ${NIC_DEV_NUM}:0,${CURRENT_NIC_TYPE},\"$DYNAMIC_TAP_NAME\",mac=\" $MAC_TO_USE\""
     NIC_DEV_NUM=$((NIC_DEV_NUM + 1))
     NIC_IDX=$((NIC_IDX + 1))
   done
   echo "$NETWORK_ARGS"
+  echo "${CREATED_TAPS[@]}" # Return the list of created TAPs
   return 0
 }
+
 
 run_bhyveload() {
   local DATA_PATH="$1"
@@ -423,7 +422,6 @@ run_bhyveload() {
   log "bhyveload completed successfully."
   return 0
 }
-
 
 
 
@@ -488,8 +486,8 @@ load_config() {
     . "$MAIN_CONFIG_FILE"
   fi
   # Set default log file if not set in config
-  GLOBAL_LOG_FILE="${GLOBAL_LOG_FILE:-/var/log/bhyve-cli.log}"
-  VM_CONFIG_BASE_DIR="${VM_CONFIG_BASE_DIR:-$CONFIG_DIR/vm.d}" # Ensure default if not in config
+  GLOBAL_LOG_FILE="${GLOBAL_LOG_FILE:-\/var\/log\/bhyve-cli.log}"
+  VM_CONFIG_BASE_DIR="${VM_CONFIG_BASE_DIR:-\$CONFIG_DIR\/vm.d}" # Ensure default if not in config
 }
 
 # === Function to check if the script has been initialized ===

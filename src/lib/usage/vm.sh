@@ -7,12 +7,12 @@ cmd_vm_usage() {
   echo_message "  Main command for managing virtual machines."
   echo_message "\nAvailable Subcommands:"
   echo_message "  create, delete, install, start, stop, restart, console, autostart, modify, clone, info, resize-disk, export, import, suspend, resume, vnc, list, stopall, startall, verify"
-  echo_message "\nFor detailed usage of each subcommand, use: $(basename "$0") vm <subcommand> --help"
+  echo_message "\nFor detailed usage of each subcommand, use: $(basename "$(basename "$0")") vm <subcommand> --help"
 }
 
 # === Usage function for create ===
 cmd_create_usage() {
-  echo_message "Usage: $(basename "$0") create --name <vmname> --switch <bridge_name> [--disk-size <disksize in GB>] [--from-template <template_name>] [--bootloader <type>] [--vnc-port <port>] [--vnc-wait] [--nic-type <type>]"
+  echo_message "Usage: $(basename "$(basename "$0")") vm create --name <vmname> [--datastore <ds_name>] --switch <bridge_name> [--disk-size <disksize in GB>] [--from-template <template_name>] [--bootloader <type>] [--vnc-port <port>] [--vnc-wait] [--nic-type <type>]"
   echo_message "\nOptions:"
   echo_message "  --name <vmname>              - Name of the virtual machine."
   echo_message "  --datastore <ds_name>        - Optional. Name of the datastore to create the VM in. Defaults to 'default'."
@@ -23,23 +23,24 @@ cmd_create_usage() {
   echo_message "  --vnc-port <port>            - Optional. Enable VNC console on specified port (e.g., 5900)."
   echo_message "  --vnc-wait                   - Optional. Wait for VNC client connection before booting VM."
   echo_message "  --nic-type <type>            - Optional. Type of virtual NIC (virtio-net, e1000, re0). Default: virtio-net."
-  echo_message "\nExample:"
-  echo_message "  $(basename "$0") create --name vm-bsd --disk-size 40 --switch bridge100"
-  echo_message "  $(basename "$0") create --name vm-uefi --disk-size 60 --switch bridge101 --bootloader uefi --vnc-port 5900 --vnc-wait --nic-type e1000"
-  echo_message "  $(basename "$0") create --name myvm-from-template --from-template mytemplate --switch bridge0"
+  echo_message "\nExample: (Note: --datastore is optional and defaults to 'default')"
+  echo_message "  $(basename "$(basename "$0")") vm create --name vm-bsd --disk-size 40 --switch bridge100"
+  echo_message "  $(basename "$(basename "$0")") vm create --name vm-uefi --disk-size 60 --switch bridge101 --bootloader uefi --vnc-port 5900 --vnc-wait --nic-type e1000"
+  echo_message "  $(basename "$(basename "$0")") vm create --name myvm-from-template --from-template mytemplate --switch bridge0"
+  echo_message "  $(basename "$(basename "$0")") vm create --name myvm-in-custom-ds --datastore local_ds1 --disk-size 20 --switch bridge0"
 }
+
 
 # === Usage function for delete ===
 cmd_delete_usage() {
-  echo_message "Usage: $(basename "$0") delete <vmname>"
+  echo_message "Usage: $(basename "$(basename "$0")") vm delete <vmname>"
   echo_message "\nArguments:"
-  echo_message "  <vmname>    - The name of the virtual machine to permanently delete.
-  --datastore <ds_name> - Optional. Name of the datastore the VM is in. Defaults to 'default'."
+  echo_message "  <vmname>    - The name of the virtual machine to permanently delete.\n  --datastore <ds_name> - Optional. Name of the datastore the VM is in. Defaults to 'default'."
 }
 
 # === Usage function for install ===
 cmd_install_usage() {
-  echo_message "Usage: $(basename "$0") install <vmname> [--bootloader <type>] [--bootmenu]"
+  echo_message "Usage: $(basename "$(basename "$0")") vm install <vmname> [--bootloader <type>] [--bootmenu]"
   echo_message "\nOptions:"
   echo_message "  --bootloader <type>          - Optional. Override the bootloader type for this installation (bhyveload, uefi)."
   echo_message "  --bootmenu                   - Optional. For UEFI bootloader, attempts to send ESC key to trigger boot menu."
@@ -47,7 +48,7 @@ cmd_install_usage() {
 
 # === Usage function for start ===
 cmd_start_usage() {
-  echo_message "Usage: $(basename "$0") start <vmname> [--console]"
+  echo_message "Usage: $(basename "$(basename "$0")") vm start <vmname> [--console]"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to start."
   echo_message "\nOptions:"
@@ -56,7 +57,7 @@ cmd_start_usage() {
 
 # === Usage function for stop ===
 cmd_stop_usage() {
-  echo_message "Usage: $(basename "$0") stop <vmname> [--force]"
+  echo_message "Usage: $(basename "$(basename "$0")") vm stop <vmname> [--force]"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to stop."
   echo_message "\nOptions:"
@@ -65,7 +66,7 @@ cmd_stop_usage() {
 
 # === Usage function for console ===
 cmd_console_usage() {
-  echo_message "Usage: $(basename "$0") console <vmname>"
+  echo_message "Usage: $(basename "$(basename "$0")") vm console <vmname>"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to connect to."
 }
@@ -74,7 +75,7 @@ cmd_console_usage() {
 
 # === Usage function for autostart ===
 cmd_autostart_usage() {
-  echo_message "Usage: $(basename "$0") autostart <vmname> <enable|disable>"
+  echo_message "Usage: $(basename "$(basename "$0")") vm autostart <vmname> <enable|disable>"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine."
   echo_message "  <action>    - 'enable' to set the VM to autostart on boot, or 'disable' to prevent it."
@@ -82,21 +83,21 @@ cmd_autostart_usage() {
 
 # === Usage function for list ===
 cmd_list_usage() {
-  echo_message "Usage: $(basename "$0") vm list"
+  echo_message "Usage: $(basename "$(basename "$0")") vm list"
   echo_message "\nDescription:"
   echo_message "  Lists all configured virtual machines, their static configuration, and live status."
 }
 
 # === Usage function for info ===
 cmd_info_usage() {
-  echo_message "Usage: $(basename "$0") info <vmname>"
+  echo_message "Usage: $(basename "$(basename "$0")") vm info <vmname>"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to display information about."
 }
 
 # === Usage function for modify ===
 cmd_modify_usage() {
-  echo_message "Usage: $(basename "$0") modify <vmname> [options]"
+  echo_message "Usage: $(basename "$(basename "$0")") vm modify <vmname> [options]"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to modify."
   echo_message "\nOptions:"
@@ -113,39 +114,39 @@ cmd_modify_usage() {
   echo_message "  --add-disk-type <type>       - Specify disk type for --add-disk or --add-disk-path (virtio-blk, ahci-hd). Default: virtio-blk."
   echo_message "  --remove-disk <index>        - Remove a virtual disk by its index (e.g., 0 for the primary disk, 1 for DISK_1).\n  --nic-type <type>            - Specify NIC type for --add-nic (virtio-net, e1000, re0). Default: virtio-net.\n\nExamples:"
   echo_message "\nExamples:"
-  echo_message "  $(basename "$0") modify myvm --cpu 4 --ram 4096M"
-  echo_message "  $(basename "$0") modify myvm --nic 0 --tap tap1 --bridge bridge1 # Modify existing NIC 0"
-  echo_message "  $(basename "$0") modify myvm --add-nic bridge2                 # Add a new NIC connected to bridge2"
-  echo_message "  $(basename "$0") modify myvm --add-disk 20"
-  echo_message "  $(basename "$0") modify myvm --add-disk-path /path/to/my/data.img --add-disk-type ahci-hd"
-  echo_message "  $(basename "$0") modify myvm --remove-disk 1"
+  echo_message "  $(basename "$(basename "$0")") vm modify myvm --cpu 4 --ram 4096M"
+  echo_message "  $(basename "$(basename "$0")") vm modify myvm --nic 0 --tap tap1 --bridge bridge1 # Modify existing NIC 0"
+  echo_message "  $(basename "$(basename "$0")") vm modify myvm --add-nic bridge2                 # Add a new NIC connected to bridge2"
+  echo_message "  $(basename "$(basename "$0")") vm modify myvm --add-disk 20"
+  echo_message "  $(basename "$(basename "$0")") vm modify myvm --add-disk-path /path/to/my/data.img --add-disk-type ahci-hd"
+  echo_message "  $(basename "$(basename "$0")") vm modify myvm --remove-disk 1"
 }
 
 # === Usage function for clone ===
 cmd_clone_usage() {
-  echo_message "Usage: $(basename "$0") clone --source <source_vmname> --new-name <new_vmname> [--datastore <ds_name>]"
+  echo_message "Usage: $(basename "$(basename "$0")") vm clone --source <source_vmname> --new-name <new_vmname> [--datastore <ds_name>]"
   echo_message "\nOptions:"
   echo_message "  --source <source_vmname>     - The name of the existing virtual machine to clone."
   echo_message "  --new-name <new_vmname>      - The name for the new cloned virtual machine."
   echo_message "  --datastore <ds_name>        - Optional. Name of the datastore to create the new VM in. Defaults to 'default'."
   echo_message "\nExample:"
-  echo_message "  $(basename "$0") clone --source myvm --new-name newvm"
-  echo_message "  $(basename "$0") clone --source myvm --new-name newvm --datastore my_custom_ds"
+  echo_message "  $(basename "$(basename "$0")") vm clone --source myvm --new-name newvm"
+  echo_message "  $(basename "$(basename "$0")") vm clone --source myvm --new-name newvm --datastore my_custom_ds"
 }
 
 # === Usage function for resize-disk ===
 cmd_resize_disk_usage() {
-  echo_message "Usage: $(basename "$0") resize-disk <vmname> <new_size_in_GB>"
+  echo_message "Usage: $(basename "$(basename "$0")") vm resize-disk <vmname> <new_size_in_GB>"
   echo_message "\nArguments:"
   echo_message "  <vmname>         - The name of the virtual machine whose disk you want to resize."
   echo_message "  <new_size_in_GB> - The new size of the virtual disk in GB. Must be larger than the current size."
   echo_message "\nExample:"
-  echo_message "  $(basename "$0") resize-disk myvm 60"
+  echo_message "  $(basename "$(basename "$0")") vm resize-disk myvm 60"
 }
 
 # === Usage function for export ===
 cmd_export_usage() {
-  echo_message "Usage: $(basename "$0") export <vmname> <destination_directory> [--compression <format>] [--force-export | --suspend-export | --stop-export]\nArguments:"
+  echo_message "Usage: $(basename "$(basename "$0")") vm export <vmname> <destination_directory> [--compression <format>] [--force-export | --suspend-export | --stop-export]\nArguments:"
   echo_message "  <vmname>              - The name of the virtual machine to export."
   echo_message "  <destination_directory> - The full path to the directory where the VM will be exported. The VM will be exported in a new compression format."
   echo_message "\nOptions:"
@@ -154,47 +155,47 @@ cmd_export_usage() {
   echo_message "  --suspend-export       - Optional. Suspend a running VM before export, and resume after."
   echo_message "  --stop-export          - Optional. Stop a running VM before export, and restart after."
   echo_message "\nExample:"
-  echo_message "  $(basename "$0") export myvm /tmp/myvm_exports"
-  echo_message "  $(basename "$0") export myvm /tmp/myvm_exports --compression bz2"
-  echo_message "  $(basename "$0") export myvm /tmp/myvm_exports --stop-export"
+  echo_message "  $(basename "$(basename "$0")") vm export myvm /tmp/myvm_exports"
+  echo_message "  $(basename "$(basename "$0")") vm export myvm /tmp/myvm_exports --compression bz2"
+  echo_message "  $(basename "$(basename "$0")") vm export myvm /tmp/myvm_exports --stop-export"
 }
 
 # === Usage function for import ===
 cmd_import_usage() {
-  echo_message "Usage: $(basename "$0") import <path_to_vm_archive> [new_vm_name]"
+  echo_message "Usage: $(basename "$(basename "$0")") vm import <path_to_vm_archive> [new_vm_name]"
   echo_message "\nArguments:"
   echo_message "  <path_to_vm_archive> - The full path to the VM archive file to import (e.g., /tmp/myvm_backup.tar.gz)."
   echo_message "  [new_vm_name]        - Optional. A new name for the imported VM. If not provided, the original VM name from the archive will be used."
   echo_message "\nExample:"
-  echo_message "  $(basename "$0") import /tmp/myvm_backup.tar.gz"
-  echo_message "  $(basename "$0") import /tmp/myvm_backup.tar.gz my_new_vm_name"
+  echo_message "  $(basename "$(basename "$0")") vm import /tmp/myvm_backup.tar.gz"
+  echo_message "  $(basename "$(basename "$0")") vm import /tmp/myvm_backup.tar.gz my_new_vm_name"
 }
 
 
 # === Usage function for restart ===
 cmd_restart_usage() {
-  echo_message "Usage: $(basename "$0") restart <vmname> [--force]\nArguments:"
+  echo_message "Usage: $(basename "$(basename "$0")") vm restart <vmname> [--force]\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to restart.\nOptions:"
   echo_message "  --force     - Perform a fast but unsafe restart (hard reset). Skips graceful shutdown."
 }
 
 # === Usage function for stopall ===
 cmd_stopall_usage() {
-  echo_message "Usage: $(basename "$0") vm stopall [--force]"
+  echo_message "Usage: $(basename "$(basename "$0")") vm stopall [--force]"
   echo_message "\nOptions:"
   echo_message "  --force     - Forcefully stop all VMs without attempting graceful shutdown."
 }
 
 # === Usage function for startall ===
 cmd_startall_usage() {
-  echo_message "Usage: $(basename "$0") vm startall"
+  echo_message "Usage: $(basename "$(basename "$0")") vm startall"
   echo_message "\nDescription:"
   echo_message "  Start all configured virtual machines."
 }
 
 # === Usage function for suspend ===
 cmd_suspend_usage() {
-  echo_message "Usage: $(basename "$0") suspend <vmname>"
+  echo_message "Usage: $(basename "$(basename "$0")") vm suspend <vmname>"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to suspend."
   echo_message "\nDescription:"
@@ -203,7 +204,7 @@ cmd_suspend_usage() {
 
 # === Usage function for resume ===
 cmd_resume_usage() {
-  echo_message "Usage: $(basename "$0") resume <vmname>"
+  echo_message "Usage: $(basename "$(basename "$0")") vm resume <vmname>"
   echo_message "\nArguments:"
   echo_message "  <vmname>    - The name of the virtual machine to resume."
   echo_message "\nDescription:"
@@ -212,7 +213,19 @@ cmd_resume_usage() {
 
 # === Usage function for verify ===
 cmd_verify_usage() {
-  echo_message "Usage: $(basename "$0") vm verify"
+  echo_message "Usage: $(basename "$(basename "$0")") vm verify"
   echo_message "\nDescription:"
   echo_message "  Verify the consistency and integrity of VM configurations."
+}
+
+# === Usage function for vnc ===
+cmd_vnc_usage() {
+  echo_message "Usage: $(basename "$(basename "$0")") vm vnc <vmname>"
+  echo_message "\nArguments:"
+  echo_message "  <vmname>    - The name of the virtual machine to connect to via VNC."
+  echo_message "\nDescription:"
+  echo_message "  Connects to the VNC console of a running virtual machine."
+  echo_message "  The VM must have VNC configured (e.g., --vnc-port during creation)."
+  echo_message "\nExample:"
+  echo_message "  $(basename "$(basename "$0")") vm vnc myvm"
 }

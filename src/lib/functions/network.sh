@@ -1,5 +1,10 @@
 #!/usr/local/bin/bash
 
+# === Helper function to generate a random MAC address ===
+generate_mac_address() {
+  echo "58:9c:fc$(jot -r -w ":%02x" -s "" 3 0 255)"
+}
+
 # === Helper function to find the next available TAP number ===
 get_next_available_tap_num() {
   local USED_TAPS=()
@@ -12,11 +17,13 @@ get_next_available_tap_num() {
   done
 
   # Get TAP interfaces configured in all vm.conf files
-  for VMCONF_FILE in "$VM_CONFIG_BASE_DIR"/*/vm.conf; do
+  for VMCONF_FILE in "$VM_CONFIG_BASE_DIR"/*/vm.conf;
+  do
     if [ -f "$VMCONF_FILE" ]; then
       local CONFIGURED_TAPS
       CONFIGURED_TAPS=$(grep '^TAP_[0-9]*=' "$VMCONF_FILE" | cut -d'=' -f2 | sed 's/tap//' | sort -n)
-      for tap_num in $CONFIGURED_TAPS; do
+      for tap_num in $CONFIGURED_TAPS;
+      do
         USED_TAPS+=("$tap_num")
       done
     fi
@@ -27,7 +34,8 @@ get_next_available_tap_num() {
   UNIQUE_USED_TAPS=$(printf "%s\n" "${USED_TAPS[@]}" | sort -n -u)
 
   local NEXT_TAP_NUM=0
-  for num in $UNIQUE_USED_TAPS; do
+  for num in $UNIQUE_USED_TAPS;
+  do
     if [ "$num" -eq "$NEXT_TAP_NUM" ]; then
       NEXT_TAP_NUM=$((NEXT_TAP_NUM + 1))
     else
@@ -87,61 +95,50 @@ create_and_configure_tap_interface() {
 # === Helper function to build network arguments ===
 build_network_args() {
   local VMNAME="$1"
-  local VM_DIR="$2" # Not directly used here, but might be useful for future expansion
+  local VM_DIR="$2"
   local NETWORK_ARGS=""
-  local NIC_DEV_NUM=10 # Starting device number for virtio-net
+  local NIC_DEV_NUM=10 # Starting PCI slot for virtio-net
 
   local NIC_IDX=0
   while true; do
-    local CURRENT_TAP_VAR="TAP_${NIC_IDX}"
-    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
     local CURRENT_BRIDGE_VAR="BRIDGE_${NIC_IDX}"
+    local CURRENT_MAC_VAR="MAC_${NIC_IDX}"
+    local CURRENT_NIC_TYPE_VAR="NIC_${NIC_IDX}_TYPE"
 
-    local CURRENT_TAP="${!CURRENT_TAP_VAR}"
-    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
     local CURRENT_BRIDGE="${!CURRENT_BRIDGE_VAR}"
+    local CURRENT_MAC="${!CURRENT_MAC_VAR}"
+    local CURRENT_NIC_TYPE="${!CURRENT_NIC_TYPE_VAR:-virtio-net}" # Default to virtio-net
 
-    if [ -z "$CURRENT_TAP" ]; then
-      break # No more network interfaces configured
+    # If there's no bridge defined for this index, we assume no more NICs.
+    if [ -z "$CURRENT_BRIDGE" ]; then
+      break
     fi
 
-    log "Checking network interface NIC_${NIC_IDX} (TAP: $CURRENT_TAP, MAC: $CURRENT_MAC, Bridge: $CURRENT_BRIDGE)"
-
-    # === Create and configure TAP interface if it doesn't exist or activate if it does ===
-    if ! ifconfig "$CURRENT_TAP" > /dev/null 2>&1; then
-      if ! create_and_configure_tap_interface "$CURRENT_TAP" "$CURRENT_MAC" "$CURRENT_BRIDGE" "$VMNAME" "$NIC_IDX"; then
+    # If there's no MAC, something is wrong with the config.
+    if [ -z "$CURRENT_MAC" ]; then
+        display_and_log "ERROR" "MAC address for NIC${NIC_IDX} is not defined in vm.conf for $VMNAME. Cannot configure network."
         return 1
-      fi
-    else
-      log "TAP '$CURRENT_TAP' already exists. Attempting to activate and ensure bridge connection..."
-      local ACTIVATE_TAP_CMD="ifconfig \"$CURRENT_TAP\" up"
-      log "Executing: $ACTIVATE_TAP_CMD"
-      ifconfig "$CURRENT_TAP" up || { display_and_log "ERROR" "Failed to activate existing TAP interface '$CURRENT_TAP'. Command: '$ACTIVATE_TAP_CMD'"; return 1; }
-      log "TAP '$CURRENT_TAP' activated."
-
-      # Ensure bridge exists and TAP is a member
-      if ! ifconfig "$CURRENT_BRIDGE" > /dev/null 2>&1; then
-        log "Bridge interface '$CURRENT_BRIDGE' does not exist. Attempting to create..."
-        local CREATE_BRIDGE_CMD="ifconfig bridge create name \"$CURRENT_BRIDGE\""
-        log "Executing: $CREATE_BRIDGE_CMD"
-        ifconfig bridge create name "$CURRENT_BRIDGE" || { display_and_log "ERROR" "Failed to create bridge '$CURRENT_BRIDGE'. Command: '$CREATE_BRIDGE_CMD'"; return 1; }
-        log "Bridge interface '$CURRENT_BRIDGE' successfully created."
-      fi
-
-      if ! ifconfig "$CURRENT_BRIDGE" | grep -qw "$CURRENT_TAP"; then
-        log "Adding TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'...";
-        local ADD_TAP_TO_BRIDGE_CMD="ifconfig \"$CURRENT_BRIDGE\" addm \"$CURRENT_TAP\""
-        log "Executing: $ADD_TAP_TO_BRIDGE_CMD"
-        ifconfig "$CURRENT_BRIDGE" addm "$CURRENT_TAP" || { display_and_log "ERROR" "Failed to add TAP '$CURRENT_TAP' to bridge '$CURRENT_BRIDGE'. Command: '$ADD_TAP_TO_BRIDGE_CMD'"; return 1; }
-      else
-        log "TAP '$CURRENT_TAP' already connected to bridge '$CURRENT_BRIDGE'."
-      fi
     fi
 
-    NETWORK_ARGS+=" -s ${NIC_DEV_NUM}:0,virtio-net,\"$CURRENT_TAP\",mac=\"$CURRENT_MAC\""
+    log "Configuring network interface NIC${NIC_IDX} (Bridge: $CURRENT_BRIDGE, MAC: $CURRENT_MAC, Type: $CURRENT_NIC_TYPE)"
+
+    # --- Dynamic TAP Interface Assignment ---
+    local NEXT_TAP_NUM
+    NEXT_TAP_NUM=$(get_next_available_tap_num)
+    local CURRENT_TAP="tap${NEXT_TAP_NUM}"
+    log "Assigning dynamically available TAP interface: $CURRENT_TAP"
+
+    # --- Create and Configure TAP ---
+    if ! create_and_configure_tap_interface "$CURRENT_TAP" "$CURRENT_MAC" "$CURRENT_BRIDGE" "$VMNAME" "$NIC_IDX"; then
+        display_and_log "ERROR" "Failed to create or configure TAP interface $CURRENT_TAP for NIC${NIC_IDX}."
+        return 1
+    fi
+
+    NETWORK_ARGS+=" -s ${NIC_DEV_NUM}:0,${CURRENT_NIC_TYPE},${CURRENT_TAP},mac=${CURRENT_MAC}"
     NIC_DEV_NUM=$((NIC_DEV_NUM + 1))
     NIC_IDX=$((NIC_IDX + 1))
   done
+
   echo "$NETWORK_ARGS"
   return 0
 }
@@ -149,13 +146,30 @@ build_network_args() {
 # === Function to clean up VM network interfaces ===
 cleanup_vm_network_interfaces() {
   local VMNAME_CLEANUP="$1"
+  if [ -z "$VMNAME_CLEANUP" ]; then
+    log "cleanup_vm_network_interfaces called without a VM name. Aborting."
+    return 1
+  fi
+
   log "Cleaning up network interfaces for VM: $VMNAME_CLEANUP"
-  # Find all tap interfaces associated with this VM
-  local TAP_INTERFACES=$(ifconfig | grep -o "tap[0-9]\+: flags=.*$VMNAME_CLEANUP" | cut -d':' -f1)
+
+  # Find tap interfaces based on their description, which is more reliable
+  local TAP_INTERFACES
+  TAP_INTERFACES=$(ifconfig -a | grep -B 1 "description: vmnet/${VMNAME_CLEANUP}/" | grep '^tap' | cut -d':' -f1)
+
+  if [ -z "$TAP_INTERFACES" ]; then
+    log "No lingering tap interfaces found for $VMNAME_CLEANUP."
+    return 0
+  fi
+
   for tap_if in $TAP_INTERFACES; do
-    log "Destroying tap interface: $tap_if"
+    log "Found lingering tap interface: $tap_if. Destroying..."
     ifconfig "$tap_if" destroy >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+      log "Successfully destroyed tap interface: $tap_if"
+    else
+      log "Warning: Failed to destroy tap interface: $tap_if"
+    fi
   done
   log "Network interface cleanup for VM '$VMNAME_CLEANUP' complete."
 }
-

@@ -9,7 +9,9 @@ log() {
     echo "$TIMESTAMP_MESSAGE" >> "$LOG_FILE"
   fi
   # Always write to global log file for verbose debugging
-  echo "$TIMESTAMP_MESSAGE" >> "$GLOBAL_LOG_FILE"
+  if [ -n "$GLOBAL_LOG_FILE" ]; then
+    echo "$TIMESTAMP_MESSAGE" >> "$GLOBAL_LOG_FILE"
+  fi
 }
 
 # === Function to echo messages to console without timestamp ===
@@ -29,7 +31,9 @@ display_and_log() {
     echo "$TIMESTAMP_MESSAGE" >> "$LOG_FILE"
   fi
   # Always write to global log file
-  echo "$TIMESTAMP_MESSAGE" >> "$GLOBAL_LOG_FILE"
+  if [ -n "$GLOBAL_LOG_FILE" ]; then
+    echo "$TIMESTAMP_MESSAGE" >> "$GLOBAL_LOG_FILE"
+  fi
 }
 
 # === Function to write to global log file only ===

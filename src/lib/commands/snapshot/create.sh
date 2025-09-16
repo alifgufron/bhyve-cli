@@ -25,18 +25,7 @@ cmd_snapshot_create() {
   datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
   local vm_dir="$datastore_path/$VMNAME_ARG"
 
-  # Delegate to vm-bhyve if it's a vm-bhyve VM
-  if [ "$vm_source" == "vm-bhyve" ]; then
-    if ! command -v vm >/dev/null 2>&1; then
-      display_and_log "ERROR" "'vm-bhyve' command not found. Please ensure it is installed and in your PATH."
-      exit 1
-    fi
-    display_and_log "INFO" "Delegating to 'vm snapshot create' for vm-bhyve VM '$VMNAME_ARG'..."
-    vm snapshot create "$VMNAME_ARG" "$SNAPSHOT_NAME_ARG"
-    exit $?
-  fi
-
-  # --- Logic for bhyve-cli VMs ---
+  # --- Logic for all VMs (bhyve-cli and vm-bhyve) ---
   local SNAPSHOT_ROOT_DIR="$VM_CONFIG_BASE_DIR/snapshots" # Centralized snapshot storage
   local VM_SNAPSHOT_DIR="$SNAPSHOT_ROOT_DIR/$VMNAME_ARG"
   local SNAPSHOT_PATH="$VM_SNAPSHOT_DIR/$SNAPSHOT_NAME_ARG"

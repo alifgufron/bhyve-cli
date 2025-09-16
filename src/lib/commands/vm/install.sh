@@ -31,53 +31,27 @@ cmd_install() {
   fi
 
   # Find VM across all datastores
-  local found_bhyve_cli_vm
-  found_bhyve_cli_vm=$(find_vm_in_datastores "$VMNAME")
+  local found_vm_info
+  found_vm_info=$(find_any_vm "$VMNAME")
 
-  if [ -n "$found_bhyve_cli_vm" ]; then
-    local datastore_name=$(echo "$found_bhyve_cli_vm" | head -n 1 | cut -d':' -f1)
-    local vm_dir=$(echo "$found_bhyve_cli_vm" | head -n 1 | cut -d':' -f2)/"$VMNAME"
-    load_vm_config "$VMNAME" "$vm_dir" # Pass vm_dir as custom_datastore_path
-  else
-    # If not found in bhyve-cli datastores, check vm-bhyve directories
-    local vm_bhyve_dirs
-    vm_bhyve_dirs=$(get_vm_bhyve_dir) # Returns "name:path" pairs
-
-    local vm_found_in_vm_bhyve=false
-    if [ -n "$vm_bhyve_dirs" ]; then
-      for datastore_pair in $vm_bhyve_dirs; do
-        local current_ds_name=$(echo "$datastore_pair" | cut -d':' -f1)
-        local current_ds_path=$(echo "$datastore_pair" | cut -d':' -f2)
-        
-        if [ -d "$current_ds_path/$VMNAME" ]; then
-          # For vm-bhyve VMs, we don't use load_vm_config directly,
-          # but we need to set VM_DIR and source its config.
-          VM_DIR="$current_ds_path/$VMNAME"
-          local conf_file="$VM_DIR/$VMNAME.conf"
-          if [ -f "$conf_file" ]; then
-            . "$conf_file"
-            # Map vm-bhyve variables to our internal variables
-            CPUS=${cpu:-N/A}
-            MEMORY=${memory:-N/A}
-            BOOTLOADER_TYPE=${loader:-bhyveload}
-            AUTOSTART=${autostart:-no}
-            LOG_FILE="$VM_DIR/vm-bhyve.log"
-            CONSOLE=${console:-nmdm1}
-            vm_found_in_vm_bhyve=true
-            break # VM found, exit loop
-          else
-            display_and_log "ERROR" "VM configuration for '$VMNAME' not found in vm-bhyve directory: $conf_file"
-            exit 1
-          fi
-        fi
-      done
-    fi
-
-    if [ "$vm_found_in_vm_bhyve" = false ]; then
-      display_and_log "ERROR" "VM '$VMNAME' not found in any bhyve-cli or vm-bhyve datastores."
-      exit 1
-    fi
+  if [ -z "$found_vm_info" ]; then
+    display_and_log "ERROR" "VM '$VMNAME' not found in any bhyve-cli or vm-bhyve datastores."
+    exit 1
   fi
+
+  # Parse the new format: source:datastore_name:datastore_path
+  local vm_source datastore_path
+  vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+  datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
+
+  # If it's a vm-bhyve VM, we can't install it with this script
+  if [ "$vm_source" == "vm-bhyve" ]; then
+      display_and_log "ERROR" "Installation for vm-bhyve VMs is not supported via this command."
+      exit 1
+  fi
+
+  # Load the bhyve-cli VM config
+  load_vm_config "$VMNAME" "$datastore_path"
 
   # Override BOOTLOADER_TYPE if specified for installation
   if [ -n "$INSTALL_BOOTLOADER_TYPE" ]; then
@@ -88,7 +62,7 @@ cmd_install() {
   ensure_nmdm_device_nodes "$CONSOLE"
   sleep 1 # Give nmdm devices a moment to be ready
 
-  log "Starting VM '$VMNAME'ருங்கள்"
+  log "Starting VM '$VMNAME'..."
 
   # === Stop bhyve if still active ===
   if is_vm_running "$VMNAME"; then
@@ -160,10 +134,9 @@ cmd_install() {
     exit 1
   fi
 
-  local DISK_ARGS_AND_NEXT_DEV
-  DISK_ARGS_AND_NEXT_DEV=$(build_disk_args "$VM_DIR")
-  local DISK_ARGS=$(echo "$DISK_ARGS_AND_NEXT_DEV" | head -n 1)
-  local NEXT_DISK_DEV_NUM=$(echo "$DISK_ARGS_AND_NEXT_DEV" | tail -n 1)
+  local NEXT_DISK_DEV_NUM # This will be populated by build_disk_args
+  local DISK_ARGS
+  DISK_ARGS=$(build_disk_args "$VM_DIR" NEXT_DISK_DEV_NUM)
   if [ $? -ne 0 ]; then
     display_and_log "ERROR" "Failed to build disk arguments."
     exit 1
@@ -242,6 +215,10 @@ cmd_install() {
 
   log "cu session ended. Initiating cleanup..."
 
+  # First, clean up the network interfaces created for the installation
+  cleanup_vm_network_interfaces "$VMNAME"
+
+  # Then, clean up the VM processes
   cleanup_vm_processes "$VMNAME" "$CONSOLE" "$LOG_FILE"
 
   # Wait for the bhyve process to exit and capture its exit status.
