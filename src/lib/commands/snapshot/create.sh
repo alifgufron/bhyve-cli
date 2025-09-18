@@ -49,6 +49,14 @@ cmd_snapshot_create() {
   mkdir -p "$SNAPSHOT_PATH" || { display_and_log "ERROR" "Failed to create snapshot directory '$SNAPSHOT_PATH'."; exit 1; }
   log "Created snapshot directory: $SNAPSHOT_PATH"
 
+  # Copy vm.conf for consistency (MOVED HERE)
+  if [ "$vm_source" == "bhyve-cli" ]; then
+    cp "$vm_dir/vm.conf" "$SNAPSHOT_PATH/vm.conf"
+  else # vm-bhyve
+    cp "$vm_dir/$VMNAME_ARG.conf" "$SNAPSHOT_PATH/$VMNAME_ARG.conf"
+  fi
+  log "VM configuration copied to snapshot directory."
+
   # Check for zstd availability
   if ! command -v zstd >/dev/null 2>&1; then
     display_and_log "ERROR" "zstd command not found. Please install zstd to enable snapshot compression."
@@ -74,14 +82,52 @@ cmd_snapshot_create() {
   start_spinner "Copying disk image(s) for snapshot..."
 
   # Load the VM config to get disk details
-  # Load the VM config to get disk details
-  load_vm_config "$VMNAME_ARG" "$vm_dir"
+  local CONF_FILE_TO_SOURCE=""
+  if [ "$vm_source" == "bhyve-cli" ]; then
+    # For bhyve-cli VMs, use the standard vm.conf
+    CONF_FILE_TO_SOURCE="$vm_dir/vm.conf"
+  else # vm-bhyve
+    # For vm-bhyve VMs, use the <VMNAME>.conf file
+    CONF_FILE_TO_SOURCE="$vm_dir/$VMNAME_ARG.conf"
+  fi
+
+  if [ ! -f "$CONF_FILE_TO_SOURCE" ]; then
+    display_and_log "ERROR" "VM configuration file '$CONF_FILE_TO_SOURCE' not found for VM '$VMNAME_ARG'."
+    rm -rf "$SNAPSHOT_PATH"
+    if $VM_WAS_RUNNING; then
+      cmd_resume "$VMNAME_ARG"
+    fi
+    exit 1
+  fi
+
+  # Source the config file to get disk details
+  # Clear previous VM's configuration variables to prevent pollution
+  unset UUID CPUS MEMORY TAP_0 MAC_0 BRIDGE_0 NIC_0_TYPE DISK DISKSIZE CONSOLE LOG AUTOSTART BOOTLOADER_TYPE VNC_PORT VNC_WAIT UEFI_FIRMWARE_PATH
+  for i in $(seq 1 10); do # Unset indexed variables up to DISK_10, NIC_10 etc.
+    unset DISK_${i} DISK_${i}_TYPE TAP_${i} MAC_${i} BRIDGE_${i} NIC_${i}_TYPE
+  done
+  . "$CONF_FILE_TO_SOURCE"
 
   # --- Copy Disks ---
   local DISK_IDX=0
   while true; do
-    local CURRENT_DISK_VAR="DISK_${DISK_IDX}"
-    local CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+    local CURRENT_DISK_FILENAME=""
+    local DISK_TYPE=""
+
+    if [ "$vm_source" == "bhyve-cli" ]; then
+      # For bhyve-cli, variables are DISK_0, DISK_1 etc.
+      local CURRENT_DISK_VAR="DISK_${DISK_IDX}"
+      CURRENT_DISK_FILENAME="${!CURRENT_DISK_VAR}"
+      local CURRENT_DISK_TYPE_VAR="DISK_${DISK_IDX}_TYPE"
+      DISK_TYPE="${!CURRENT_DISK_TYPE_VAR:-virtio-blk}"
+    else # vm-bhyve
+      # For vm-bhyve, variables are disk0_name, disk0_type etc.
+      local VM_BHYVE_DISK_NAME_VAR="disk${DISK_IDX}_name"
+      local VM_BHYVE_DISK_TYPE_VAR="disk${DISK_IDX}_type"
+      CURRENT_DISK_FILENAME="${!VM_BHYVE_DISK_NAME_VAR}"
+      DISK_TYPE="${!VM_BHYVE_DISK_TYPE_VAR:-virtio-blk}"
+    fi
+
     if [ -z "$CURRENT_DISK_FILENAME" ]; then break; fi
 
     local VM_DISK_PATH="$vm_dir/$CURRENT_DISK_FILENAME"
@@ -121,14 +167,23 @@ cmd_snapshot_create() {
     log "Compressed '$SNAPSHOT_DISK_PATH.zst'. Original removed."
 
     # Update vm.conf in snapshot to point to the .zst file
-    sed -i '' "s|${CURRENT_DISK_FILENAME}|${CURRENT_DISK_FILENAME}.zst|" "$SNAPSHOT_PATH/vm.conf"
+    if [ "$vm_source" == "bhyve-cli" ]; then
+      sed -i '' "s|${CURRENT_DISK_FILENAME}|${CURRENT_DISK_FILENAME}.zst|" "$SNAPSHOT_PATH/vm.conf"
+    else # vm-bhyve
+      # For vm-bhyve, update diskX_name
+      sed -i '' "s|^disk${DISK_IDX}_name=.*|disk${DISK_IDX}_name=${CURRENT_DISK_FILENAME}.zst|" "$SNAPSHOT_PATH/$VMNAME_ARG.conf"
+    fi
     log "Updated vm.conf in snapshot to reference .zst file."
 
     DISK_IDX=$((DISK_IDX + 1))
   done
 
   # Copy vm.conf for consistency
-  cp "$vm_dir/vm.conf" "$SNAPSHOT_PATH/vm.conf"
+  if [ "$vm_source" == "bhyve-cli" ]; then
+    cp "$vm_dir/vm.conf" "$SNAPSHOT_PATH/vm.conf"
+  else # vm-bhyve
+    cp "$vm_dir/$VMNAME_ARG.conf" "$SNAPSHOT_PATH/$VMNAME_ARG.conf"
+  fi
   log "VM configuration copied."
 
   stop_spinner

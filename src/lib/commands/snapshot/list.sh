@@ -23,18 +23,7 @@ cmd_snapshot_list() {
   vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
   datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
 
-  # Delegate to vm-bhyve if it's a vm-bhyve VM
-  if [ "$vm_source" == "vm-bhyve" ]; then
-    if ! command -v vm >/dev/null 2>&1; then
-      display_and_log "ERROR" "'vm-bhyve' command not found. Please ensure it is installed and in your PATH."
-      exit 1
-    fi
-    display_and_log "INFO" "Delegating to 'vm snapshot list' for vm-bhyve VM '$VMNAME'..."
-    vm snapshot "$VMNAME" list
-    exit $?
-  fi
-
-  # --- Logic for bhyve-cli VMs ---
+  # --- Logic for bhyve-cli VMs (now handles vm-bhyve VMs directly) ---
   local SNAPSHOT_ROOT_DIR="$datastore_path/snapshots" # Snapshot storage within VM's datastore
   local VM_SNAPSHOT_DIR="$SNAPSHOT_ROOT_DIR/$VMNAME"
 

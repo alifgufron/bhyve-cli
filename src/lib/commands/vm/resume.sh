@@ -18,6 +18,10 @@ cmd_resume() {
     exit 1
   fi
 
+  local vm_source
+  vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+  # No delegation for vm-bhyve resume, use native bhyve-cli logic
+
   # Parse the new format: source:datastore_name:datastore_path
   local datastore_path
   datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
