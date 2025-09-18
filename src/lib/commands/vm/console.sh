@@ -32,7 +32,7 @@ cmd_console() {
     # The native 'vm' command handles status checks
     sudo vm console "$VMNAME"
   else # Handle bhyve-cli native VMs
-    load_vm_config "$VMNAME" "$datastore_path"
+    load_vm_config "$VMNAME" "$vm_dir"
 
     if ! is_vm_running "$VMNAME" "$vm_dir"; then
       display_and_log "ERROR" "VM '$VMNAME' is not running."

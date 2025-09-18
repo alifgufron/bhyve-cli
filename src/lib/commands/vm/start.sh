@@ -52,7 +52,7 @@ cmd_start() {
     exit $?
   fi
 
-  load_vm_config "$VMNAME_ARG" "$datastore_path"
+  load_vm_config "$VMNAME_ARG" "$VM_DIR"
 
   if is_vm_running "$VMNAME" "$VM_DIR"; then
     display_and_log "INFO" "VM '$VMNAME' is already running."

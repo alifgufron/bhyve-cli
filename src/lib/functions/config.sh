@@ -27,10 +27,10 @@ check_initialization() {
 # Arg2: Optional: custom_datastore_path
 load_vm_config() {
   VMNAME="$1"
-  local custom_datastore_path="$2"
+  local vm_directory_path="$2" # Renamed for clarity
 
-  if [ -n "$custom_datastore_path" ]; then
-    VM_DIR="$custom_datastore_path/$VMNAME" # Construct VM_DIR from datastore path and VMNAME
+  if [ -n "$vm_directory_path" ]; then
+    VM_DIR="$vm_directory_path" # Use the provided full path directly
   else
     VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
   fi

@@ -30,7 +30,7 @@ cmd_info() {
 
   # Load configuration based on the source
   if [ "$vm_source" == "bhyve-cli" ]; then
-    load_vm_config "$VMNAME" "$datastore_path"
+    load_vm_config "$VMNAME" "$vm_dir"
   else # vm-bhyve
     local conf_file="$vm_dir/$VMNAME.conf"
     if [ -f "$conf_file" ]; then

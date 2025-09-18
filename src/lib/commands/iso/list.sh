@@ -7,7 +7,13 @@ cmd_iso_list() {
     display_and_log "INFO" "ISO directory '$ISO_DIR' not found. Creating it."
     mkdir -p "$ISO_DIR"
   fi
-  mapfile -t ISO_LIST < <(find "$ISO_DIR" -type f -name "*.iso" 2>/dev/null)
+  local REAL_ISO_DIR
+  REAL_ISO_DIR=$(readlink -f "$ISO_DIR")
+  if [ -z "$REAL_ISO_DIR" ]; then
+    display_and_log "ERROR" "Failed to resolve ISO directory: $ISO_DIR"
+    return 1
+  fi
+  mapfile -t ISO_LIST < <(find "$REAL_ISO_DIR" -maxdepth 1 -type f -name "*.iso" 2>/dev/null)
   if [ ${#ISO_LIST[@]} -eq 0 ]; then
     display_and_log "INFO" "No ISO files found in $ISO_DIR."
   else

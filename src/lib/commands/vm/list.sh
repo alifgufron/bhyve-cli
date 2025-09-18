@@ -27,6 +27,12 @@ _process_vm_dir() {
       fi
       
       if [ -f "$CONF_FILE" ]; then
+        # Clear previous VM's configuration variables to prevent pollution
+        unset UUID CPUS MEMORY TAP_0 MAC_0 BRIDGE_0 NIC_0_TYPE DISK DISKSIZE CONSOLE LOG AUTOSTART BOOTLOADER_TYPE VNC_PORT VNC_WAIT UEFI_FIRMWARE_PATH
+        for i in $(seq 1 10); do # Unset indexed variables up to DISK_10, NIC_10 etc.
+          unset DISK_${i} DISK_${i}_TYPE TAP_${i} MAC_${i} BRIDGE_${i} NIC_${i}_TYPE
+        done
+
         . "$CONF_FILE"
         local CPUS_FROM_CONF=${cpu:-N/A}
         local MEMORY_FROM_CONF=${memory:-N/A}

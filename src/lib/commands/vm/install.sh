@@ -51,7 +51,7 @@ cmd_install() {
   fi
 
   # Load the bhyve-cli VM config
-  load_vm_config "$VMNAME" "$datastore_path"
+  load_vm_config "$VMNAME" "$vm_dir"
 
   # Override BOOTLOADER_TYPE if specified for installation
   if [ -n "$INSTALL_BOOTLOADER_TYPE" ]; then

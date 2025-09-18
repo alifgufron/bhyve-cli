@@ -26,6 +26,12 @@ cmd_template_create() {
 
   mkdir -p "$NEW_TEMPLATE_DIR" || { display_and_log "ERROR" "Failed to create template directory '$NEW_TEMPLATE_DIR'."; exit 1; }
 
+  # Check for zstd availability
+  if ! command -v zstd >/dev/null 2>&1; then
+    display_and_log "ERROR" "zstd command not found. Please install zstd to enable template compression."
+    exit 1
+  fi
+
   display_and_log "INFO" "Creating template '$TEMPLATE_NAME' from VM '$SOURCE_VMNAME'..."
   start_spinner "Copying VM files to template..."
 
@@ -46,9 +52,26 @@ cmd_template_create() {
         rm -rf "$NEW_TEMPLATE_DIR"
         exit 1
       }
-    fi
-  done
-  stop_spinner
+      log "Copied disk image: $(basename "$disk_file") to $NEW_TEMPLATE_DIR/"
+
+      # Compress the copied disk image
+      local TEMPLATE_DISK_PATH="$NEW_TEMPLATE_DIR/$(basename "$disk_file")"
+      log "Compressing '$TEMPLATE_DISK_PATH' with zstd..."
+      if ! zstd -q "$TEMPLATE_DISK_PATH" -o "${TEMPLATE_DISK_PATH}.zst"; then
+        stop_spinner
+        display_and_log "ERROR" "Failed to compress disk image '$(basename "$disk_file")' with zstd. Aborting."
+        rm -rf "$NEW_TEMPLATE_DIR"
+        exit 1
+      fi
+      rm "$TEMPLATE_DISK_PATH" # Remove uncompressed copy
+      log "Compressed '${TEMPLATE_DISK_PATH}.zst'. Original removed."
+
+      # Update vm.conf in template to point to the .zst file
+      sed -i '' "s|$(basename "$disk_file")|$(basename "$disk_file").zst|" "$NEW_TEMPLATE_DIR/vm.conf"
+      log "Updated vm.conf in template to reference .zst file."
+    fi # <-- ADDED THIS
+  done # <-- ADDED THIS
+  stop_spinner # <-- MOVED THIS HERE
 
   # Clean up VM-specific settings in the template's vm.conf
   sed -i '' "/^VMNAME=/d" "$NEW_TEMPLATE_DIR/vm.conf"
@@ -61,5 +84,5 @@ cmd_template_create() {
   sed -i '' "/^AUTOSTART=/d" "$NEW_TEMPLATE_DIR/vm.conf" # New: remove autostart
 
   display_and_log "INFO" "Template '$TEMPLATE_NAME' created successfully."
-  display_and_log "INFO" "You can now create new VMs from this template using: $0 create --name <new_vm> --from-template $TEMPLATE_NAME --switch <bridge>"
+  display_and_log "INFO" "You can now create new VMs from this template using: bhyve-cli vm create --name <new_vm> --from-template $TEMPLATE_NAME --switch <bridge>"
 }

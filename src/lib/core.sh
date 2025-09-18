@@ -503,8 +503,10 @@ check_initialization() {
 # === Function to load VM configuration ===
 load_vm_config() {
   VMNAME="$1"
-  VM_DIR="$VM_CONFIG_BASE_DIR/$VMNAME"
-  CONF_FILE="$VM_DIR/vm.conf"
+  # Accept VM_DIR as a second argument, or construct it if not provided
+  local VM_DIR_TO_LOAD="${2:-$VM_CONFIG_BASE_DIR/$VMNAME}"
+  CONF_FILE="$VM_DIR_TO_LOAD/vm.conf"
+
 
   if [ ! -f "$CONF_FILE" ]; then
     display_and_log "ERROR" "VM configuration '$VMNAME' not found: $CONF_FILE"
@@ -512,6 +514,6 @@ load_vm_config() {
   fi
     # shellcheck disable=SC1090
   . "$CONF_FILE"
-  LOG_FILE="$VM_DIR/vm.log" # Set LOG_FILE after loading config
+  LOG_FILE="$VM_DIR_TO_LOAD/vm.log" # Set LOG_FILE after loading config
   BOOTLOADER_TYPE="${BOOTLOADER_TYPE:-bhyveload}" # Default to bhyveload if not set
 }

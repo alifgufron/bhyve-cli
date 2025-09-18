@@ -15,7 +15,7 @@ cmd_vmnet_init() {
       args+=('--ip' "$IP_ADDRESS")
     fi
     # Call cmd_vmnet_create without saving to config again
-    cmd_vmnet_create "${args[@]}" || display_and_log "WARNING" "Failed to initialize vmnet bridge '$BRIDGE_NAME'."
+    cmd_vmnet_create "${args[@]}" --no-save || display_and_log "WARNING" "Failed to initialize vmnet bridge '$BRIDGE_NAME'."
   done < "$VMNET_CONFIG_FILE"
   display_and_log "INFO" "Vmnet initialization complete."
 }

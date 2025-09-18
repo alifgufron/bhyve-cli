@@ -4,6 +4,7 @@
 cmd_vmnet_create() {
   local BRIDGE_NAME=""
   local IP_ADDRESS=""
+  local NO_SAVE=false
 
   while (( "$#" )); do
     case "$1" in
@@ -14,6 +15,9 @@ cmd_vmnet_create() {
       --ip)
         shift
         IP_ADDRESS="$1"
+        ;;
+      --no-save)
+        NO_SAVE=true
         ;;
       *)
         display_and_log "ERROR" "Invalid option for vmnet create: $1"
@@ -33,8 +37,8 @@ cmd_vmnet_create() {
   log "Attempting to create vmnet bridge '$BRIDGE_NAME'..."
 
   if ifconfig "$BRIDGE_NAME" > /dev/null 2>&1; then
-    display_and_log "ERROR" "Bridge '$BRIDGE_NAME' already exists."
-    exit 1
+    display_and_log "INFO" "Bridge '$BRIDGE_NAME' already exists. Skipping creation."
+    return 0
   fi
 
   if ! ifconfig bridge create name "$BRIDGE_NAME"; then
@@ -61,8 +65,10 @@ cmd_vmnet_create() {
     display_and_log "INFO" "Bridge '$BRIDGE_NAME' brought up."
   fi
 
-  # Save vmnet configuration for persistence
-  local VMNET_CONFIG_FILE="$CONFIG_DIR/vmnet.conf"
-  echo "$BRIDGE_NAME $IP_ADDRESS" >> "$VMNET_CONFIG_FILE"
-  display_and_log "INFO" "Vmnet configuration saved to $VMNET_CONFIG_FILE."
+  # Save vmnet configuration for persistence ONLY if --no-save was NOT used
+  if [ "$NO_SAVE" = false ]; then
+    local VMNET_CONFIG_FILE="$CONFIG_DIR/vmnet.conf"
+    echo "$BRIDGE_NAME $IP_ADDRESS" >> "$VMNET_CONFIG_FILE"
+    display_and_log "INFO" "Vmnet configuration saved to $VMNET_CONFIG_FILE."
+  fi
 }

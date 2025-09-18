@@ -11,36 +11,31 @@ cmd_autostart() {
   ACTION="$2"
 
   # Find VM across all datastores
-  local found_bhyve_cli_vm
-  found_bhyve_cli_vm=$(find_vm_in_datastores "$VMNAME")
+  local found_vm_info
+  found_vm_info=$(find_any_vm "$VMNAME")
 
-  if [ -n "$found_bhyve_cli_vm" ]; then
-    local datastore_name=$(echo "$found_bhyve_cli_vm" | head -n 1 | cut -d':' -f1)
-    local vm_dir=$(echo "$found_bhyve_cli_vm" | head -n 1 | cut -d':' -f2)/"$VMNAME"
-    CONF_FILE="$vm_dir/vm.conf"
-  else
-    # If not found in bhyve-cli datastores, check vm-bhyve directories
-    local vm_bhyve_dirs
-    vm_bhyve_dirs=$(get_vm_bhyve_dir) # Returns "name:path" pairs
-
-    local vm_found_in_vm_bhyve=false
-    if [ -n "$vm_bhyve_dirs" ]; then
-      for datastore_pair in $vm_bhyve_dirs; do
-        local current_ds_name=$(echo "$datastore_pair" | cut -d':' -f1)
-        local current_ds_path=$(echo "$datastore_pair" | cut -d':' -f2)
-        
-        if [ -d "$current_ds_path/$VMNAME" ]; then
-          # For vm-bhyve VMs, we don't modify their config directly,
-          # but we need to acknowledge their existence.
-          display_and_log "ERROR" "VM '$VMNAME' is a vm-bhyve VM. Autostart cannot be managed by bhyve-cli for vm-bhyve VMs."
-          exit 1
-        fi
-      done
-    fi
-
-    display_and_log "ERROR" "VM '$VMNAME' not found in any bhyve-cli datastores."
+  if [ -z "$found_vm_info" ]; then
+    display_and_log "ERROR" "VM '$VMNAME' not found in any bhyve-cli or vm-bhyve datastores."
     exit 1
   fi
+
+  local vm_source
+  local datastore_name
+  local datastore_path
+  vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+  datastore_name=$(echo "$found_vm_info" | cut -d':' -f2)
+  datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
+  local vm_dir="$datastore_path/$VMNAME" # Define vm_dir here
+
+  # If it's a vm-bhyve VM, we don't modify its config directly
+  if [ "$vm_source" == "vm-bhyve" ]; then
+    display_and_log "ERROR" "VM '$VMNAME' is a vm-bhyve VM. Autostart cannot be managed by bhyve-cli for vm-bhyve VMs."
+    exit 1
+  fi
+
+  # Load VM config using the found datastore_path. This sets the global VMNAME, VM_DIR, CONF_FILE etc.
+  # We need to load the config to ensure CONF_FILE is set for sed operations.
+  load_vm_config "$VMNAME" "$vm_dir"
 
   case "$ACTION" in
     enable)

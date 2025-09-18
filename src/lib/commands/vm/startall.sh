@@ -5,47 +5,53 @@ cmd_startall() {
   log "Entering cmd_startall function."
   start_spinner "Checking VM statuses and starting any stopped VMs..."
 
-  if [ ! -d "$VM_CONFIG_BASE_DIR" ] || [ -z "$(ls -A "$VM_CONFIG_BASE_DIR")" ]; then
-    stop_spinner "No virtual machines configured to start."
-    exit 0
-  fi
-
   local started_vms=0
   local already_running_vms=0
   local failed_vms=0
   local total_vms=0
 
-  for VM_DIR_PATH in "$VM_CONFIG_BASE_DIR"/*/; do
-    local VMNAME=$(basename "$VM_DIR_PATH")
-    if [ "$VMNAME" = "templates" ]; then
-      log "Skipping templates directory."
-      continue
-    fi
+  # Get all bhyve-cli datastores
+  local bhyve_cli_datastores
+  bhyve_cli_datastores=$(get_all_bhyve_cli_datastores)
 
-    if [ -d "$VM_DIR_PATH" ]; then
-      total_vms=$((total_vms + 1))
-      # Clean up previous VM's config variables from the environment
-      unset UUID CPUS MEMORY TAP_0 MAC_0 BRIDGE_0 NIC_0_TYPE DISK DISKSIZE CONSOLE LOG AUTOSTART BOOTLOADER_TYPE VNC_PORT VNC_WAIT
-      for i in $(seq 1 10); do # Unset up to DISK_10, TAP_10, etc.
-        unset DISK_${i} DISK_${i}_TYPE TAP_${i} MAC_${i} BRIDGE_${i} NIC_${i}_TYPE
-      done
+  for datastore_pair in $bhyve_cli_datastores; do
+    local ds_name=$(echo "$datastore_pair" | cut -d':' -f1)
+    local ds_path=$(echo "$datastore_pair" | cut -d':' -f2)
 
-      load_vm_config "$VMNAME"
+    for VM_DIR_PATH in "$ds_path"/*/; do # Iterate through each VM directory in the datastore
+      local VMNAME=$(basename "$VM_DIR_PATH")
+      if [ "$VMNAME" = "templates" ] || [ "$VMNAME" = "snapshots" ]; then # Skip special directories
+        log "Skipping special directory: $VMNAME."
+        continue
+      fi
 
-      if is_vm_running "$VMNAME"; then
-        log "VM '$VMNAME' is already running. Skipping."
-        already_running_vms=$((already_running_vms + 1))
-      else
-        log "Starting VM '$VMNAME'..."
-        # Call cmd_start with --suppress-console-message to avoid extra output
-        if cmd_start "$VMNAME" --suppress-console-message; then
-          started_vms=$((started_vms + 1))
+      if [ -d "$VM_DIR_PATH" ]; then
+        total_vms=$((total_vms + 1))
+        # Clean up previous VM's config variables from the environment
+        # This is crucial as load_vm_config sources directly into the current shell
+        unset UUID CPUS MEMORY TAP_0 MAC_0 BRIDGE_0 NIC_0_TYPE DISK DISKSIZE CONSOLE LOG AUTOSTART BOOTLOADER_TYPE VNC_PORT VNC_WAIT
+        for i in $(seq 1 10); do # Unset up to DISK_10, TAP_10, etc.
+          unset DISK_${i} DISK_${i}_TYPE TAP_${i} MAC_${i} BRIDGE_${i} NIC_${i}_TYPE
+        done
+
+        # Load VM config using the full VM_DIR_PATH
+        load_vm_config "$VMNAME" "$VM_DIR_PATH"
+
+        if is_vm_running "$VMNAME" "$VM_DIR_PATH"; then # Pass vm_dir to is_vm_running
+          log "VM '$VMNAME' is already running. Skipping."
+          already_running_vms=$((already_running_vms + 1))
         else
-          failed_vms=$((failed_vms + 1))
-          log "Failed to start VM '$VMNAME'."
+          log "Starting VM '$VMNAME'..."
+          # Call cmd_start with --suppress-console-message to avoid extra output
+          if cmd_start "$VMNAME" --suppress-console-message; then
+            started_vms=$((started_vms + 1))
+          else
+            failed_vms=$((failed_vms + 1))
+            log "Failed to start VM '$VMNAME'."
+          fi
         fi
       fi
-    fi
+    done
   done
 
   local final_message=""

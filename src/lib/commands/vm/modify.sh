@@ -7,9 +7,32 @@ cmd_modify() {
     exit 1
   fi
 
-  VMNAME="$1"
+  VMNAME_ARG="$1" # Use VMNAME_ARG to avoid conflict with global VMNAME
   shift
-  load_vm_config "$VMNAME"
+
+  # Find VM across all datastores
+  local found_vm_info
+  found_vm_info=$(find_any_vm "$VMNAME_ARG")
+
+  if [ -z "$found_vm_info" ]; then
+    display_and_log "ERROR" "VM '$VMNAME_ARG' not found in any bhyve-cli or vm-bhyve datastores."
+    exit 1
+  fi
+
+  local vm_source
+  local datastore_path
+  vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+  datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
+  local vm_dir="$datastore_path/$VMNAME_ARG" # Define vm_dir here
+
+  # If it's a vm-bhyve VM, we don't modify it directly
+  if [ "$vm_source" == "vm-bhyve" ]; then
+    display_and_log "ERROR" "Modifying vm-bhyve VMs is not directly supported by bhyve-cli. Please use vm-bhyve's modify mechanism."
+    exit 1
+  fi
+
+  # Load VM config using the found datastore_path. This sets the global VMNAME, VM_DIR, CONF_FILE etc.
+  load_vm_config "$VMNAME_ARG" "$vm_dir"
 
   local VM_MODIFIED=false
   local PENDING_DISK_TYPE="" # To store type for --add-disk or --add-disk-path

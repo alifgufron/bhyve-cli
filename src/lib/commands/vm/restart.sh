@@ -39,8 +39,8 @@ cmd_restart() {
   else # bhyve-cli native VM
     local datastore_path
     datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
-    load_vm_config "$VMNAME" "$datastore_path"
     local vm_dir="$datastore_path/$VMNAME"
+    load_vm_config "$VMNAME" "$vm_dir"
 
     display_and_log "INFO" "Restarting VM '$VMNAME'..."
 

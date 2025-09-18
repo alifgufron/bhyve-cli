@@ -20,10 +20,13 @@ cmd_snapshot_delete() {
   fi
 
   local vm_source
+  local datastore_path
   vm_source=$(echo "$found_vm_info" | cut -d':' -f1)
+  datastore_path=$(echo "$found_vm_info" | cut -d':' -f3)
 
   # --- Logic for all VMs (bhyve-cli and vm-bhyve) ---
-  local SNAPSHOT_PATH="$VM_CONFIG_BASE_DIR/snapshots/$VMNAME/$SNAPSHOT_NAME"
+  local SNAPSHOT_ROOT_DIR="$datastore_path/snapshots" # Snapshot storage within VM's datastore
+  local SNAPSHOT_PATH="$SNAPSHOT_ROOT_DIR/$VMNAME/$SNAPSHOT_NAME"
 
   if [ ! -d "$SNAPSHOT_PATH" ]; then
     display_and_log "ERROR" "Snapshot '$SNAPSHOT_NAME' not found for VM '$VMNAME'."
@@ -37,6 +40,7 @@ cmd_snapshot_delete() {
   fi
 
   display_and_log "INFO" "Deleting snapshot '$SNAPSHOT_NAME' for VM '$VMNAME'..."
+  log "Attempting to delete snapshot directory: $SNAPSHOT_PATH"
   start_spinner "Deleting snapshot files..."
   if ! rm -rf "$SNAPSHOT_PATH"; then
     stop_spinner
@@ -44,5 +48,6 @@ cmd_snapshot_delete() {
     exit 1
   fi
   stop_spinner
+  log "Snapshot directory deleted: $SNAPSHOT_PATH"
   display_and_log "INFO" "Snapshot '$SNAPSHOT_NAME' deleted successfully."
 }

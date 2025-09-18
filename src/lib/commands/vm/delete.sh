@@ -56,6 +56,8 @@ cmd_delete() {
     fi
 
     display_and_log "INFO" "Deleting VM files from '$vm_dir'..."
+    # Unset LOG_FILE before deleting the directory to prevent errors
+    unset LOG_FILE
     if rm -rf "$vm_dir"; then
       display_and_log "INFO" "Successfully deleted VM directory: $vm_dir"
     else

@@ -63,7 +63,7 @@ cmd_stop() {
 
   # If we are here, it's a bhyve-cli VM. Proceed with corrected logic.
   # Load VM config using the found datastore_path. This sets the global VM_DIR.
-  load_vm_config "$VMNAME_ARG" "$datastore_path"
+  load_vm_config "$VMNAME_ARG" "$datastore_path/$VMNAME_ARG"
 
   # is_vm_running and other pid functions require the full VM_DIR path.
   if ! is_vm_running "$VMNAME_ARG" "$VM_DIR"; then
