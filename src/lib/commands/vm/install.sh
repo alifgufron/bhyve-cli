@@ -134,13 +134,20 @@ cmd_install() {
     exit 1
   fi
 
-  local NEXT_DISK_DEV_NUM # This will be populated by build_disk_args
   local DISK_ARGS
-  DISK_ARGS=$(build_disk_args "$VM_DIR" NEXT_DISK_DEV_NUM)
+  DISK_ARGS=$(build_disk_args "$VM_DIR")
   if [ $? -ne 0 ]; then
     display_and_log "ERROR" "Failed to build disk arguments."
     exit 1
   fi
+
+  # Manually calculate the next available PCI slot for the ISO/CD drive.
+  # The subshell in the line above prevents NEXT_DISK_DEV_NUM from being set,
+  # so we determine it here by counting existing disks.
+  # Disks start at slot 3.
+  local num_disks
+  num_disks=$(grep -c "^DISK_[0-9]*=" "$CONF_FILE")
+  local NEXT_DISK_DEV_NUM=$((3 + num_disks))
 
   local NETWORK_ARGS=$(build_network_args "$VMNAME" "$VM_DIR")
   if [ $? -ne 0 ]; then
