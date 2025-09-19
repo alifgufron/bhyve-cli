@@ -50,6 +50,7 @@ cmd_install() {
       exit 1
   fi
 
+  local vm_dir="$datastore_path/$VMNAME"
   # Load the bhyve-cli VM config
   load_vm_config "$VMNAME" "$vm_dir"
 
@@ -205,7 +206,7 @@ cmd_install() {
   # Execute bhyve in the background
   eval "$BHYVE_CMD" >> "$LOG_FILE" 2>&1 &
   VM_PID=$!
-  save_vm_pid "$VMNAME" "$VM_PID"
+  save_vm_pid "$VMNAME" "$VM_PID" "$vm_dir"
   log "Bhyve VM started in background with PID $VM_PID"
 
   echo_message ""
@@ -240,6 +241,6 @@ cmd_install() {
   else
       log "Bhyve process $VM_PID exited cleanly (status: $BHYVE_EXIT_STATUS)."
   fi
-  display_and_log "INFO" "Installation finished. You can now start the VM with: $0 start $VMNAME"
+  display_and_log "INFO" "Installation finished. You can now start the VM with: $(basename "$0") start $VMNAME"
   log "Exiting cmd_install function for VM: $VMNAME"
 }
