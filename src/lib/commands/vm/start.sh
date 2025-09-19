@@ -85,10 +85,9 @@ cmd_start() {
   log "Ensured VM '$VMNAME' is destroyed from kernel before start."
 
   # --- Build bhyve Arguments ---
-  local DISK_ARGS NETWORK_ARGS VNC_ARGS BHYVE_LOADER_ARG
+  local DISK_ARGS NETWORK_ARGS BHYVE_LOADER_ARG
   DISK_ARGS=$(build_disk_args "$VM_DIR") || { stop_spinner; display_and_log "ERROR" "Failed to build disk arguments."; exit 1; }
   NETWORK_ARGS=$(build_network_args "$VMNAME" "$VM_DIR") || { stop_spinner; display_and_log "ERROR" "Failed to build network arguments."; exit 1; }
-  VNC_ARGS=$(build_vnc_args) # This one is optional, no need to exit on failure
   BHYVE_LOADER_ARG=$(get_bootloader_arg "$BOOTLOADER_TYPE" "$VM_DIR") || { stop_spinner; display_and_log "ERROR" "Failed to get bootloader arguments."; exit 1; }
 
   # --- Bhyveload Boot ---
@@ -103,7 +102,7 @@ cmd_start() {
   fi
 
   # --- Execute Bhyve ---
-  local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS $VNC_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc $BHYVE_LOADER_ARG \"$VMNAME\""
+  local BHYVE_CMD="$BHYVE -c $CPUS -m $MEMORY -AHP -s 0,hostbridge $DISK_ARGS $NETWORK_ARGS -l com1,/dev/${CONSOLE}A -s 31,lpc $BHYVE_LOADER_ARG \"$VMNAME\""
   log "Executing bhyve command: $BHYVE_CMD"
 
   eval "$BHYVE_CMD >> \"$LOG_FILE\" 2>&1" &

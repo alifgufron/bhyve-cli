@@ -29,7 +29,7 @@ cmd_vm() {
       import)       cmd_import_usage; exit 0 ;;
       suspend)      cmd_suspend_usage; exit 0 ;;
       resume)       cmd_resume_usage; exit 0 ;;
-      vnc)          cmd_vnc_usage; exit 0 ;;
+
       list)         cmd_list_usage; exit 0 ;;
       stopall)      cmd_stopall_usage; exit 0 ;;
       startall)     cmd_startall_usage; exit 0 ;;
@@ -87,9 +87,7 @@ cmd_vm() {
     resume)
       cmd_resume "$@"
       ;;
-    vnc)
-      cmd_vnc "$@"
-      ;;
+
     list)
       cmd_list "$@"
       ;;

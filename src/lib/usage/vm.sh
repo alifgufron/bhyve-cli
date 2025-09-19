@@ -6,7 +6,7 @@ cmd_vm_usage() {
   echo_message "\nDescription:"
   echo_message "  Main command for managing virtual machines."
   echo_message "\nAvailable Subcommands:"
-  echo_message "  create, delete, install, start, stop, restart, console, autostart, modify, clone, info, resize-disk, export, import, suspend, resume, vnc, list, stopall, startall, verify"
+  echo_message "  create, delete, install, start, stop, restart, console, autostart, modify, clone, info, resize-disk, export, import, suspend, resume, list, stopall, startall, verify"
   echo_message "\nFor detailed usage of each subcommand, use: $(basename "$(basename "$0")") vm <subcommand> --help"
 }
 
@@ -20,8 +20,7 @@ cmd_create_usage() {
   echo_message "  --disk-size <size in GB>     - Optional. Size of the virtual disk in GB. Required if --from-template is not used."
   echo_message "  --from-template <template_name> - Optional. Create VM from an existing template. If used, --disk-size is optional."
   echo_message "  --bootloader <type>          - Optional. Type of bootloader (bhyveload, uefi). Default: bhyveload."
-  echo_message "  --vnc-port <port>            - Optional. Enable VNC console on specified port (e.g., 5900)."
-  echo_message "  --vnc-wait                   - Optional. Wait for VNC client connection before booting VM."
+
   echo_message "  --nic-type <type>            - Optional. Type of virtual NIC (virtio-net, e1000, re0). Default: virtio-net."
   echo_message "\nExample: (Note: --datastore is optional and defaults to 'default')"
   echo_message "  $(basename "$(basename "$0")") vm create --name vm-bsd --disk-size 40 --switch bridge100"
@@ -216,16 +215,4 @@ cmd_verify_usage() {
   echo_message "Usage: $(basename "$(basename "$0")") vm verify"
   echo_message "\nDescription:"
   echo_message "  Verify the consistency and integrity of VM configurations."
-}
-
-# === Usage function for vnc ===
-cmd_vnc_usage() {
-  echo_message "Usage: $(basename "$(basename "$0")") vm vnc <vmname>"
-  echo_message "\nArguments:"
-  echo_message "  <vmname>    - The name of the virtual machine to connect to via VNC."
-  echo_message "\nDescription:"
-  echo_message "  Connects to the VNC console of a running virtual machine."
-  echo_message "  The VM must have VNC configured (e.g., --vnc-port during creation)."
-  echo_message "\nExample:"
-  echo_message "  $(basename "$(basename "$0")") vm vnc myvm"
 }

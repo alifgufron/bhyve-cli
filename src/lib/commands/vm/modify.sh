@@ -235,34 +235,7 @@ cmd_modify() {
         PENDING_NIC_TYPE="$1"
         log "Pending NIC type set to: $PENDING_NIC_TYPE"
         ;;
-      --vnc-port)
-        shift
-        local NEW_VNC_PORT="$1"
-        log "Modifying VNC port for VM '$VMNAME' to $NEW_VNC_PORT..."
-        if grep -q "^VNC_PORT=" "$CONF_FILE"; then
-          sed -i '' "s/^VNC_PORT=.*/VNC_PORT=${NEW_VNC_PORT}/" "$CONF_FILE"
-        else
-          echo "VNC_PORT=${NEW_VNC_PORT}" >> "$CONF_FILE"
-        fi
-        display_and_log "INFO" "VNC port set to $NEW_VNC_PORT."
-        VM_MODIFIED=true
-        ;;
-      --vnc-wait)
-        log "Enabling VNC wait for VM '$VMNAME'..."
-        if grep -q "^VNC_WAIT=" "$CONF_FILE"; then
-          sed -i '' "s/^VNC_WAIT=.*/VNC_WAIT=yes/" "$CONF_FILE"
-        else
-          echo "VNC_WAIT=yes" >> "$CONF_FILE"
-        fi
-        display_and_log "INFO" "VNC wait enabled."
-        VM_MODIFIED=true
-        ;;
-      --no-vnc-wait)
-        log "Disabling VNC wait for VM '$VMNAME'..."
-        sed -i '' "/^VNC_WAIT=/d" "$CONF_FILE"
-        display_and_log "INFO" "VNC wait disabled."
-        VM_MODIFIED=true
-        ;;
+
       *)
         display_and_log "ERROR" "Invalid option: $1"
         cmd_modify_usage

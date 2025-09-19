@@ -8,8 +8,7 @@ cmd_create() {
   local BOOTLOADER_TYPE="bhyveload" # Default bootloader
   local FROM_TEMPLATE=""
   local DATASTORE_NAME="default"
-  local VNC_PORT=""
-  local VNC_WAIT=""
+
 
   # Parse named arguments
   while (( "$#" )); do
@@ -20,8 +19,7 @@ cmd_create() {
       --switch) shift; VM_BRIDGE="$1" ;;
       --bootloader) shift; BOOTLOADER_TYPE="$1" ;;
       --from-template) shift; FROM_TEMPLATE="$1" ;;
-      --vnc-port) shift; VNC_PORT="$1" ;;
-      --vnc-wait) VNC_WAIT="true" ;;
+
       * )
         display_and_log "ERROR" "Invalid option: $1"
         cmd_create_usage
@@ -137,8 +135,6 @@ cmd_create() {
     sed -i '' '/^UUID=/d' "$CONF"
     sed -i '' '/^CONSOLE=/d' "$CONF"
     sed -i '' '/^LOG=/d' "$CONF"
-    sed -i '' '/^VNC_PORT=/d' "$CONF"
-    sed -i '' '/^VNC_WAIT=/d' "$CONF"
     sed -i '' '/^AUTOSTART=/d' "$CONF"
     sed -i '' '/^TAP_[0-9]*=/d' "$CONF" # Remove old TAP assignments
 
@@ -164,8 +160,7 @@ cmd_create() {
     sed -i '' '/^UUID=/d' "$CONF"
     sed -i '' '/^CONSOLE=/d' "$CONF"
     sed -i '' '/^LOG=/d' "$CONF"
-    sed -i '' '/^VNC_PORT=/d' "$CONF"
-    sed -i '' '/^VNC_WAIT=/d' "$CONF"
+
     sed -i '' '/^AUTOSTART=/d' "$CONF"
     sed -i '' '/^TAP_[0-9]*=/d' "$CONF" # Remove old TAP assignments
 
@@ -226,10 +221,7 @@ EOF
     echo "AUTOSTART=no"
   } >> "$CONF"
 
-  if [ -n "$VNC_PORT" ]; then
-    echo "VNC_PORT=$VNC_PORT" >> "$CONF"
-    [ -n "$VNC_WAIT" ] && echo "VNC_WAIT=yes" >> "$CONF"
-  fi
+
 
   log "Configuration file finalized: $CONF"
   display_and_log "INFO" "VM '$VMNAME' successfully created."
