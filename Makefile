@@ -1,3 +1,4 @@
+SHELL = /bin/sh
 
 # Makefile for bhyve-cli
 
@@ -10,7 +11,6 @@ RC_DIR = $(ETC_DIR)/rc.d
 
 APP_NAME = bhyve-cli
 SHARE_SUBDIR = $(SHARE_DIR)/$(APP_NAME)
-# Corrected config directory to match script expectations
 ETC_APP_DIR = $(ETC_DIR)/$(APP_NAME)
 VM_CONFIG_DIR = $(ETC_APP_DIR)/vm.d
 
@@ -27,14 +27,13 @@ FIRMWARE_DIR = firmware
 all:
 	@echo "Usage: make [install|uninstall|clean]"
 
-
 install:
-	@echo "Installing bhyve-cli..."
-	@if [ "$(shell id -u)" -ne 0 ]; then \
+	@echo "Installing $(APP_NAME)..."
+	@/bin/sh -c 'echo "PATH: $$PATH"; echo "ID_U: $$(id -u)"; echo "WHOAMI: $$(whoami)"' || true
+	@if [ "$$(id -u)" != "0" ]; then \
 		echo "ERROR: Installation requires root privileges." >&2; \
 		exit 1; \
 	fi
-	@mkdir -p $(DESTDIR)$(BIN_DIR)
 
 	@mkdir -p $(DESTDIR)$(SHARE_SUBDIR)/lib
 	@mkdir -p $(DESTDIR)$(SHARE_SUBDIR)/firmware
@@ -46,8 +45,9 @@ install:
 	@chmod +x $(DESTDIR)$(BIN_DIR)/$(APP_NAME)
 
 	@cp -R $(LIB_DIR)/* $(DESTDIR)$(SHARE_SUBDIR)/lib/
+	@chmod +x $(DESTDIR)$(SHARE_SUBDIR)/lib/functions/network_cleanup_all.sh
 	@cp -R $(FIRMWARE_DIR)/* $(DESTDIR)$(SHARE_SUBDIR)/firmware/
-	
+
 	@cp $(RC_SCRIPT) $(DESTDIR)$(RC_DIR)/
 
 	@echo "Installation complete."
@@ -59,8 +59,8 @@ install:
 	@echo "--------------------------------------------------"
 
 uninstall:
-	@echo "Uninstalling bhyve-cli..."
-	@if [ "$(shell id -u)" -ne 0 ]; then \
+	@echo "Uninstalling $(APP_NAME)..."
+	@if [ "$$(id -u)" -ne 0 ]; then \
 		echo "ERROR: Uninstallation requires root privileges." >&2; \
 		exit 1; \
 	fi
@@ -85,4 +85,3 @@ clean:
 	@echo "Cleaning up..."
 	# Add cleanup tasks here if needed, e.g., removing generated files
 	@echo "Cleanup complete."
-
