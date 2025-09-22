@@ -8,6 +8,7 @@ cmd_create() {
   local BOOTLOADER_TYPE="bhyveload" # Default bootloader
   local FROM_TEMPLATE=""
   local DATASTORE_NAME="default"
+  local NIC_TYPE="virtio-net" # Default NIC type
 
 
   # Parse named arguments
@@ -19,6 +20,7 @@ cmd_create() {
       --switch) shift; VM_BRIDGE="$1" ;;
       --bootloader) shift; BOOTLOADER_TYPE="$1" ;;
       --from-template) shift; FROM_TEMPLATE="$1" ;;
+      --nic-type) shift; NIC_TYPE="$1" ;;
 
       * )
         display_and_log "ERROR" "Invalid option: $1"
@@ -200,7 +202,7 @@ cmd_create() {
 CPUS=2
 MEMORY=2048M
 BRIDGE_0=$VM_BRIDGE
-NIC_0_TYPE=virtio-net
+NIC_0_TYPE=$NIC_TYPE
 MAC_0=$MAC_0
 DISK_0=disk.img
 DISK_0_TYPE=virtio-blk

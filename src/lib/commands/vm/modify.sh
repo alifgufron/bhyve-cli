@@ -96,7 +96,7 @@ cmd_modify() {
         shift
         local NEW_NIC_BRIDGE="$1"
         local NEXT_NIC_INDEX=0
-        while grep -q "^TAP_${NEXT_NIC_INDEX}=" "$CONF_FILE"; do
+        while grep -q "^BRIDGE_${NEXT_NIC_INDEX}=" "$CONF_FILE"; do
           NEXT_NIC_INDEX=$((NEXT_NIC_INDEX + 1))
         done
         local NEW_TAP_NAME="tap$(get_next_available_tap_num)"

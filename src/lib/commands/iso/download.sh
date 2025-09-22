@@ -2,6 +2,10 @@
 
 # === Subcommand: iso download ===
 cmd_iso_download() {
+  if [ "$1" = "--help" ] || [ -z "$1" ]; then
+    cmd_iso_usage
+    exit 1
+  fi
   local ISO_URL="$1"
   local ISO_FILE="$(basename "$ISO_URL")"
   local ISO_PATH="$ISO_DIR/$ISO_FILE"

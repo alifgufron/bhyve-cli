@@ -2,7 +2,7 @@
 
 # === Subcommand: template delete ===
 cmd_template_delete() {
-  if [ -z "$1" ]; then
+  if [ "$1" = "--help" ] || [ -z "$1" ]; then
     cmd_template_usage
     exit 1
   fi

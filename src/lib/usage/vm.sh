@@ -135,12 +135,15 @@ cmd_clone_usage() {
 
 # === Usage function for resize-disk ===
 cmd_resize_disk_usage() {
-  echo_message "Usage: $(basename "$(basename "$0")") vm resize-disk <vmname> <new_size_in_GB>"
+  echo_message "Usage: $(basename "$(basename "$0")") vm resize-disk <vmname> <new_size_in_GB> [--disk-index <index>]"
   echo_message "\nArguments:"
   echo_message "  <vmname>         - The name of the virtual machine whose disk you want to resize."
   echo_message "  <new_size_in_GB> - The new size of the virtual disk in GB. Must be larger than the current size."
+  echo_message "\nOptions:"
+  echo_message "  --disk-index <index> - Optional. The index of the disk to resize (e.g., 0 for primary disk, 1 for DISK_1). Defaults to 0."
   echo_message "\nExample:"
   echo_message "  $(basename "$(basename "$0")") vm resize-disk myvm 60"
+  echo_message "  $(basename "$(basename "$0")") vm resize-disk myvm 100 --disk-index 1"
 }
 
 # === Usage function for export ===

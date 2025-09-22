@@ -2,7 +2,7 @@
 
 # === Subcommand: template create ===
 cmd_template_create() {
-  if [ -z "$2" ]; then
+  if [ "$1" = "--help" ] || [ -z "$2" ]; then
     cmd_template_usage
     exit 1
   fi

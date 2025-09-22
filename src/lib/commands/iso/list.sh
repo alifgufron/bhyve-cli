@@ -2,6 +2,10 @@
 
 # === Subcommand: iso list ===
 cmd_iso_list() {
+  if [ "$1" = "--help" ]; then
+    cmd_iso_usage
+    exit 0
+  fi
   log "Listing ISO files in $ISO_DIR..."
   if [ ! -d "$ISO_DIR" ]; then
     display_and_log "INFO" "ISO directory '$ISO_DIR' not found. Creating it."

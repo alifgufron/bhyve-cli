@@ -2,6 +2,10 @@
 
 # === Subcommand: template list ===
 cmd_template_list() {
+  if [ "$1" = "--help" ]; then
+    cmd_template_usage
+    exit 0
+  fi
   local TEMPLATE_BASE_DIR="$VM_CONFIG_BASE_DIR/templates"
 
   if [ ! -d "$TEMPLATE_BASE_DIR" ] || [ -z "$(ls -A "$TEMPLATE_BASE_DIR")" ]; then

@@ -12,13 +12,20 @@ cmd_iso() {
 
   case "$SUBCOMMAND" in
     list)
-      cmd_iso_list
+      cmd_iso_list "$@"
+      ;;
+    download)
+      cmd_iso_download "$@"
       ;;
     http://*|https://*)
-      cmd_iso_download "$SUBCOMMAND"
+      # Allow calling without the 'download' subcommand
+      cmd_iso_download "$SUBCOMMAND" "$@"
       ;;
     delete)
       cmd_iso_delete "$@"
+      ;;
+    --help|help)
+      cmd_iso_usage
       ;;
     *)
       display_and_log "ERROR" "Invalid subcommand or URL for 'iso': $SUBCOMMAND"

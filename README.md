@@ -4,15 +4,18 @@
 
 ## Features
 
--   **Full VM Lifecycle:** Comprehensive management including create, delete, start, stop, restart, install, clone, export, import, and disk resizing.
--   **Live Snapshots:** Create consistent snapshots of running VMs using a non-disruptive suspend/resume mechanism.
+-   **Full VM Lifecycle:** Comprehensive management including create, delete, start, stop, restart, install, clone, export, import, modify, verify, and disk resizing.
+-   **Live Snapshots:** Create consistent snapshots of running VMs using a non-disruptive suspend/resume mechanism (create, list, revert, delete).
 -   **Modular & Maintainable:** Clean codebase with commands, functions, and usage messages separated into single-responsibility files.
 -   **Flexible Network Management:**
     -   Manage virtual switches (bridges) with physical interfaces and VLANs.
     -   Create and manage isolated virtual networks (vmnet) for inter-VM communication.
 -   **Autostart Service (rc.d):** System `rc.d` script to initialize network configurations (switches and vmnets) and autostart designated VMs on boot.
--   **Console & Logs:** Direct access to VM consoles and real-time log viewing.
+-   **Console & Logs:** Direct access to VM consoles and enhanced real-time log viewing with `--tail` and `-f` options.
 -   **ISO Management:** List, download, and manage ISO installation images.
+-   **Enhanced Disk Management:** Flexible options to add, remove, and specify disk types (virtio-blk, ahci-hd) for VMs.
+-   **VM Templating:** Create and manage VM templates for quick deployment of new VMs.
+-   **Configuration Verification:** Ensure VM configurations are valid before starting.
 
 ## Prerequisites
 
@@ -118,9 +121,11 @@ $ sudo bhyve-cli vmnet create --name myisolatednet --ip 192.168.50.1/24
     -   `iso list`, `iso download`, `iso delete`
 -   `switch`: Manages virtual network switches (bridges).
     -   `switch add`, `switch list`, `switch destroy`, `switch init`
+-   `template`: Manage VM templates.
+    -   `template create`, `template list`, `template delete`
 -   `vmnet`: Manages isolated virtual networks for VMs.
     -   `vmnet create`, `vmnet list`, `vmnet destroy`, `vmnet init`
--   `logs`: Display real-time logs for a VM.
+-   `logs`: Display real-time logs for a VM, with options like `--tail <num>` and `-f` for continuous monitoring.
 
 For detailed usage of any command, use the `--help` flag:
 `sudo bhyve-cli.sh <command> --help`

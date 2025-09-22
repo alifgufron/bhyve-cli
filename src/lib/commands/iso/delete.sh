@@ -2,6 +2,10 @@
 
 # === Subcommand: iso delete ===
 cmd_iso_delete() {
+  if [ "$1" = "--help" ] || [ -z "$1" ]; then
+    cmd_iso_usage
+    exit 1
+  fi
   local ISO_FILENAME="$1"
   if [ -z "$ISO_FILENAME" ]; then
     display_and_log "ERROR" "Missing ISO filename for delete command."

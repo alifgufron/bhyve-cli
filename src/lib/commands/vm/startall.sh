@@ -37,6 +37,11 @@ cmd_startall() {
         # Load VM config using the full VM_DIR_PATH
         load_vm_config "$VMNAME" "$VM_DIR_PATH"
 
+        if [[ "${AUTOSTART}" != "yes" ]]; then
+          log "VM '$VMNAME' does not have autostart enabled. Skipping."
+          continue
+        fi
+
         if is_vm_running "$VMNAME" "$VM_DIR_PATH"; then # Pass vm_dir to is_vm_running
           log "VM '$VMNAME' is already running. Skipping."
           already_running_vms=$((already_running_vms + 1))
