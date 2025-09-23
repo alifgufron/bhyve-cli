@@ -17,6 +17,54 @@
 -   **VM Templating:** Create and manage VM templates for quick deployment of new VMs.
 -   **Configuration Verification:** Ensure VM configurations are valid before starting.
 
+## Extra: Automated Backup & Email Reporting
+
+The `extra/` directory contains a powerful standalone script, `backup_and_report.sh`, for automating VM backups and receiving status reports via email.
+
+### Script Features
+
+-   **Multi-VM Backup:** Back up one or more VMs in a single command.
+-   **Unique Archives:** Automatically renames exported files with a unique, detailed timestamp (`VM-NAME_YYYY-MM-DD_HHMMSS.tar.zst`) to prevent overwrites.
+-   **Detailed Email Reports:** Sends a report for each VM backup, including:
+    -   Success (✅) or Failure (❌) status.
+    -   VM Manager (`bhyve-cli` or `vm-bhyve`) and Datastore.
+    -   Total backup duration.
+    -   Final backup location and size.
+    -   Error details on failure.
+
+### Setup
+
+Before first use, you must configure the variables at the top of `extra/backup_and_report.sh`:
+
+```sh
+# Email address to send the report to.
+RECIPIENT_EMAIL="admin@example.com"
+
+# Directory to store the exported VM archives.
+BACKUP_DIR="/var/backups/bhyve"
+```
+
+### Usage
+
+The script must be run with the name(s) of the VM(s) to be backed up.
+
+```bash
+# Back up a single VM
+./extra/backup_and_report.sh my-vm
+
+# Back up multiple VMs at once
+./extra/backup_and_report.sh my-vm1 my-vm2 another-vm
+```
+
+### Automation with Cron
+
+This script is ideal for automation. To run a daily backup of `my-vm1` and `my-vm2` at 2:30 AM, add the following to your crontab (e.g., `sudo crontab -e`):
+
+```crontab
+# Daily backup for important VMs
+30 2 * * * /path/to/bhyve-cli/extra/backup_and_report.sh my-vm1 my-vm2 > /dev/null 2>&1
+```
+
 ## Prerequisites
 
 -   **OS:** FreeBSD 12.x, 13.x, 14.x
