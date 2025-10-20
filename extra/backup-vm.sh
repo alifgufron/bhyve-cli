@@ -8,7 +8,7 @@
 #   report via email for each one.
 #
 # Usage:
-#   ./backup_and_report.sh <vm_name1> [vm_name2] [vm_name3] ...
+#   ./backup-vm.sh <vm_name1> [vm_name2] [vm_name3] ...
 #
 # Dependencies:
 #   - bhyve-cli
