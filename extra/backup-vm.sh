@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 # ==============================================================================
 # bhyve-cli VM Backup and Email Reporter
@@ -32,12 +32,21 @@ LOG_FILE="/var/log/bhyve_backup.log"
 COMPRESSION_FORMAT="zst"
 # Set export mode: --force-export, --suspend-export, --stop-export, or "" (empty)
 EXPORT_MODE="--force-export"
+
+# Retention policy: Number of backups to keep per VM. Set to 0 to disable retention.
+RETENTION_COUNT=7
 # --- End of Configuration ---
 
 
 # --- Helper Functions ---
 log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+    local message="$(date '+%Y-%m-%d %H:%M:%S') - $1"
+    # Always write to the log file
+    echo "$message" >> "$LOG_FILE"
+    # Also write to console if running interactively
+    if [ -t 1 ]; then
+        echo "$message"
+    fi
 }
 
 send_email() {
@@ -56,6 +65,58 @@ send_email() {
     ) | /usr/sbin/sendmail -t
 
     log "Email report sent to $RECIPIENT_EMAIL with subject: $subject"
+}
+
+format_bytes() {
+    local bytes=$1
+    if [ -z "$bytes" ] || [ "$bytes" -eq 0 ]; then
+        echo "0B"
+        return
+    fi
+    if (( bytes < 1024 )); then
+        echo "${bytes}B"
+    elif (( bytes < 1024 * 1024 )); then
+        printf "%.2fK" $(echo "$bytes / 1024" | bc -l)
+    elif (( bytes < 1024 * 1024 * 1024 )); then
+        printf "%.2fM" $(echo "$bytes / (1024 * 1024)" | bc -l)
+    else
+        printf "%.2fG" $(echo "$bytes / (1024 * 1024 * 1024)" | bc -l)
+    fi
+}
+
+HOSTNAME=$(hostname -s)
+
+# --- Cleanup Function ---
+cleanup_old_backups() {
+    local VM_NAME="$1"
+    if [ "$RETENTION_COUNT" -le 0 ]; then
+        log "Retention count is 0 or less. Skipping old backup cleanup for VM: $VM_NAME"
+        return 0
+    fi
+
+    log "Checking old backups for VM: $VM_NAME (retention count: $RETENTION_COUNT)"
+
+    # Find all backups for the VM, sorted by modification time (newest first)
+    # The pattern is VM_NAME_YYYY-MM-DD_HHMMSS.tar.zst (or other compression)
+    local VM_BACKUPS
+    VM_BACKUPS=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name "${VM_NAME}_*.tar.*" -print0 | xargs -0 ls -t)
+
+    local NUM_BACKUPS=$(echo "$VM_BACKUPS" | wc -l | tr -d ' ')
+
+    if [ "$NUM_BACKUPS" -gt "$RETENTION_COUNT" ]; then
+        local OLDEST_BACKUPS_TO_DELETE
+        OLDEST_BACKUPS_TO_DELETE=$(echo "$VM_BACKUPS" | tail -n $((NUM_BACKUPS - RETENTION_COUNT)))
+
+        log "Found $NUM_BACKUPS backups for $VM_NAME. Deleting $((NUM_BACKUPS - RETENTION_COUNT)) oldest backups."
+        echo "$OLDEST_BACKUPS_TO_DELETE" | while IFS= read -r file; do
+            if [ -f "$file" ]; then
+                log "Deleting old backup: $file"
+                rm "$file"
+            fi
+        done
+    else
+        log "Only $NUM_BACKUPS backups found for $VM_NAME. No cleanup needed."
+    fi
 }
 
 # --- Core Logic for a Single VM ---
@@ -117,20 +178,50 @@ process_single_vm() {
         formatted_duration=$(printf "%dm %ds" $((duration / 60)) $((duration % 60)))
 
         file_size=$(du -h "$EXPORTED_FILE_PATH" | awk '{print $1}')
-        subject="✅ SUCCESS: bhyve VM Backup - $VM_NAME"
+        
+        # Perform cleanup of old backups
+        cleanup_old_backups "$VM_NAME"
+
+        # --- Collect and format retained backup information ---
+        local RETAINED_BACKUPS_INFO_TEMP=""
+        local RETAINED_BACKUPS_LIST_RAW
+        RETAINED_BACKUPS_LIST_RAW=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name "${VM_NAME}_*.tar.*" -print0 | xargs -0 ls -t)
+
+        local TOTAL_BACKUPED_SIZE_BYTES=0
+
+        if [ -n "$RETAINED_BACKUPS_LIST_RAW" ]; then
+            RETAINED_BACKUPS_INFO_TEMP="🗄️ List VM Backup:\n"
+            while IFS= read -r file; do
+                local file_date=$(date -r "$file" '+%Y-%m-%d %H:%M:%S')
+                local file_size_bytes=$(du -k "$file" | awk '{print $1}') # Get size in KB
+                TOTAL_BACKUPED_SIZE_BYTES=$((TOTAL_BACKUPED_SIZE_BYTES + file_size_bytes))
+                local file_size_human=$(du -h "$file" | awk '{print $1}')
+                RETAINED_BACKUPS_INFO_TEMP+="   - $file_date  $(basename "$file")  $file_size_human\n"
+            done <<< "$RETAINED_BACKUPS_LIST_RAW"
+        else
+            RETAINED_BACKUPS_INFO_TEMP="🗄️ No retained backups found for this VM.\n"
+        fi
+        # --- End of retained backup information collection ---
+
+        # Convert total size to human-readable format
+        local TOTAL_BACKUPED_SIZE_HUMAN=$(format_bytes "$((TOTAL_BACKUPED_SIZE_BYTES * 1024))") # Convert KB to Bytes for format_bytes
+
+        subject="✅ [Backup SUCCESS] VM Bhyve $VM_NAME - From $HOSTNAME"
         body=$(cat <<EOF
-Backup Report
----------------------------------
-VM Name:          $VM_NAME
-Manager:          $vm_manager
-Datastore:        $datastore_name
-Status:           ✅ SUCCESS
-Date:             $(date '+%Y-%m-%d %H:%M:%S')
-Duration:         $formatted_duration
-Backup Location:  $EXPORTED_FILE_PATH
-VM Disk Size:     $vm_disk_size (from config)
-Exported Size:    $file_size
----------------------------------
+Backup Report for $VM_NAME from $HOSTNAME
+
+📦 VM Name:          $VM_NAME
+⚙️ Manager:          $vm_manager
+💾 Datastore:        $datastore_name
+❤️ Status:           SUCCESS
+📅 Date:             $(date '+%Y-%m-%d %H:%M:%S')
+⌛ Duration:         $formatted_duration
+🔗 Backup Location:  $EXPORTED_FILE_PATH
+💽 VM Disk Size:     $vm_disk_size (from config)
+🗃️ Exported Size:    $file_size
+
+$(printf "%b" "$RETAINED_BACKUPS_INFO_TEMP")
+Total Backuped $VM_NAME: $TOTAL_BACKUPED_SIZE_HUMAN
 EOF
 )
         log "Successfully exported VM '$VM_NAME' to '$EXPORTED_FILE_PATH'."
@@ -140,16 +231,16 @@ EOF
         duration=$((end_time - start_time))
         formatted_duration=$(printf "%dm %ds" $((duration / 60)) $((duration % 60)))
 
-        subject="❌ FAILURE: bhyve VM Backup - $VM_NAME"
+        subject="❌ [Backup FAILURE] VM Bhyve $VM_NAME - From $HOSTNAME"
         body=$(cat <<EOF
-Backup Report
----------------------------------
-VM Name:          $VM_NAME
-Manager:          $vm_manager
-Datastore:        $datastore_name
-Status:           ❌ FAILURE
-Date:             $(date '+%Y-%m-%d %H:%M:%S')
-Duration:         $formatted_duration
+Backup Report for $VM_NAME from $HOSTNAME
+
+📦 VM Name:          $VM_NAME
+⚙️ Manager:          $vm_manager
+💾 Datastore:        $datastore_name
+❤️ Status:           FAILURE
+📅 Date:             $(date '+%Y-%m-%d %H:%M:%S')
+⌛ Duration:         $formatted_duration
 ---------------------------------
 Error Details:
 $export_output
@@ -168,21 +259,19 @@ EOF
 # --- Main Dispatcher ---
 main() {
     if [ $# -eq 0 ]; then
-        echo "Error: No VM names provided."
-        echo "Usage: $0 <vm_name1> [vm_name2] ..."
-        log "Error: Script called without any VM names."
+        log "Error: No VM names provided."
+        log "Usage: $0 <vm_name1> [vm_name2] ..."
         exit 1
     fi
 
     log "Batch backup started for $# VMs."
 
     for vm_name in "$@"; do
-        echo "Processing backup for: $vm_name"
         process_single_vm "$vm_name"
     done
 
     log "Batch backup finished."
-    echo "All specified backups processed."
+    log "All specified backups processed."
 }
 
 # Run main function with all script arguments

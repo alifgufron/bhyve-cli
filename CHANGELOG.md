@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.1.3] - 2025-10-20
+
+### Fixed
+
+- **Script Compatibility and Logic in `extra/` Scripts:**
+    - Changed the shebang from `#!/bin/sh` to `#!/usr/bin/env bash` for `backup_and_report.sh` and `backup-vm-test.sh` to ensure consistent execution with bash.
+    - This change resolves compatibility errors with `((...))` arithmetic and `<<<` here-strings that occurred under `sh`.
+    - Reverted complex workarounds (like using `mktemp`) back to cleaner, bash-native logic.
+- **Interactive vs. Cron Logging:**
+    - Modified the `log()` function in both scripts to write to the console *and* the log file when run from an interactive terminal, but only to the log file when run from a non-interactive session (like cron).
+    - Removed the redundant `console_output()` function and replaced its calls with `log()`.
+- **Email Formatting:**
+    - Fixed an issue where newline characters (`\n`) were not being interpreted in the email body, causing improper formatting.
+    - Used `printf "%b"` to ensure backslash escapes are processed correctly, resulting in a clean and readable email report.
+
 ## [v1.1.2] - 2025-09-16
 
 ### Changed
