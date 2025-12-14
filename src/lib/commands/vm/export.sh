@@ -185,54 +185,64 @@ cmd_export() {
       display_and_log "ERROR" "VM-bhyve config file not found: $CONF_FILE_PATH"
       EXPORT_SUCCESS=false
     else
-      # Create a temporary directory for packaging
-      local TEMP_EXPORT_DIR=$(mktemp -d -t bhyve-cli-export-XXXXXX)
-      local TEMP_VM_DIR="$TEMP_EXPORT_DIR/$VMNAME"
-      mkdir -p "$TEMP_VM_DIR"
-
-      # Copy config file
-      cp "$CONF_FILE_PATH" "$TEMP_VM_DIR/$VMNAME.conf"
-
-      # Source config to get disk paths
-      . "$CONF_FILE_PATH"
-
-      local DISK_PATHS=()
-      local DISK_IDX=0
-      while true; do
-        local type_var="disk${DISK_IDX}_type"
-        local name_var="disk${DISK_IDX}_name"
-        local DISK_TYPE="${!type_var}"
-        if [ -z "$DISK_TYPE" ]; then break; fi
-        local DISK_NAME="${!name_var}"
-
-        if [ "$DISK_TYPE" == "zvol" ]; then
-          display_and_log "ERROR" "ZFS zvols are not yet supported for export. Aborting."
+      # Create a staging directory inside the destination directory
+      local STAGING_PARENT_DIR="$DEST_DIR"
+      local TEMP_EXPORT_DIR
+      TEMP_EXPORT_DIR=$(mktemp -d -p "$STAGING_PARENT_DIR" staging_${VMNAME}_XXXXXX)
+      
+      if [ ! -d "$TEMP_EXPORT_DIR" ]; then
+          display_and_log "ERROR" "Failed to create staging directory in '$STAGING_PARENT_DIR'."
           EXPORT_SUCCESS=false
-          break
-        fi
+      else
+          # The structure inside the tarball should just be the VMNAME directory
+          local TEMP_VM_DIR="$TEMP_EXPORT_DIR/$VMNAME"
+          mkdir -p "$TEMP_VM_DIR"
 
-        local DISK_PATH="$vm_dir/$DISK_NAME"
-        if [ ! -f "$DISK_PATH" ]; then
-          display_and_log "ERROR" "Disk image not found: $DISK_PATH. Aborting."
-          EXPORT_SUCCESS=false
-          break
-        fi
-        DISK_PATHS+=("$DISK_PATH")
-        cp "$DISK_PATH" "$TEMP_VM_DIR/$DISK_NAME"
-        DISK_IDX=$((DISK_IDX + 1))
-      done
+          # Copy config file
+          cp "$CONF_FILE_PATH" "$TEMP_VM_DIR/$VMNAME.conf"
 
-      if $EXPORT_SUCCESS; then # Only proceed if no errors so far (e.g., zvol or missing disk)
-        # Tar the temporary directory
-        if tar -c $(get_tar_compression_flags "$COMPRESSION_FORMAT") -f "$ARCHIVE_PATH" -C "$TEMP_EXPORT_DIR" "$VMNAME"; then
-          EXPORT_SUCCESS=true
-        else
-          EXPORT_SUCCESS=false
-        fi
+          # Source config to get disk paths
+          # shellcheck source=/dev/null
+          . "$CONF_FILE_PATH"
+
+          local DISK_PATHS=()
+          local DISK_IDX=0
+          while true; do
+            local type_var="disk${DISK_IDX}_type"
+            local name_var="disk${DISK_IDX}_name"
+            local DISK_TYPE="${!type_var}"
+            if [ -z "$DISK_TYPE" ]; then break; fi
+            local DISK_NAME="${!name_var}"
+
+            if [ "$DISK_TYPE" == "zvol" ]; then
+              display_and_log "ERROR" "ZFS zvols are not yet supported for export. Aborting."
+              EXPORT_SUCCESS=false
+              break
+            fi
+
+            local DISK_PATH="$vm_dir/$DISK_NAME"
+            if [ ! -f "$DISK_PATH" ]; then
+              display_and_log "ERROR" "Disk image not found: $DISK_PATH. Aborting."
+              EXPORT_SUCCESS=false
+              break
+            fi
+            DISK_PATHS+=("$DISK_PATH")
+            cp "$DISK_PATH" "$TEMP_VM_DIR/$DISK_NAME"
+            DISK_IDX=$((DISK_IDX + 1))
+          done
+
+          if $EXPORT_SUCCESS; then
+            # Tar the temporary directory. The -C flag changes to the parent of the directory we want to archive.
+            if tar -c $(get_tar_compression_flags "$COMPRESSION_FORMAT") -f "$ARCHIVE_PATH" -C "$TEMP_EXPORT_DIR" "$VMNAME"; then
+              EXPORT_SUCCESS=true
+            else
+              EXPORT_SUCCESS=false
+            fi
+          fi
+
+          # Clean up temporary staging directory
+          rm -rf "$TEMP_EXPORT_DIR"
       fi
-
-      # Clean up temporary directory
-      rm -rf "$TEMP_EXPORT_DIR"
     fi
   fi
 

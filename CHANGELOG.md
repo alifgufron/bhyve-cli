@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`vm export` - Staging Directory Location:**
+    - Modified the `vm export` command to create its temporary staging directory within the user-specified destination directory (`$DEST_DIR`) instead of the system's default temporary directory (`/tmp`).
+    - This prevents export failures due to insufficient space in `/tmp` when exporting large VMs.
 - **Script Compatibility and Logic in `extra/` Scripts:**
     - Changed the shebang from `#!/bin/sh` to `#!/usr/bin/env bash` for `backup_and_report.sh` and `backup-vm-test.sh` to ensure consistent execution with bash.
     - This change resolves compatibility errors with `((...))` arithmetic and `<<<` here-strings that occurred under `sh`.
@@ -18,7 +21,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Removed the redundant `console_output()` function and replaced its calls with `log()`.
 - **Email Formatting:**
     - Fixed an issue where newline characters (`\n`) were not being interpreted in the email body, causing improper formatting.
-    - Used `printf "%b"` to ensure backslash escapes are processed correctly, resulting in a clean and readable email report.
+### Added
+
+- **Unified Backup Script (`vmdump.sh`):**
+    - Consolidated `backup-vm.sh` and the remote `vmdump` orchestrator into a single, powerful script: `extra/vmdump.sh`.
+    - Centralized all configuration into a new `extra/backup.conf` file.
+- **Flexible Email Reporting (`REPORTING_MODE`):**
+    - Implemented a `REPORTING_MODE` setting in `backup.conf` to control email notifications.
+    - **`summary` mode:** Sends a single email per node with a summary of all VM backup results (e.g., "2 SUCCESS, 1 FAILURE").
+    - **`individual` mode:** Sends a separate email for each VM backup, maintaining the original behavior.
+    - The script's logic was refactored to support both modes for local and remote execution.
+
+### Changed
+
+- **Backup Script Execution Model:**
+    - Simplified the execution model for `extra/vmdump.sh`. The script is now exclusively run using `vmdump.sh --config <path_to_config>`.
+    - Removed argument-based mode selection; the operational mode (`local` or `remote`) is now determined by the `BACKUP_MODE` variable within the specified `backup.conf` file.
+    - Introduced `LOCAL_VMS` variable in `backup.conf` for defining VMs to be backed up in local mode.
+    - Updated `usage` message in `vmdump.sh` to reflect the new execution model.
+
+### Removed
 
 ## [v1.1.2] - 2025-09-16
 
