@@ -19,50 +19,43 @@
 
 ## Extra: Automated Backup & Email Reporting
 
-The `extra/` directory contains a powerful standalone script, `backup_and_report.sh`, for automating VM backups and receiving status reports via email.
+The `extra/` directory contains a powerful standalone script, `backup-vmbhyve.sh`, for automating VM backups and receiving status reports via email. This single script can manage backups for the local machine or act as a controller to orchestrate backups on multiple remote nodes.
 
 ### Script Features
 
--   **Multi-VM Backup:** Back up one or more VMs in a single command.
--   **Unique Archives:** Automatically renames exported files with a unique, detailed timestamp (`VM-NAME_YYYY-MM-DD_HHMMSS.tar.zst`) to prevent overwrites.
--   **Detailed Email Reports:** Sends a report for each VM backup, including:
-    -   Success (✅) or Failure (❌) status.
-    -   VM Manager (`bhyve-cli` or `vm-bhyve`) and Datastore.
-    -   Total backup duration.
-    -   Final backup location and size.
-    -   Error details on failure.
+-   **Unified Controller/Worker Model:** A single script handles both local backups and orchestrating remote backups via SSH.
+-   **Flexible Backup Modes:** Configure `BACKUP_MODE="local"` or `BACKUP_MODE="remote"` in the config file.
+-   **Dual Email Reports:**
+    -   Sends detailed **individual reports** for each VM backup, including status, manager, duration, and a list of retained backups.
+    -   Sends a comprehensive **summary report** after all operations are complete, containing the full, synchronized log of the entire run.
+-   **Robust & Dependency-Free:** Includes a self-contained mail function and has been hardened against common shell scripting pitfalls.
 
 ### Setup
 
-Before first use, you must configure the variables at the top of `extra/backup_and_report.sh`:
+Before first use, copy the sample configuration file and edit it to match your environment.
 
-```sh
-# Email address to send the report to.
-RECIPIENT_EMAIL="admin@example.com"
-
-# Directory to store the exported VM archives.
-BACKUP_DIR="/var/backups/bhyve"
+```bash
+cd extra/
+cp backup-vmbhyve.conf.sample backup-vmbhyve.conf
+# Now edit backup-vmbhyve.conf with your settings (email, SSH user, nodes, etc.)
 ```
 
 ### Usage
 
-The script must be run with the name(s) of the VM(s) to be backed up.
+The script is always run from the controller machine and requires the path to its configuration file.
 
 ```bash
-# Back up a single VM
-./extra/backup_and_report.sh my-vm
-
-# Back up multiple VMs at once
-./extra/backup_and_report.sh my-vm1 my-vm2 another-vm
+# Run the backup process as defined in your config file
+./extra/backup-vmbhyve.sh --config ./extra/backup-vmbhyve.conf
 ```
 
 ### Automation with Cron
 
-This script is ideal for automation. To run a daily backup of `my-vm1` and `my-vm2` at 2:30 AM, add the following to your crontab (e.g., `sudo crontab -e`):
+This script is ideal for automation. To run your configured backup process daily at 2:30 AM, add the following to your crontab (e.g., `sudo crontab -e`):
 
 ```crontab
-# Daily backup for important VMs
-30 2 * * * /path/to/bhyve-cli/extra/backup_and_report.sh my-vm1 my-vm2 > /dev/null 2>&1
+# Daily backup for all configured VMs
+30 2 * * * /path/to/bhyve-cli/extra/backup-vmbhyve.sh --config /path/to/bhyve-cli/extra/backup-vmbhyve.conf > /dev/null 2>&1
 ```
 
 ## Prerequisites

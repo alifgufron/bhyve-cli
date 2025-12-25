@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.1.4] - 2025-12-25
+
+### Added
+
+-   **New Bhyve VM Backup Script (`backup-vmbhyve.sh`):**
+    -   A new, robust, self-contained script for local and remote VM backups, replacing all previous backup scripts in `extra/`.
+    -   Supports dual email reporting: detailed individual reports sent from worker nodes, and a full summary log sent from the controller.
+    -   Includes an internal, dependency-free mail function for creating and sending MIME-compliant UTF-8 emails.
+    -   All configuration is now managed via `backup-vmbhyve.conf.sample`.
+
+### Changed
+
+-   **Backup Script Architecture:**
+    -   The script now operates as a single file that can act as both a controller and a remote worker, simplifying distribution.
+    -   Communication between controller and worker was refactored to use simple exit codes instead of fragile string parsing.
+    -   The controller is now responsible for all timing and orchestration, while the worker focuses solely on the backup task and sending its own detailed report.
+    -   Main logging is now handled robustly to ensure console output and log files are identical, and the summary email contains a complete log of the entire process.
+
+### Removed
+
+-   Removed old backup scripts `extra/vmdump.sh` and `extra/backup.conf`.
+
+### Fixed
+
+-   **Critical Silent Script Exit:**
+    -   Fixed a very subtle bug where `set -e` would cause the backup script to terminate prematurely without any error message. The root cause was identified as the non-zero exit status of a Bash arithmetic expression `((...))` when its pre-increment value was zero.
+    -   The problematic arithmetic operations were replaced with a safe `if ((...)); then :; fi` block to guarantee a zero exit status, ensuring script completion and the successful sending of the final summary email.
+-   **Email Formatting and Content:**
+    -   Correctly populates the `Manager` field (e.g., `vm-bhyve`) in email reports.
+    -   Standardized email body formatting for better alignment and readability.
+
 ## [v1.1.3] - 2025-10-20
 
 ### Fixed

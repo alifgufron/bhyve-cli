@@ -1,25 +1,31 @@
 # ==============================================================================
-# Configuration for vmdump.sh
+# Configuration for backup-vmbhyve.sh
 # ==============================================================================
 
 # --- Execution Mode ---
 # Define the backup mode. Options are:
-# - "remote": Use Controller Mode to back up VMs on remote nodes via SSH, as defined in VM_GROUPS.
-# - "local":  Use Local Mode to back up specific VMs on this machine, as defined in LOCAL_VMS.
+# - "remote": Use Controller Mode to back up VMs on remote nodes via SSH.
+# - "local":  Use Local Mode to back up specific VMs on this machine.
 BACKUP_MODE="remote"
 
 # --- General Settings ---
 # Email address to send the report to.
 RECIPIENT_EMAIL="admin@example.com"
+# Email address to send the report from.
+SENDER_EMAIL="backup-script@example.com"
 
 # Directory to store the exported VM archives on the target node.
 BACKUP_DIR="/var/backups/bhyve"
 
-# Log file for the script's operations on the target node.
-LOG_FILE="/var/log/bhyve_backup.log"
+# Log file for the script's operations.
+# The controller running on this machine will log to this file.
+# The worker process on the remote machine will also try to log here,
+# so ensure the path is valid on remote machines if you need separate logs.
+# For simplicity, all remote output is captured by the controller anyway.
+LOG_FILE="/var/log/vm_bhyve_backup.log"
 
 # --- bhyve-cli Settings ---
-# Full path to the bhyve-cli executable on the target node.
+# Full path to the bhyve-cli executable on the target/local node.
 BHYVE_CLI_PATH="/usr/local/sbin/bhyve-cli"
 
 # --- Backup Process Settings ---
@@ -33,24 +39,23 @@ EXPORT_MODE="--force-export"
 RETENTION_COUNT=7
 
 # --- Reporting Settings ---
-# Reporting mode: "individual" or "summary".
-# individual: Send one email per VM.
-# summary:    Send one summary email per node.
-REPORTING_MODE="summary"
+# Enable/disable individual and summary email reports.
+SEND_INDIVIDUAL_REPORTS="true"
+SEND_SUMMARY_REPORT="true"
 
-# --- SSH Settings (for Controller Mode) ---
+# --- SSH Settings (for Remote Mode) ---
 SSH_USER="foo"
-SSH_PORT=202
+SSH_PORT=22
 SSH_KEY="/home/foo/.ssh/id_ed25519"
+CMD_SSH="/usr/bin/ssh"
 
-# --- VM Definitions (for Controller Mode) ---
+# --- VM Definitions (for Remote Mode) ---
 # Use standard bash associative array syntax.
-# The controller script will iterate through this list.
+# The key is the node's address, the value is a space-separated string of VM names.
 declare -A VM_GROUPS
 VM_GROUPS=(
-  ["node-south.example.net.id"]="vm-proxy"
-  ["node-east.example.net.id"]="vm-vyos"
-  ["node-north.example.net.id"]="vm-bird"
+  ["node1.example.com"]="vm-a vm-b"
+  ["node2.example.com"]="vm-c vm-d"
 )
 
 # --- VM Definitions (for Local Mode) ---
