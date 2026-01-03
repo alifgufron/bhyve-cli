@@ -24,6 +24,7 @@ The `extra/` directory contains a powerful standalone script, `backup-vmbhyve.sh
 ### Script Features
 
 -   **Unified Controller/Worker Model:** A single script handles both local backups and orchestrating remote backups via SSH.
+-   **High Portability:** Automatically detects and uses either `base64` or `openssl` for data encoding, ensuring it runs on a wide range of systems, including older FreeBSD versions where `base64` might not be in the base system.
 -   **Flexible Backup Modes:** Configure `BACKUP_MODE="local"` or `BACKUP_MODE="remote"` in the config file.
 -   **Dual Email Reports:**
     -   Sends detailed **individual reports** for each VM backup, including status, manager, duration, and a list of retained backups.

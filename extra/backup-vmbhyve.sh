@@ -421,13 +421,33 @@ main() {
             echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >&2
         }
 
-        # Load configuration passed by the controller as a base64 string
+        # Load configuration passed by the controller as a base64 string.
+        # The worker needs to be able to decode it.
         if [ -n "$config_base64" ]; then
+            local decoder_cmd=""
+            if command -v base64 >/dev/null; then
+                decoder_cmd="base64 -d"
+            elif command -v openssl >/dev/null; then
+                decoder_cmd="openssl base64 -d -A"
+            fi
+
+            if [ -z "$decoder_cmd" ]; then
+                log "Error: [Worker] Neither 'base64' nor 'openssl' found on this node. Cannot decode config."
+                exit 1
+            fi
+            
             # Decode the config and evaluate it in the current bash context.
-            eval "$(echo "$config_base64" | base64 -d)"
+            # A variable is used to prevent `eval` from masking the exit code of the subshell.
+            local decoded_config
+            decoded_config=$(echo "$config_base64" | $decoder_cmd)
+            if [ $? -ne 0 ]; then
+                log "Error: [Worker] Failed to decode configuration."
+                exit 1
+            fi
+            eval "$decoded_config"
         else
             # This echo needs to go to stderr as well so it doesn't become the result line.
-            echo "Error: Worker mode requires --config_base64." >&2
+            log "Error: Worker mode requires --config_base64."
             exit 1
         fi
         process_single_vm "$worker_vm_name"
@@ -471,6 +491,8 @@ main() {
                 local full_log_body; full_log_body=$(<"$RUN_LOG_FILE")
                 local email_body; email_body="Detail Log:\n\n${full_log_body}"
                 
+                # Add a 5-second delay before sending the summary email report
+                sleep 5
                 send_email_report "$summary_subject" "$email_body"
 
                 # Truncate the main log file if it's configured.

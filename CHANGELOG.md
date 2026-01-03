@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.1.5] - 2026-01-03
+
+### Fixed
+
+-   **Backup Script (`backup-vmbhyve.sh`) - Remote Execution Reliability:**
+    -   Fixed a critical bug causing remote backups to fail or hang on systems (like FreeBSD 13.2) due to a missing `base64` binary or issues with `ssh` TTY allocation when piping script content.
+    -   The worker script (executed on the remote node) is now more robust. It automatically detects and uses `openssl base64` as a fallback if the standard `base64` command is not available.
+    -   The remote execution model has been stabilized to use a simple and reliable `ssh` pipe, which was proven to work across target systems.
+
+### Added
+
+-   **Backup Script (`backup-vmbhyve.sh`) - Execution Delay:**
+    -   Added a 5-second delay before the final summary email is sent to ensure all log operations are complete.
+
 ## [v1.1.4] - 2025-12-25
 
 ### Added
